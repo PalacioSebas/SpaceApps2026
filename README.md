@@ -181,12 +181,6 @@ Nasa/
 │   ├── ai_detector.py            # Detección de anomalías >4σ + clasificación molecular
 │   └── schemas.py                # Pydantic models para respuestas API
 │
-├── src fake/                     # ⚠️ CÓDIGO DUPLICADO CON MEJORAS PARCIALES
-│   ├── config.py                 # ERROR: 96 pixeles vs 128 en original
-│   ├── ai_detector.py            # Mejor con máscara de bordes (+robustez)
-│   ├── irsa_client.py            # Generación espectros sintéticos fallback
-│   └── main.py                   # NO UTILIZADO (importa desde src.*)
-│
 ├── data/
 │   └── cache/                    # Archivos FITS de corteouts SPHEREx
 │       ├── wise_0855/            # 14 épocas + manifest.json
