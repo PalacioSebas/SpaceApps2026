@@ -1,0 +1,22 @@
+papastronomy-spherex/
+├── .gitignore
+├── requirements.txt
+├── README.md
+├── run_project.sh
+├── run_project.bat
+├── setup_cache_and_inspect.py
+├── fits_structure.txt
+├── data/
+│   ├── cache/                     # Recortes .FITS pre-cacheados de los 5 objetos obligatorios
+│   └── mock_response.json         # Respuesta JSON estática de respaldo y validación de contrato
+├── src/
+│   ├── __init__.py
+│   ├── config.py                  # Constantes, coordenadas de los 5 objetos y bandas moleculares
+│   ├── schemas.py                 # Modelos Pydantic v2 del contrato JSON entre TUIA y Sistemas
+│   ├── irsa_client.py             # Cliente TAP pyvo, descargador de cutouts y generador FITS realista
+│   ├── pipeline.py                # Limpieza FLAGS, fondo SEP, alineación Reproject y Base64 PNG
+│   ├── ai_detector.py             # Detector de dipolos/monopolos y clasificador espectral molecular
+│   └── main.py                    # Servidor FastAPI, endpoints REST y montaje del frontend estático
+└── static/
+    ├── index.html                 # Dashboard espacial completo con Aladin Lite v3 y Plotly.js
+    └── app.js                     # Lógica de Flipbook, sincronización WCS/URL, Canvas IA y API

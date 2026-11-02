@@ -1,0 +1,69 @@
+{
+  "ra": 269.452075,
+  "dec": 4.693364,
+  "fov": 0.05,
+  "original_source": "IRSA_SPHEREX_TAP",
+  "tap_query": "SELECT TOP 20\n        'https://irsa.ipac.caltech.edu/' || a.uri || '?center=269.452075,4.693364d&size=0.05' AS cutout_url,\n        p.time_bounds_lower AS obs_time,\n        p.energy_bandpassname AS detector_band\n    FROM spherex.artifact a\n    JOIN spherex.plane p ON a.planeid = p.planeid\n    WHERE 1 = CONTAINS(POINT('ICRS', 269.452075, 4.693364), p.poly)\n    ORDER BY p.time_bounds_lower ASC",
+  "frames": [
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_00.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0321_1D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60902.864715",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_02.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0321_2D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60902.866207",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_03.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0321_2D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60902.866207",
+      "detector_band": "SPHEREx-D3"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_04.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0321_3D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60902.867699",
+      "detector_band": "SPHEREx-D3"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_05.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0321_3D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60902.867699",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_06.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0386_3D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60903.138366",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_07.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0386_3D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60903.138366",
+      "detector_band": "SPHEREx-D3"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_08.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0386_4D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60903.139858",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_09.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0386_4D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60903.139858",
+      "detector_band": "SPHEREx-D3"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_11.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_1B/l2b-v20-2025-267/3/level2_2025W34_1B_0164_1D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
+      "obs_time": "60905.853257",
+      "detector_band": "SPHEREx-D3"
+    }
+  ]
+}

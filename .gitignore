@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.DS_Store
+# Ignorar descargas temporales pesadas manteniendo la estructura
+data/raw_downloads/
+*.tmp

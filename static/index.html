@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Papastronomy · SPHEREx & Planet X Discovery Platform (NASA Space Apps 2026)</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Plotly.js para el Espectro Infrarrojo de 102 Bandas -->
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+
+  <!-- Aladin Lite v3 Oficial (Visor WebGL + Catálogos Gaia DR3 y AllWISE) -->
+  <script type="text/javascript" src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
+
+  <style>
+    body {
+      background-color: #060911;
+      color: #e2e8f0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(56, 189, 248, 0.18);
+    }
+    .target-btn-active {
+      background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+      border-color: #38bdf8 !important;
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.45);
+    }
+    #spherex-canvas {
+      image-rendering: pixelated;
+      cursor: crosshair;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
+
+  <!-- BARRA SUPERIOR: Controles de Coordenadas, URL Embebible y 5 Botones Obligatorios -->
+  <header class="glass-panel sticky top-0 z-30 px-4 py-3 border-b border-slate-800">
+    <div class="max-w-[1600px] mx-auto flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      
+      <!-- Identidad del Proyecto -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center font-black text-lg shadow-lg shadow-sky-500/20">
+          PX
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base md:text-lg font-bold tracking-tight text-white">
+              PAPASTRONOMY <span class="text-sky-400 font-normal">· SPHEREx & Planet X Explorer</span>
+            </h1>
+            <span id="badge-datasource" class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              CACHE_LOCAL (&lt;0.1s)
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">
+            Misión NASA SPHEREx · 102 Bandas Infrarrojas (0.75–5.00 μm) · Alineación WCS, Resta Temporal e IA
+          </p>
+        </div>
+      </div>
+
+      <!-- Formulario de Búsqueda por Coordenadas (RA, Dec, FoV) + Botón Compartir URL -->
+      <form id="coord-form" class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1">
+          <label for="input-ra" class="text-[11px] uppercase tracking-wider text-slate-400 mr-1.5">RA (°):</label>
+          <input id="input-ra" type="number" step="0.000001" required
+            class="bg-transparent text-xs font-mono text-white w-24 focus:outline-none" value="133.795129" />
+        </div>
+        <div class="flex items-center bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1">
+          <label for="input-dec" class="text-[11px] uppercase tracking-wider text-slate-400 mr-1.5">Dec (°):</label>
+          <input id="input-dec" type="number" step="0.000001" required
+            class="bg-transparent text-xs font-mono text-white w-24 focus:outline-none" value="-7.245147" />
+        </div>
+        <div class="flex items-center bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1">
+          <label for="input-fov" class="text-[11px] uppercase tracking-wider text-slate-400 mr-1.5">FoV (°):</label>
+          <input id="input-fov" type="number" step="0.005" min="0.01" max="0.5" required
+            class="bg-transparent text-xs font-mono text-white w-16 focus:outline-none" value="0.05" />
+        </div>
+        <button type="submit"
+          class="px-3.5 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition shadow">
+          Explorar Cielo
+        </button>
+        <button type="button" id="btn-share-url"
+          class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition flex items-center gap-1.5">
+          <span>🔗 Copiar URL Embebible</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- Barra de los 5 Objetos Obligatorios de la Consigna -->
+    <div class="max-w-[1600px] mx-auto mt-2.5 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-amber-400 mr-1">
+          ★ 5 Casos Oficiales NASA:
+        </span>
+        <button type="button" data-target="wise_0855"
+          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
+          1. WISE 0855 (Enana Marrón Rápida)
+        </button>
+        <button type="button" data-target="barnards_star"
+          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
+          2. Barnard's Star (Máx. Mov. Propio)
+        </button>
+        <button type="button" data-target="epsilon_indi_b"
+          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
+          3. Epsilon Indi B (Binaria T1+T6)
+        </button>
+        <button type="button" data-target="rw_aurigae"
+          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
+          4. RW Aurigae (Variable T Tauri)
+        </button>
+        <button type="button" data-target="r_draconis"
+          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
+          5. R Draconis (Variable Tipo Mira)
+        </button>
+      </div>
+      <div id="target-banner-desc" class="text-xs text-sky-300 font-medium truncate">
+        Cargando objetivo inicial...
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENIDO PRINCIPAL: 3 Paneles Superiores + Espectro y Tabla IA -->
+  <main class="max-w-[1600px] w-full mx-auto flex-1 p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+    <!-- PANEL IZQUIERDO (5 col): El Flipbook Temporal + Diferencia de Épocas + Coadd + Flags -->
+    <section class="lg:col-span-5 glass-panel rounded-xl p-4 flex flex-col justify-between">
+      <div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <span>🔭 Visor Multi-Época SPHEREx</span>
+              <span id="frame-counter" class="text-xs font-mono text-sky-400 bg-sky-950/80 px-2 py-0.5 rounded">
+                Época 1/8
+              </span>
+            </h2>
+            <p class="text-[11px] text-slate-400">
+              Hacé clic en cualquier fuente del recorte para extraer su espectro de 102 bandas al vuelo
+            </p>
+          </div>
+
+          <!-- Selector de Modo de Imagen -->
+          <div class="inline-flex rounded-lg bg-slate-900 p-0.5 border border-slate-700 text-xs">
+            <button type="button" id="mode-blink" class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold">
+              Flipbook
+            </button>
+            <button type="button" id="mode-diff" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
+              Resta (ΔI)
+            </button>
+            <button type="button" id="mode-coadd" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
+              Suma SNR
+            </button>
+          </div>
+        </div>
+
+        <!-- Contenedor del Canvas Astronómico Interactivo -->
+        <div class="relative w-full aspect-square max-h-[410px] mx-auto bg-black rounded-lg overflow-hidden border border-slate-700 flex items-center justify-center">
+          <canvas id="spherex-canvas" width="384" height="384" class="w-full h-full object-contain"></canvas>
+
+          <!-- Overlay informativo de época, detector y píxeles limpios -->
+          <div class="absolute top-2.5 left-2.5 bg-slate-950/85 border border-slate-800 rounded-md px-2.5 py-1 text-[11px] font-mono space-y-0.5 pointer-events-none">
+            <div id="overlay-date" class="text-sky-300">Fecha: --</div>
+            <div id="overlay-detector" class="text-slate-300">Detector: -- | λc: -- μm</div>
+            <div id="overlay-clean" class="text-emerald-400">Píxeles limpios: --%</div>
+          </div>
+
+          <!-- Leyenda en Modo Resta -->
+          <div id="diff-legend" class="hidden absolute bottom-2.5 left-2.5 right-2.5 bg-slate-950/90 border border-slate-800 rounded-md px-2.5 py-1 text-[11px] flex items-center justify-between pointer-events-none">
+            <span class="text-sky-400">🔵 Pico Negativo (Posición Época 1)</span>
+            <span class="text-amber-400">🟠 Pico Positivo (Posición Época 2)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controles del Reproductor Blink Comparator + Capas -->
+      <div class="mt-3 pt-3 border-t border-slate-800 space-y-2.5">
+        <div class="flex items-center gap-3">
+          <button type="button" id="btn-play-pause"
+            class="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition">
+            ⏸ Pausar
+          </button>
+          <input id="slider-epoch" type="range" min="0" max="7" value="0"
+            class="flex-1 accent-sky-400 cursor-pointer" />
+          <div class="flex items-center gap-1.5 text-xs">
+            <label for="select-fps" class="text-slate-400">FPS:</label>
+            <select id="select-fps" class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs">
+              <option value="1">1 fps</option>
+              <option value="2" selected>2 fps</option>
+              <option value="4">4 fps</option>
+              <option value="6">6 fps</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" id="chk-ai-markers" checked class="accent-rose-500 rounded" />
+            <span class="text-slate-300">Marcar Detecciones IA (Dipolos / Variables)</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" id="chk-flags" class="accent-fuchsia-500 rounded" />
+            <span class="text-slate-300">Superponer FLAGS (Rayos Cósmicos)</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- PANEL CENTRAL (4 col): Aladin Lite v3 + Superposición Gaia DR3 y AllWISE -->
+    <section class="lg:col-span-4 glass-panel rounded-xl p-4 flex flex-col justify-between">
+      <div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider">
+              🌌 Contexto Multi-Catálogo (Aladin Lite v3)
+            </h2>
+            <p class="text-[11px] text-slate-400">
+              Cruce en vivo con fuentes conocidas de Gaia DR3 y AllWISE
+            </p>
+          </div>
+        </div>
+
+        <!-- Div oficial para Aladin Lite v3 -->
+        <div id="aladin-lite-div" class="w-full aspect-square max-h-[410px] mx-auto rounded-lg overflow-hidden border border-slate-700 bg-slate-950"></div>
+      </div>
+
+      <!-- Controles de Capas de Catálogos -->
+      <div class="mt-3 pt-3 border-t border-slate-800 space-y-2 text-xs">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="chk-gaia" checked class="accent-sky-400" />
+            <span class="text-sky-300 font-medium">● Catálogo Gaia DR3</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="chk-wise" checked class="accent-amber-400" />
+            <span class="text-amber-300 font-medium">● Catálogo AllWISE</span>
+          </label>
+          <button type="button" id="btn-recenter-aladin"
+            class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px]">
+            Sincronizar Centro
+          </button>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          Si un dipolo detectado por la IA en SPHEREx no coincide con una estrella estática de Gaia DR3, ¡estás ante un objeto subestelar frío o transitorio del Sistema Solar!
+        </p>
+      </div>
+    </section>
+
+    <!-- PANEL DERECHO (3 col): Alertas del Detector IA (Dipolos y Estrellas Variables) -->
+    <section class="lg:col-span-3 glass-panel rounded-xl p-4 flex flex-col justify-between">
+      <div class="flex-1 flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-bold text-white uppercase tracking-wider">
+            🤖 Detecciones IA en ΔI
+          </h2>
+          <span id="ai-count-badge" class="text-xs font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+            0 anomalías
+          </span>
+        </div>
+        <p class="text-[11px] text-slate-400 mb-3">
+          Hacé clic en una anomalía para apuntar el extractor espectral de 102 bandas:
+        </p>
+
+        <div id="ai-detections-list" class="space-y-2 overflow-y-auto max-h-[380px] pr-1">
+          <!-- Tarjetas inyectadas dinámicamente por app.js -->
+        </div>
+      </div>
+
+      <div class="mt-3 pt-3 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+        <div><span class="text-rose-400 font-semibold">MOVING_DIPOLE:</span> Par positivo/negativo (1.5–18 px)</div>
+        <div><span class="text-amber-400 font-semibold">VARIABLE_MONOPOLE:</span> Variación de flujo in-situ (&gt;4σ)</div>
+      </div>
+    </section>
+
+    <!-- PANEL INFERIOR COMPLETO (12 col): Espectro Infrarrojo de 102 Bandas + Diagnóstico Molecular IA -->
+    <section class="lg:col-span-12 glass-panel rounded-xl p-4">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+        
+        <!-- Gráfico Plotly.js de las 102 Bandas (8 col) -->
+        <div class="lg:col-span-8">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div>
+              <h2 class="text-sm font-bold text-white uppercase tracking-wider">
+                🌈 Espectro Infrarrojo SPHEREx "On-The-Fly" (102 Bandas · 0.75 a 5.00 μm)
+              </h2>
+              <p id="spectrum-coord-label" class="text-xs font-mono text-sky-400">
+                Coordenada seleccionada: RA --°, Dec --°
+              </p>
+            </div>
+            <div class="flex items-center gap-3 text-[11px]">
+              <span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">■ Bandas H₂O</span>
+              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">■ Bandas CH₄</span>
+              <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">■ Banda CO</span>
+            </div>
+          </div>
+          <div id="spectrum-plot" class="w-full h-[270px] bg-slate-950/70 rounded-lg border border-slate-800"></div>
+        </div>
+
+        <!-- Asistente Espectral Inteligente TUIA (4 col) -->
+        <div class="lg:col-span-4 bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-indigo-300">
+              🧪 Diagnóstico Espectral IA
+            </span>
+            <span id="diag-confidence" class="text-xs font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              Confianza: --%
+            </span>
+          </div>
+
+          <div>
+            <div class="text-[11px] text-slate-400">Clasificación Astrofísica Inferida:</div>
+            <div id="diag-class" class="text-sm font-bold text-white mt-0.5">--</div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="bg-slate-950/80 p-2 rounded border border-slate-800">
+              <div class="text-[10px] text-slate-400 uppercase">Temp. Efectiva Est.</div>
+              <div id="diag-temp" class="font-mono font-bold text-sky-300 text-sm">-- K</div>
+            </div>
+            <div class="bg-slate-950/80 p-2 rounded border border-slate-800">
+              <div class="text-[10px] text-slate-400 uppercase">Canales LVF</div>
+              <div id="diag-bands" class="font-mono font-bold text-emerald-300 text-sm">102 bandas</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-[11px] text-slate-400 mb-1">Absorciones Moleculares Detectadas:</div>
+            <div id="diag-molecules" class="flex flex-wrap gap-1"></div>
+          </div>
+
+          <p id="diag-summary" class="text-xs text-slate-300 leading-relaxed border-t border-slate-800 pt-2">
+            Hacé clic sobre cualquier punto brillante del visor de SPHEREx o seleccioná una detección de la IA para analizar su firma química.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Script Principal de Aplicación -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+[Usuario / URL Params (?ra&dec&fov) / 5 Botones Obligatorios]
+       │
+       ▼
+[Frontend Web (Tailwind + Aladin Lite v3 + Plotly.js + Flipbook Canvas)]
+       │
+       ├─► GET /api/explore?ra={ra}&dec={dec}&fov={fov}
+       │         │
+       │         ▼
+       │   [Gestor de Caché & IRSA TAP Client (pyvo)]
+       │         ├── Si está en data/cache/ -> Carga .FITS locales (<0.1s)
+       │         └── Si no -> Consulta TAP IRSA / Genera FITS de respaldo
+       │         │
+       │         ▼
+       │   [Pipeline Astrofísico (Astropy + SEP + Reproject)]
+       │         ├── 1. Enmascarado de FLAGS y sustracción de fondo (sep)
+       │         ├── 2. Construcción de Grilla WCS común y reproject_interp
+       │         ├── 3. Cálculo de Coadd (Suma SNR) y Diff (Últimas - Primeras)
+       │         └── 4. Estiramiento AsinhStretch + ZScale -> PNG Base64
+       │         │
+       │         ▼
+       │   [Detector IA (Photutils + SciPy cdist)]
+       │         ├── Picos > 4σ en +Diff y -Diff
+       │         └── Emparejamiento espacial -> MOVING_DIPOLE vs VARIABLE_MONOPOLE
+       │         │
+       │         ▼
+       │   [Respuesta JSON Completa -> Render en Flipbook, Aladin Lite y Tabla IA]
+       │
+       └─► Clic en Imagen / Alerta IA -> GET /api/spectrum?ra={ra}&dec={dec}&fov={fov}
+                 │
+                 ▼
+           [Extractor Espectral 102 Bandas (WCS key='W') + Analizador Molecular IA]
+                 ├── Fotometría de apertura por época + lectura de WCS-WAVE
+                 └── Diagnóstico automático de bandas (H2O, CH4, CO) -> Gráfico Plotly
