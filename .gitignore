@@ -5,6 +5,7 @@ __pycache__/
 venv/
 env/
 .env
+.matplotlib/
 .DS_Store
 # Ignorar descargas temporales pesadas manteniendo la estructura
 data/raw_downloads/

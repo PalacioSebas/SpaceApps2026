@@ -221,7 +221,7 @@ Nasa/
 
 | Componente | Versión Mínima | Recomendado |
 |------------|---------------|-------------|
-| Python | 3.10 | 3.12 |
+| Python | 3.14 | 3.14 |
 | RAM | 8 GB | 16 GB |
 | Discospace | 10 GB (cache) | 50 GB (para experimentación offline) |
 | GPU | No requerido (CPU-only) | GTX 1650+ opcional para aceleración CUDA |
@@ -230,21 +230,20 @@ Nasa/
 
 ```bash
 # 1. Activar entorno virtual
-python -m venv .venv
+py -3.14 -m venv .venv
 source .venv/bin/activate  # Linux/macOS
 .venv\Scripts\activate.bat  # Windows
 
 # 2. Instalar dependencias con versionado explícito
-pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install -r requirements.txt
 
 # 3. Crear backup de configuración original (si existe .env)
-cp .env .env.backup
+REM La caché local se reutiliza automáticamente; las regiones faltantes se descargan bajo demanda.
 
 # 4. Ejecutar carga automática de cache IRSA (primera vez)
-python setup_cache_and_inspect.py --list-cached-targets
 
-# 5. Iniciar servidor FastAPI
-python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+# 3. Iniciar servidor FastAPI
+.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Acceso al Frontend

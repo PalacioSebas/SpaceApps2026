@@ -1048,6 +1048,10 @@ function showLoading(message) {
     box.style.display = "none";
   };
 }
+function setExploreProgress(message) {
+  const status = document.getElementById("target-banner-desc");
+  if (status) status.textContent = message;
+}
 
 async function exploreCoordinates(ra, dec, fov) {
   const stopLoading = showLoading("Consultando NASA/IPAC IRSA y procesando recortes FITS...");
@@ -1061,8 +1065,7 @@ async function exploreCoordinates(ra, dec, fov) {
   document.getElementById("input-fov").value = state.fov.toFixed(4);
   syncUrlParams(state.ra, state.dec, state.fov);
 
-  document.getElementById("target-banner-desc").textContent =
-    "Consultando servidor TAP de NASA/IPAC IRSA y descargando recortes .FITS reales...";
+  setExploreProgress("1/5 · Consultando servidor TAP de NASA/IPAC IRSA…");
 
   try {
     const res = await fetch(`/api/explore?ra=${state.ra}&dec=${state.dec}&fov=${state.fov}`, {
@@ -1072,6 +1075,7 @@ async function exploreCoordinates(ra, dec, fov) {
       const errJson = await res.json().catch(() => ({}));
       throw new Error(errJson.detail || `HTTP ${res.status}`);
     }
+    setExploreProgress("2/5 · Recibiendo épocas y metadatos FITS…");
     const data = await res.json();
     state.exploreData = data;
     state.currentEpochIdx = 0;
@@ -1094,8 +1098,10 @@ async function exploreCoordinates(ra, dec, fov) {
       data.target_info.matched_description ||
       `Recortes .FITS reales de NASA IRSA para RA=${state.ra.toFixed(4)}°, Dec=${state.dec.toFixed(4)}°`;
 
+    setExploreProgress(`3/5 · Decodificando ${data.epochs.length} épocas…`);
     state.epochImages = await Promise.all(data.epochs.map((e) => loadImagePromise(e.image_base64)));
     state.flagImages = await Promise.all(data.epochs.map((e) => loadImagePromise(e.flags_base64)));
+    setExploreProgress("4/5 · Preparando coadd, diferencia y banderas…");
     state.coaddImage = await loadImagePromise(data.coadd_image_base64);
     state.diffImage = await loadImagePromise(data.diff_image_base64);
 
@@ -1116,17 +1122,22 @@ async function exploreCoordinates(ra, dec, fov) {
     updateAladinView(state.ra, state.dec, state.fov);
     renderCanvas();
 
+    setExploreProgress("5/5 · Cargando espectro y diagnóstico molecular…");
     if (data.ai_detections && data.ai_detections.length > 0) {
       const topDet = data.ai_detections[0];
       await fetchAndRenderSpectrum(topDet.ra, topDet.dec, true);
     } else {
       await fetchAndRenderSpectrum(state.ra, state.dec, false);
     }
+    if (window.markExploreReady) {
+      window.markExploreReady(data.target_info.matched_description || `Región RA=${state.ra.toFixed(4)}°, Dec=${state.dec.toFixed(4)}° lista.`);
+    }
   } catch (err) {
     console.error("Error en exploreCoordinates:", err);
     document.getElementById("target-banner-desc").textContent = `Error IRSA: ${err.message}`;
   } finally {
     stopLoading();
+    if (window.markExploreReady) window.markExploreReady();
   }
 }
 

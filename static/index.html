@@ -118,7 +118,7 @@
         </button>
       </div>
       <div id="target-banner-desc" class="text-xs text-sky-300 font-medium truncate">
-        Cargando objetivo inicial...
+        Elegí uno de los cinco objetivos oficiales o ingresá RA, Dec y FoV para comenzar.
       </div>
     </div>
   </header>
@@ -369,5 +369,89 @@
 
   <!-- Script Principal de Aplicación -->
   <script src="/static/app.js?v=2.4"></script>
+<script>
+  // Estado de carga compartido para que cada consulta explique qué está ocurriendo.
+  (() => {
+    const nativeFetch = window.fetch.bind(window);
+    const status = document.getElementById("target-banner-desc");
+    const form = document.getElementById("coord-form");
+    const exploreButton = form?.querySelector("button[type=submit]");
+    if (status) {
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+    }
+
+    const setLoading = (loading, message) => {
+      if (status && message) status.textContent = message;
+      if (exploreButton) {
+        exploreButton.disabled = loading;
+        exploreButton.setAttribute("aria-busy", String(loading));
+        exploreButton.classList.toggle("opacity-60", loading);
+        exploreButton.classList.toggle("cursor-wait", loading);
+        exploreButton.textContent = loading ? "Procesando…" : "Explorar Cielo";
+      }
+      if (form) form.setAttribute("aria-busy", String(loading));
+      document.querySelectorAll(".preset-btn").forEach((button) => {
+        button.disabled = loading;
+        button.classList.toggle("opacity-60", loading);
+        button.classList.toggle("cursor-wait", loading);
+      });
+    };
+    window.markExploreReady = (message) => {
+      setLoading(false, message ? `Listo · ${message}` : undefined);
+    };
+
+    form?.addEventListener("submit", (event) => {
+      const ra = Number(document.getElementById("input-ra")?.value);
+      const dec = Number(document.getElementById("input-dec")?.value);
+      const fov = Number(document.getElementById("input-fov")?.value);
+      const valid = Number.isFinite(ra) && ra >= 0 && ra <= 360
+        && Number.isFinite(dec) && dec >= -90 && dec <= 90
+        && Number.isFinite(fov) && fov > 0.005 && fov <= 1;
+      if (!valid) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setLoading(false, "Revisá las coordenadas: RA 0–360°, Dec −90–90° y FoV mayor a 0.005°.");
+      }
+    }, true);
+
+    const detectionList = document.getElementById("ai-detections-list");
+    if (detectionList) {
+      const makeCardsAccessible = () => {
+        detectionList.querySelectorAll(":scope > div").forEach((card) => {
+          if (!card.classList.contains("cursor-pointer")) return;
+          if (card.dataset.keyboardReady) return;
+          card.dataset.keyboardReady = "true";
+          card.setAttribute("role", "button");
+          card.setAttribute("tabindex", "0");
+          card.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              card.click();
+            }
+          });
+        });
+      };
+      new MutationObserver(makeCardsAccessible).observe(detectionList, { childList: true });
+      makeCardsAccessible();
+    }
+
+    window.fetch = async (input, init) => {
+      const requestUrl = typeof input === "string" ? input : input?.url || "";
+      if (!requestUrl.includes("/api/explore")) return nativeFetch(input, init);
+      setLoading(true, "Consultando datos SPHEREx y preparando las épocas…");
+      try {
+        const response = await nativeFetch(input, init);
+        if (!response.ok) {
+          setTimeout(() => setLoading(false, `No se pudo explorar esta región (HTTP ${response.status}). Probá un objetivo oficial.`), 0);
+        }
+        return response;
+      } catch (error) {
+        setTimeout(() => setLoading(false, "No se pudo conectar con el backend. Verificá que Uvicorn esté ejecutándose."), 0);
+        throw error;
+      }
+    };
+  })();
+</script>
 </body>
 </html>
