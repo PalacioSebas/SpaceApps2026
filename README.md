@@ -290,9 +290,15 @@ logger.info("Consulta exitosa", extra={"query_id": query_id})  # No incluir dato
 
 ### Inmediato (Requiere Autorización)
 
-1. **Fusionar mejoras de `src fake/`**: Incorporar máscara de bordes y definir `ARCSEC_PER_PIXEL`
-2. **Manejo robusto de errores**: Implementar excepciones específicas PyVo en lugar de catch genérico
-3. **Inicializar Git repository**: Para versionado y rollback seguro de cambios
+1. **Centralizar `max_epochs` en config.py** ([P2-001](informes/PLAN_MEJORAS.md))
+   - Actualizar endpoints para usar constante centralizada en lugar de hardcoded `max_epochs=10`
+   - Beneficio: Consistencia y facilidad para cambiar configuración global
+
+2. **Corregir tipografía** ([P3-001](informes/PLAN_MEJORAS.md))
+   - Corregir comentario `construy6` → `construyó` en línea 225 de [src/main.py](file:///C:/Users/Sebas/OneDrive/Desktop/Nasa/src/main.py)
+
+3. **Inicializar Git repository** (si no está activo)
+   - Para versionado y rollback seguro de cambios
 
 ### Futuro (Mejoras a Largo Plazo)
 
@@ -300,6 +306,39 @@ logger.info("Consulta exitosa", extra={"query_id": query_id})  # No incluir dato
 2. **CI/CD con GitHub Actions**: Ejecutar tests automáticos en push/pull requests
 3. **Optimización GPU opcional**: Usar CUDA para reproyección acelerada si hay hardware disponible
 4. **Documentación ampliada**: Diagramas de flujo, casos límite documentados, troubleshooting avanzado
+
+### Futuro (Mejoras a Largo Plazo)
+
+1. **Suite de pruebas automatizadas**: Crear estructura `tests/pytest/` con fixtures para FITS mocks
+2. **CI/CD con GitHub Actions**: Ejecutar tests automáticos en push/pull requests
+3. **Optimización GPU opcional**: Usar CUDA para reproyección acelerada si hay hardware disponible
+4. **Documentación ampliada**: Diagramas de flujo, casos límite documentados, troubleshooting avanzado
+
+---
+
+## ⚠️ Casos Límite y Comportamiento Esperado
+
+### /api/spectrum sin cobertura espectral disponible
+**HTTP 502 Bad Gateway** - Esto ocurre cuando:
+- Las coordenadas no tienen datos SPHEREx en caché IRSA (único caso raro)
+- El archivo FITS tiene WCS espectral inválido para esa posición
+- **Solución:** Verificar que la coordenada esté dentro del campo de visión del detector
+
+### /api/explore con WCS inválido  
+**HTTP 503 Service Unavailable** - Esto ocurre cuando:
+- Las coordenadas están fuera del rango válido del archivo FITS (bordes)
+- El FoV es demasiado pequeño (<0.005°) o demasiado grande (>1.0°)
+- **Solución:** Asegurar que `0.005 < fov <= 1.0` en la consulta
+
+### IRSA temporalmente indisponible
+**HTTP 502 con mensaje de log:** "Error comunicando con NASA/IPAC IRSA"  
+Esto es esperado cuando:
+- Los servidores de IRSA están bajo mantenimiento (horarios no especificados)
+- Hay problemas de conectividad a Internet
+- **Solución:** Esperar y reintentar, o usar caché local si está pre-cargado
+
+### CRITICAL: TypeError en /api/spectrum (YA CORREGIDO v2.0)
+En versiones anteriores (<v2.0), este endpoint caía con `TypeError` cuando no había cobertura espectral. Esta versión incluye validación explícita que devuelve HTTP 503 con mensaje claro.
 
 ---
 

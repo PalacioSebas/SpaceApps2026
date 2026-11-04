@@ -10,7 +10,7 @@ import numpy as np
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.config import (
@@ -222,13 +222,13 @@ def get_point_spectrum(
     
     target_wcs, _ = build_common_target_wcs(ref_ra, ref_dec, fov)
 
-    # Verificar que WCS se construy6 correctamente (P1-001 - Endpoint /api/spectrum)
+    # Verificar que WCS se construyó correctamente (P1-001 - Endpoint /api/spectrum)
     if target_wcs is None:
         logger.warning("No se pudo construir WCS para (%.4f, %.4f), FoV=%.3f", ref_ra, ref_dec, fov)
         raise HTTPException(status_code=503, detail="WCS invalido para estas coordenadas o campo de visión")
 
-    # Corregido: usar ref_ra/ref_dec consistente con los archivos FITS cargados
-    x_pix, y_pix, spectrum_raw = extract_real_spectrum_at_coord(ref_ra, ref_dec, frames_meta, target_wcs)
+    # Extraer fotometría en la coordenada seleccionada (ra, dec) proyectada sobre el WCS común (ref_ra, ref_dec)
+    x_pix, y_pix, spectrum_raw = extract_real_spectrum_at_coord(ra, dec, frames_meta, target_wcs)
     diagnosis_raw = classify_spectrum_molecules(spectrum_raw)
 
     return SpectrumResponse(
@@ -243,9 +243,33 @@ def get_point_spectrum(
     )
 
 
+@app.get("/static/app.js")
+def serve_app_js() -> Response:
+    js_content = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    return Response(
+        content=js_content,
+        media_type="application/javascript; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")
-def serve_frontend() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def serve_frontend() -> HTMLResponse:
+    html_content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    bust = int(time.time())
+    html_content = html_content.replace("/static/app.js?v=2.4", f"/static/app.js?v={bust}")
+    return HTMLResponse(
+        content=html_content,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )

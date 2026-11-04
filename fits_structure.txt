@@ -1,4 +1,4 @@
-Archivo FITS Real de NASA/IPAC IRSA: C:\Users\Sebas\OneDrive\Desktop\Nasa Gemini\data\cache\wise_0855\real_epoch_01.fits
+Archivo FITS Real de NASA/IPAC IRSA: C:\Users\Sebas\OneDrive\Desktop\Nasa\data\cache\wise_0855\real_epoch_01.fits
 ===========================================================================
 HDU [0] Name: PRIMARY      | Type: PrimaryHDU       | Shape: None         | Dtype: None
 HDU [1] Name: IMAGE        | Type: ImageHDU         | Shape: (29, 29)     | Dtype: >f4
