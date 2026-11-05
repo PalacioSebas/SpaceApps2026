@@ -1,0 +1,7 @@
+# Evitar que un checkout de Windows convierta los scripts Bash a CRLF.
+*.sh text eol=lf
+*.bat text eol=crlf
+*.py text eol=lf
+*.yml text eol=lf
+requirements*.txt text eol=lf
+*.fits binary

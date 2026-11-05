@@ -16,7 +16,6 @@ Dependencias: astropy, numpy, matplotlib, reproject
 import base64
 import logging
 import re
-import warnings
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -25,12 +24,17 @@ from typing import Any, Dict, List, Optional, Tuple
 import matplotlib
 
 matplotlib.use("Agg")  # backend sin GUI: necesario dentro de un servidor
-import matplotlib.pyplot as plt
+from matplotlib import colormaps
 import numpy as np
+from PIL import Image
 from astropy.io import fits
+import astropy.units as u
 from astropy.stats import sigma_clipped_stats
 from astropy.wcs import WCS
 from reproject import reproject_interp
+from astropy.wcs.utils import proj_plane_pixel_scales
+
+from src.difference import prepare_difference
 
 logger = logging.getLogger("spherex.pipeline")
 
@@ -95,7 +99,14 @@ def _infer_wavelength(hdul: fits.HDUList, img_hdu, header, x: float, y: float) -
             del spec_header[k]
         spectral_wcs = WCS(spec_header, hdul, key="W", fix=False)
         wl, bw = spectral_wcs.pixel_to_world(x, y)
-        return float(getattr(wl, "value", wl)), float(getattr(bw, "value", bw))
+        wl_value = float(getattr(wl, "value", wl))
+        bw_value = float(getattr(bw, "value", bw))
+        # Algunos FITS publican el centro espectral pero no el ancho de banda.
+        # SPHEREx tiene una resolución aproximada R~100, por lo que usamos
+        # Δλ≈λ/100 como estimación explícita en vez de mostrar cero.
+        if bw_value <= 0 and wl_value > 0:
+            bw_value = wl_value / 100.0
+        return wl_value, bw_value
     except Exception:
         pass
     # 2) llaves de header comunes
@@ -108,6 +119,17 @@ def _infer_wavelength(hdul: fits.HDUList, img_hdu, header, x: float, y: float) -
                 except (TypeError, ValueError):
                     continue
     return 0.0, 0.0
+
+
+def _spectral_wcs(hdul: fits.HDUList, header) -> Optional[WCS]:
+    """Conserva la tabla espectral en memoria para evaluar el píxel seleccionado."""
+    try:
+        header = header.copy()
+        for key in [k for k in header if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", k)]:
+            del header[key]
+        return WCS(header, hdul, key="W", fix=False)
+    except (ValueError, KeyError):
+        return None
 
 
 def _read_frame(path: Path) -> Dict[str, Any]:
@@ -127,7 +149,6 @@ def _read_frame(path: Path) -> Dict[str, Any]:
 
         flags_hdu = _find_hdu(hdul, "FLAGS")
         if flags_hdu is not None and flags_hdu.data is not None and np.squeeze(flags_hdu.data).shape == data.shape:
-            # TODO: si quieres ignorar flags informativos, aplica una máscara de bits aquí
             bad = (np.squeeze(np.array(flags_hdu.data)).astype(np.int64) & BAD_FLAG_MASK) != 0
         else:
             bad = np.zeros(data.shape, dtype=bool)
@@ -140,7 +161,23 @@ def _read_frame(path: Path) -> Dict[str, Any]:
             if v.shape == data.shape:
                 variance = v
 
-        wl, bw = _infer_wavelength(hdul, img_hdu, wcs_header, data.shape[1] / 2.0, data.shape[0] / 2.0)
+        flux_unit = str(img_hdu.header.get("BUNIT", "")).strip()
+        try:
+            factor = u.Unit(flux_unit).to(u.MJy / u.sr)
+        except (ValueError, u.UnitConversionError):
+            factor = None
+        if factor is not None:
+            data = (data * factor).astype(np.float32)
+            if variance is not None:
+                variance = (variance * factor ** 2).astype(np.float32)
+            flux_unit = "MJy/sr"
+        try:
+            psf_fwhm_arcsec = float(img_hdu.header["PSF_FWHM"])
+        except (ValueError, TypeError, KeyError):
+            psf_fwhm_arcsec = None
+
+        wl, bw = _infer_wavelength(hdul, img_hdu, wcs_header, (data.shape[1] - 1) / 2, (data.shape[0] - 1) / 2)
+        spectral_wcs = _spectral_wcs(hdul, wcs_header)
 
         obs_time = ""
         for hdr in (img_hdu.header, hdul[0].header):
@@ -161,6 +198,9 @@ def _read_frame(path: Path) -> Dict[str, Any]:
         "detector": detector,
         "wavelength_center_um": wl,
         "bandwidth_um": bw,
+        "spectral_wcs": spectral_wcs,
+        "flux_unit": flux_unit,
+        "psf_fwhm_arcsec": psf_fwhm_arcsec,
     }
 
 
@@ -175,7 +215,8 @@ def _get_frame(path: Path) -> Dict[str, Any]:
     return _read_frame_cached(str(p), p.stat().st_mtime)
 
 
-def load_and_clean_real_fits(fits_files: List[Path]) -> Dict[str, Any]:
+def load_and_clean_real_fits(fits_files: List[Path], ra: float | None = None,
+                             dec: float | None = None) -> Dict[str, Any]:
     """
     Carga el primer FITS válido de la lista, enmascara flags/NaN y resta el fondo.
     Devuelve un dict con: image, flags, wcs, obs_time, detector,
@@ -195,6 +236,13 @@ def load_and_clean_real_fits(fits_files: List[Path]) -> Dict[str, Any]:
     # 0 (no NaN): la interpolación de reproject no debe propagar NaN a los vecinos.
     # La máscara viaja aparte en 'flags' y se reaplica después de alinear.
     data = np.where(bad, 0.0, data).astype(np.float32)
+    wavelength, bandwidth = frame["wavelength_center_um"], frame["bandwidth_um"]
+    if ra is not None and dec is not None and frame["spectral_wcs"] is not None:
+        x, y = frame["wcs"].all_world2pix([[ra, dec]], 0)[0]
+        if np.isfinite(x) and np.isfinite(y):
+            wl, bw = frame["spectral_wcs"].pixel_to_world_values(x, y)
+            if np.isfinite(wl) and np.isfinite(bw) and wl > 0 and bw > 0:
+                wavelength, bandwidth = float(wl), float(bw)
 
     return {
         "image": data,
@@ -202,7 +250,10 @@ def load_and_clean_real_fits(fits_files: List[Path]) -> Dict[str, Any]:
         "wcs": frame["wcs"],
         "obs_time": frame["obs_time"],
         "detector": frame["detector"],
-        "wavelength_center_um": frame["wavelength_center_um"],
+        "wavelength_center_um": wavelength,
+        "bandwidth_um": bandwidth,
+        "flux_unit": frame["flux_unit"],
+        "psf_fwhm_arcsec": frame["psf_fwhm_arcsec"],
         "clean_pixels_pct": round(float(100.0 * good.mean()), 2),
         "local_path": str(path),
     }
@@ -215,8 +266,11 @@ def align_coadd_and_diff(
     cleaned_epochs: List[Dict[str, Any]],
     target_wcs: WCS,
     shape_out: Tuple[int, int],
+    analysis_indices: Optional[List[int]] = None,
+    diagnostics: Optional[Dict[str, Any]] = None,
+    analysis_groups: Optional[List[List[int]]] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], np.ndarray, np.ndarray]:
-    """Reproyecta cada época al WCS común y calcula coadd (mediana) y diff (mitad tardía - temprana)."""
+    """Reproyecta, iguala PSF y ajusta fotometría para la resta; expone su calidad."""
     if not cleaned_epochs:
         raise ValueError("No hay épocas para alinear")
 
@@ -231,37 +285,32 @@ def align_coadd_and_diff(
             (ep["flags"].astype(np.float32), ep["wcs"]),
             target_wcs,
             shape_out=shape_out,
-            order="nearest-neighbor",
+            order="bilinear",
             return_footprint=False,
         )
         # fuera del recorte (NaN) o píxel enmascarado = malo
-        mask = np.nan_to_num(flg, nan=1.0) > 0.5
+        mask = (np.nan_to_num(flg, nan=1.0) > 1e-6) | ~np.isfinite(img)
         aligned_imgs.append(np.where(np.isfinite(img) & ~mask, img, np.nan).astype(np.float32))
         aligned_flags.append(mask.astype(np.uint8))
 
-    stack = np.stack(aligned_imgs)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # "All-NaN slice" en bordes
-        coadd = np.nanmedian(stack, axis=0)
-        n = len(aligned_imgs)
-        if n >= 2:
-            half = n // 2
-            diff = np.nanmean(stack[half:], axis=0) - np.nanmean(stack[:half], axis=0)
-        else:
-            diff = np.zeros_like(coadd)
-
-    # Un píxel enmascarado en CUALQUIER época (más un margen de 2 px) no entra en la resta:
-    # si no, los bordes de la máscara producen falsos "dipolos".
-    bad_any = np.any(np.stack(aligned_flags) > 0, axis=0)
-    try:
-        from scipy.ndimage import binary_dilation
-
-        bad_any = binary_dilation(bad_any, iterations=2)
-    except ImportError:
-        pass
-    diff = np.where(bad_any, np.nan, diff)
-
-    return aligned_imgs, aligned_flags, coadd.astype(np.float32), diff.astype(np.float32)
+    indices = analysis_indices if analysis_indices is not None else list(range(len(aligned_imgs)))
+    arcsec_per_pixel = float(np.mean(proj_plane_pixel_scales(target_wcs)) * 3600)
+    result = prepare_difference(aligned_imgs, cleaned_epochs, indices, arcsec_per_pixel)
+    tried = {tuple(indices)}
+    for group in (analysis_groups or [])[:8]:
+        if result.available:
+            break
+        if tuple(group) in tried:
+            continue
+        tried.add(tuple(group))
+        candidate = prepare_difference(aligned_imgs, cleaned_epochs, group, arcsec_per_pixel)
+        if candidate.available:
+            result, indices = candidate, group
+    if diagnostics is not None:
+        diagnostics.update(result.diagnostics(), available=result.available, note=result.note)
+        diagnostics["analysis_frame_indices"] = indices
+        diagnostics["groups_checked"] = len(tried)
+    return aligned_imgs, aligned_flags, result.coadd, result.difference
 
 
 # ----------------------------------------------------------------------------
@@ -273,8 +322,13 @@ def matrix_to_base64_png(matrix: np.ndarray, mode: str = "science") -> str:
     finite = arr[np.isfinite(arr)]
 
     if mode == "flags":
-        arr = (np.nan_to_num(arr, nan=1.0) > 0).astype(float)
-        cmap_name, vmin, vmax = "gray", 0.0, 1.0
+        # Máscara magenta semitransparente: los píxeles válidos no tapan la imagen.
+        bad = np.nan_to_num(arr, nan=1.0) > 0
+        rgba = np.zeros((*arr.shape, 4), dtype=np.uint8)
+        rgba[bad] = [217, 70, 239, 150]
+        buf = BytesIO()
+        Image.fromarray(np.flipud(rgba)).save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
     elif mode == "diff":
         lim = float(np.percentile(np.abs(finite), 99)) if finite.size else 1.0
         lim = lim or 1.0
@@ -289,11 +343,12 @@ def matrix_to_base64_png(matrix: np.ndarray, mode: str = "science") -> str:
         arr = np.arcsinh(np.clip((arr - lo) / (hi - lo), 0, None) * 10.0) / np.arcsinh(10.0)
         cmap_name, vmin, vmax = "gray", 0.0, 1.0
 
-    cmap = plt.get_cmap(cmap_name).copy()
-    cmap.set_bad("black")
+    cmap = colormaps[cmap_name].with_extremes(bad="black")
 
     buf = BytesIO()
-    plt.imsave(buf, arr, cmap=cmap, vmin=vmin, vmax=vmax, origin="lower", format="png")
+    normalized = np.ma.masked_invalid(np.clip((arr - vmin) / (vmax - vmin), 0, 1))
+    rgba = cmap(normalized, bytes=True)
+    Image.fromarray(np.flipud(rgba)).save(buf, format="PNG")
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
@@ -319,13 +374,23 @@ def extract_real_spectrum_at_coord(
             continue
         try:
             fr = _get_frame(path)
-            x, y = fr["wcs"].wcs_world2pix([[ra, dec]], 0)[0]
+            if fr.get("flux_unit") != "MJy/sr":
+                logger.warning("Se omite %s: unidades de brillo superficial no calibradas", path.name)
+                continue
+            x, y = fr["wcs"].all_world2pix([[ra, dec]], 0)[0]
             data, bad, var = fr["data"], fr["bad"], fr["variance"]
             ny, nx = data.shape
             if not (np.isfinite(x) and np.isfinite(y)) or not (0 <= x < nx and 0 <= y < ny):
                 continue
 
-            yy, xx = np.indices(data.shape)
+            # Solo recorrer el entorno de apertura y anillo, no todo el detector.
+            radius = aperture_pix * 3.5
+            x0, x1 = max(0, int(x - radius)), min(nx, int(x + radius) + 2)
+            y0, y1 = max(0, int(y - radius)), min(ny, int(y + radius) + 2)
+            data, bad = data[y0:y1, x0:x1], bad[y0:y1, x0:x1]
+            if var is not None:
+                var = var[y0:y1, x0:x1]
+            yy, xx = np.mgrid[y0:y1, x0:x1]
             r = np.hypot(xx - x, yy - y)
             ap = (r <= aperture_pix) & ~bad
             ann = (r > aperture_pix * 2) & (r <= aperture_pix * 3.5) & ~bad
@@ -334,19 +399,24 @@ def extract_real_spectrum_at_coord(
 
             bkg = float(np.median(data[ann])) if ann.sum() > 3 else 0.0
             flux = float(np.mean(data[ap]) - bkg)
-            if var is not None:
-                unc = float(np.sqrt(np.nansum(var[ap])) / ap.sum())
+            if var is not None and np.all(np.isfinite(var[ap]) & (var[ap] >= 0)):
+                unc = float(np.sqrt(np.sum(var[ap])) / ap.sum())
             elif ann.sum() > 3:
                 unc = float(np.std(data[ann]) / np.sqrt(ap.sum()))
             else:
                 unc = 0.0
 
+            wl, bw = fr["wavelength_center_um"], fr["bandwidth_um"]
+            if fr["spectral_wcs"] is not None:
+                wl, bw = (float(np.asarray(v)) for v in fr["spectral_wcs"].pixel_to_world_values(x, y))
+            if not all(np.isfinite(v) for v in (wl, bw, flux, unc)) or wl <= 0:
+                continue
             points.append(
                 {
                     "obs_time": fr["obs_time"] or str(fm.get("obs_time", "")),
                     "detector": fr["detector"] or str(fm.get("detector_band", "")),
-                    "wavelength_um": round(float(fr["wavelength_center_um"]), 4),
-                    "bandwidth_um": round(float(fr["bandwidth_um"]), 4),
+                    "wavelength_um": round(wl, 4),
+                    "bandwidth_um": round(max(0.0, bw), 4),
                     "flux_mjy_sr": flux,
                     "flux_uncertainty": unc,
                     "x_pix_common": x_common,

@@ -1,3 +1,5 @@
+> Registro histórico del 2026-11-02. Para el estado validado actual, consultar [la revisión del 2026-11-05](../docs/REVISION_2026-11-05.md).
+
 # Estado de Revisión - Proyecto NASA SPHEREx
 
 **Fecha:** 2026-11-02  

@@ -1,31 +1,53 @@
 @echo off
-cd /d "%~dp0"
-echo ==================================================================
-echo Iniciando Plataforma Papastronomy: SPHEREx ^& Planet X Explorer
-echo Directorio activo: %CD%
-echo ==================================================================
+setlocal
+rem Solo buscar interpretes instalados, sin descargas automaticas del gestor.
+set "PYTHON_MANAGER_AUTOMATIC_INSTALL=false"
+set "PYLAUNCHER_ALLOW_INSTALL="
+set "PYLAUNCHER_ALWAYS_INSTALL="
+pushd "%~dp0"
+if errorlevel 1 exit /b 1
+set "PAPASTRONOMY_EXIT_CODE=1"
 
-echo [0/4] Cerrando servidores viejos en el puerto 8000 y limpiando cache Python...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000" ^| findstr "LISTENING"') do (
-    echo Cerrando proceso previo en puerto 8000 (PID %%a)...
-    taskkill /F /PID %%a >nul 2>&1
-)
-if exist "src\__pycache__" rd /s /q "src\__pycache__"
-if exist "__pycache__" rd /s /q "__pycache__"
-
-if not exist ".venv" (
-    echo [1/4] Creando entorno virtual Python (.venv)...
-    python -m venv .venv
-    call .venv\Scripts\activate.bat
-    echo [2/4] Instalando dependencias cientificas y de servidor...
-    python -m pip install --upgrade pip
-    pip install -r requirements.txt
-) else (
-    call .venv\Scripts\activate.bat
+if defined PAPASTRONOMY_PYTHON goto custom_python
+if exist ".venv\Scripts\python.exe" goto existing_python
+where py >nul 2>nul
+if errorlevel 1 goto path_python
+for %%V in (3.12 3.13 3.14 3.11 3.10) do (
+    py -%%V -c "import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] < (3, 15)))" >nul 2>nul
+    if not errorlevel 1 (
+        set "PAPASTRONOMY_VERSION=%%V"
+        goto python_launcher
+    )
 )
 
-echo [3/4] Verificando cache de los 5 objetos obligatorios de la NASA...
-python setup_cache_and_inspect.py
+:path_python
+where python >nul 2>nul
+if errorlevel 1 goto missing_python
+python -c "import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] < (3, 15)))" >nul 2>nul
+if errorlevel 1 goto missing_python
+python "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
 
-echo [4/4] Levantando servidor limpio en http://127.0.0.1:8000 ...
-python -m uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
+:python_launcher
+py -%PAPASTRONOMY_VERSION% "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
+
+:existing_python
+".venv\Scripts\python.exe" "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
+
+:custom_python
+"%PAPASTRONOMY_PYTHON%" "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
+
+:missing_python
+echo No se encontro Python 3.10-3.14. Se recomienda 3.12.
+echo Instala Python o indica su ejecutable con PAPASTRONOMY_PYTHON.
+
+:finished
+popd
+exit /b %PAPASTRONOMY_EXIT_CODE%

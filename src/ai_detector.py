@@ -7,14 +7,15 @@ Motor IA v2.0:
 
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from astropy.wcs import WCS
 from photutils.detection import find_peaks
 from scipy.spatial.distance import cdist
+from scipy.ndimage import label
 
 from src.config import DEFAULT_CUTOUT_PIXELS
+from src.analysis import observation_mjd
 from src.irsa_client import crossmatch_catalog_sources_live
 
 
@@ -40,25 +41,39 @@ def _crossmatch_cached(ra: float, dec: float, radius_arcsec: float) -> Optional[
 
 def _compute_baseline_years(epochs_meta: List[Dict[str, Any]]) -> float:
     """Calcula el intervalo temporal en años entre la primera y la última exposición real."""
-    dates = []
-    for ep in epochs_meta:
-        full = str(ep.get("obs_time", "")).strip()
-        try:
-            mjd = float(full)  # IRSA entrega MJD, p. ej. 60800.834438
-            if mjd > 40000:
-                dates.append(datetime(1858, 11, 17) + timedelta(days=mjd))
-                continue
-        except ValueError:
-            pass
-        try:
-            dates.append(datetime.strptime(full[:10], "%Y-%m-%d"))
-        except ValueError:
-            pass
-    if len(dates) >= 2:
-        days = abs((max(dates) - min(dates)).days)
-        if days > 0:
-            return max(0.1, days / 365.25)
-    return 0.5
+    dates = [observation_mjd(ep.get("obs_time", "")) for ep in epochs_meta]
+    dates = [date for date in dates if date is not None and np.isfinite(date)]
+    return (max(dates) - min(dates)) / 365.25 if len(dates) >= 2 else 0.0
+
+
+def _lobe_features(image: np.ndarray, x: float, y: float, sign: int,
+                   sigma: float, radius: int) -> Optional[Dict[str, float]]:
+    """Morfología del núcleo conectado; un píxel aislado no verifica movimiento."""
+    x, y = int(x), int(y)
+    if min(x, y) < radius or x + radius >= image.shape[1] or y + radius >= image.shape[0]:
+        return None
+    stamp = sign * image[y-radius:y+radius+1, x-radius:x+radius+1]
+    if not np.all(np.isfinite(stamp)):
+        return None
+    peak = float(stamp[radius, radius])
+    regions, _ = label(stamp > max(2 * sigma, 0.2 * peak), structure=np.ones((3, 3)))
+    center_label = regions[radius, radius]
+    if center_label == 0:
+        return None
+    core = regions == center_label
+    support = int(core.sum())
+    if support < 3:
+        return None
+    yy, xx = np.nonzero(core)
+    weights = stamp[core]
+    flux = float(weights.sum())
+    dx, dy = xx - np.average(xx, weights=weights), yy - np.average(yy, weights=weights)
+    covariance = np.array([[np.average(dx*dx, weights=weights), np.average(dx*dy, weights=weights)],
+                           [np.average(dx*dy, weights=weights), np.average(dy*dy, weights=weights)]])
+    eigenvalues = np.linalg.eigvalsh(covariance)
+    if eigenvalues[0] <= 0 or eigenvalues[1] > 9 * eigenvalues[0]:
+        return None  # núcleos lineales/artefactos no verifican una PSF compacta
+    return {"flux": flux, "width": float(np.sqrt(eigenvalues.sum())), "support": support}
 
 
 def detect_anomalies_on_diff(
@@ -68,15 +83,21 @@ def detect_anomalies_on_diff(
     epochs_meta: List[Dict[str, Any]],
     threshold_sigma: float = 4.0,
     do_crossmatch: bool = True,
+    baseline_years: Optional[float] = None,
+    psf_fwhm_pixels: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """
     Detecta picos > 4σ en la imagen restada real, empareja dipolos positivo-negativo
     y consulta en vivo los catálogos Gaia DR3 / AllWISE para las detecciones principales.
     """
-    clean_diff = np.nan_to_num(diff_img, nan=0.0).astype(np.float64)
-    median_bg = float(np.median(clean_diff))
-    mad = float(np.median(np.abs(clean_diff - median_bg)))
-    sigma = 1.4826 * mad if mad > 1e-7 else float(np.std(clean_diff))
+    valid = np.asarray(diff_img, dtype=np.float64)[8:-8, 8:-8]
+    valid = valid[np.isfinite(valid)]
+    if valid.size == 0:
+        return []
+    median_bg = float(np.median(valid))
+    mad = float(np.median(np.abs(valid - median_bg)))
+    sigma = 1.4826 * mad if mad > 1e-7 else float(np.std(valid))
+    clean_diff = np.where(np.isfinite(diff_img), diff_img - median_bg, 0.0)
     if sigma <= 1e-8:
         return []
 
@@ -105,17 +126,33 @@ def detect_anomalies_on_diff(
         pos_peaks = pos_peaks[np.argsort(-pos_peaks[:, 2])]
 
     arcsec_per_px = (fov_deg * 3600.0) / float(DEFAULT_CUTOUT_PIXELS)
-    baseline_yr = _compute_baseline_years(epochs_meta)
+    baseline_yr = baseline_years if baseline_years is not None else _compute_baseline_years(epochs_meta)
+    radius = min(8, max(3, int(np.ceil(psf_fwhm_pixels or 3))))
+    feature_image = np.where(np.isfinite(diff_img), diff_img - median_bg, np.nan)
+    pos_features = [_lobe_features(feature_image, px, py, 1, sigma, radius) for px, py, _ in pos_peaks]
+    neg_features = [_lobe_features(feature_image, nx, ny, -1, sigma, radius) for nx, ny, _ in neg_peaks]
 
     detections: List[Dict[str, Any]] = []
     used_neg = set()
     det_id = 1
 
-    for px, py, pval in pos_peaks[:10]:
+    for p_idx, (px, py, pval) in enumerate(pos_peaks[:10]):
         matched_dipole = False
-        if len(neg_peaks) > 0:
+        if len(neg_peaks) > 0 and pos_features[p_idx] is not None:
             dists = cdist([[px, py]], neg_peaks[:, :2])[0]
-            for n_idx in np.argsort(dists):
+            candidates = []
+            for n_idx, negative in enumerate(neg_features):
+                if negative is None or n_idx in used_neg or not 1.5 <= dists[n_idx] <= 22:
+                    continue
+                positive = pos_features[p_idx]
+                flux_balance = min(positive["flux"], negative["flux"]) / max(positive["flux"], negative["flux"])
+                width_balance = min(positive["width"], negative["width"]) / max(positive["width"], negative["width"])
+                if flux_balance < 0.25 or width_balance < 0.5:
+                    continue
+                # Priorizar lóbulos consistentes, en lugar de elegir solo el más próximo.
+                score = flux_balance * width_balance / (1 + 0.25 * dists[n_idx] / 22)
+                candidates.append((score, n_idx, flux_balance))
+            for _, n_idx, flux_balance in sorted(candidates, reverse=True):
                 dist_px = float(dists[n_idx])
                 if int(n_idx) not in used_neg and 1.5 <= dist_px <= 22.0:
                     used_neg.add(int(n_idx))
@@ -125,7 +162,7 @@ def detect_anomalies_on_diff(
                     ra_val = float(sky_coord.ra.deg)
                     dec_val = float(sky_coord.dec.deg)
                     snr = float((pval + nval) / (2.0 * sigma))
-                    pm_arcsec_yr = (dist_px * arcsec_per_px) / baseline_yr
+                    pm_arcsec_yr = (dist_px * arcsec_per_px) / baseline_yr if baseline_yr > 0 else 0.0
 
                     detections.append(
                         {
@@ -141,9 +178,13 @@ def detect_anomalies_on_diff(
                             "shift_pixels": round(dist_px, 2),
                             "proper_motion_arcsec_yr": round(pm_arcsec_yr, 2),
                             "catalog_match": None,
+                            "positive_support_pixels": int(pos_features[p_idx]["support"]),
+                            "negative_support_pixels": int(neg_features[n_idx]["support"]),
+                            "lobe_flux_balance": round(float(flux_balance), 3),
                             "description": (
-                                f"Dipolo Positivo-Negativo real (Δ={dist_px:.1f} px, μ≈{pm_arcsec_yr:.2f}\"/año). "
-                                "Fuente con desplazamiento astrométrico entre épocas."
+                                f"Candidato a dipolo positivo-negativo (Δ={dist_px:.1f} px, μ≈{pm_arcsec_yr:.2f}\"/año). "
+                                f"Núcleos compactos compatibles; balance de flujo {flux_balance:.2f}. "
+                                "Requiere validación astrométrica y fotométrica."
                             ),
                         }
                     )
@@ -176,6 +217,21 @@ def detect_anomalies_on_diff(
             )
             det_id += 1
 
+    # Una fuente que pierde brillo deja un monopolo negativo y también es variable.
+    for n_idx, (nx, ny, nval) in enumerate(neg_peaks):
+        if n_idx in used_neg:
+            continue
+        coord = target_wcs.pixel_to_world(nx, ny)
+        detections.append({
+            "id": det_id, "type": "VARIABLE_MONOPOLE",
+            "x_pix": float(nx), "y_pix": float(ny), "neg_x_pix": None, "neg_y_pix": None,
+            "ra": round(float(coord.ra.deg), 6), "dec": round(float(coord.dec.deg), 6),
+            "snr_score": round(float(nval / sigma), 2), "shift_pixels": 0.0,
+            "proper_motion_arcsec_yr": 0.0, "catalog_match": None,
+            "description": "Candidato variable con disminución de brillo; verificar PSF y fotometría.",
+        })
+        det_id += 1
+
     sorted_dets = sorted(detections, key=lambda d: d["snr_score"], reverse=True)[:6]
     # Cruzar con Gaia DR3 y AllWISE en vivo las 3 detecciones más significativas
     for idx, det in enumerate(sorted_dets, start=1):
@@ -187,81 +243,47 @@ def detect_anomalies_on_diff(
         with ThreadPoolExecutor(max_workers=len(top)) as pool:
             matches = list(pool.map(lambda d: _crossmatch_cached(d["ra"], d["dec"], 14.0), top))
         for det, match_str in zip(top, matches):
-            det["catalog_match"] = match_str or "No catalogado en radio 14\" (Candidato a Descubrimiento)"
+            det["catalog_match"] = match_str or "Sin coincidencia en radio 14\"; requiere revisión"
             if match_str:
                 det["description"] += f" | Cruce Catálogo: {match_str}"
             else:
-                det["description"] += " | ¡Sin contraparte estática en Gaia DR3!"
+                det["description"] += " | Sin contraparte en el radio consultado; no confirma movimiento."
 
     return sorted_dets
 
 
 def classify_spectrum_molecules(spectrum: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Describe colores medidos sin inventar confianza, temperatura o moléculas.
+
+    Las reglas de color no son un modelo entrenado ni una medición de absorción.
+    Exigir cobertura y SNR evita clasificar ruido o una sola banda.
     """
-    Evalúa los puntos fotométricos reales medidos en el espectro infrarrojo y determina
-    la pendiente de color infrarroja (J/H/K vs W1/W2) y las absorciones moleculares.
-    """
-    if not spectrum:
-        return {
-            "classification": "Sin cobertura espectral en el píxel seleccionado",
-            "confidence": 0.0,
-            "effective_temp_k_est": 0,
-            "detected_molecules": [],
-            "summary": "Hacé clic dentro de una fuente brillante para medir su fotometría de apertura real.",
-        }
-
-    wl = np.array([p["wavelength_um"] for p in spectrum], dtype=np.float64)
-    fl = np.array([p["flux_mjy_sr"] for p in spectrum], dtype=np.float64)
-
-    nir_mask = wl < 2.5
-    mir_mask = wl >= 3.0
-
-    nir_mean = float(np.mean(fl[nir_mask])) if np.any(nir_mask) else float(np.mean(fl))
-    mir_mean = float(np.mean(fl[mir_mask])) if np.any(mir_mask) else float(np.mean(fl))
-
-    w1_mask = (wl >= 3.0) & (wl <= 3.8)
-    w2_mask = (wl >= 4.2) & (wl <= 5.0)
-    f_w1 = float(np.mean(fl[w1_mask])) if np.any(w1_mask) else mir_mean
-    f_w2 = float(np.mean(fl[w2_mask])) if np.any(w2_mask) else mir_mean
-
-    detected_molecules = []
-    if f_w1 < f_w2 * 0.75:
-        detected_molecules.append("CH₄ (Fuerte absorción en banda 3.3 μm respecto a 4.6 μm)")
-        detected_molecules.append("H₂O (Supresión en infrarrojo cercano)")
-    if mir_mean > nir_mean * 1.15:
-        detected_molecules.append("Exceso Infrarrojo en 4.6 μm (Ventana atmosférica térmica)")
-    else:
-        detected_molecules.append("CO / H₂O (Bandas estelares en atmósfera fría)")
-
-    if f_w2 > f_w1 * 1.35 and mir_mean >= nir_mean:
-        classification = "Enana Marrón Fría (Tipo T/Y · Exceso W2 a 4.6 μm)"
-        temp_k = 450
-        conf = 0.92
-        summary = (
-            "Fotometría real medida sobre recortes de IRSA: flujo dominante en 4.6 μm (W2) con fuerte "
-            "absorción por Metano (CH₄) en 3.3 μm (W1) y supresión en el infrarrojo cercano."
-        )
-    elif mir_mean > nir_mean * 0.85:
-        classification = "Objeto Infrarrojo Variable / Estrella Joven con Disco (T Tauri / Mira)"
-        temp_k = 2800
-        conf = 0.88
-        summary = (
-            "Emisión infrarroja sostenida entre 2.1 y 4.6 μm medida directamente sobre las exposiciones FITS, "
-            "consistente con envolturas de polvo circunestelar o gigantes rojas variables."
-        )
-    else:
-        classification = "Estrella de Secuencia Principal / Enana Roja Cercana (Tipo M/K)"
-        temp_k = 3350
-        conf = 0.90
-        summary = (
-            "Flujo máximo en las bandas del infrarrojo cercano (1.2–2.2 μm) con caída térmica "
-            "Rayleigh-Jeans hacia 3.4–4.6 μm, característico de fotosferas estelares."
-        )
-
-    return {
-        "classification": classification,
-        "confidence": conf,
-        "effective_temp_k_est": temp_k,
-        "detected_molecules": detected_molecules,
-        "summary": summary,
+    result = {
+        "classification": "Cobertura o señal insuficiente",
+        "confidence": None,
+        "effective_temp_k_est": None,
+        "detected_molecules": [],
+        "summary": "Se necesitan mediciones con señal significativa en el infrarrojo cercano y medio. "
+                   "Las franjas moleculares del gráfico son referencias, no detecciones.",
     }
+    significant = [p for p in spectrum if
+        np.isfinite(p["wavelength_um"]) and np.isfinite(p["flux_mjy_sr"])
+        and np.isfinite(p.get("flux_uncertainty", 0))
+        and p.get("flux_uncertainty", 0) > 0
+        and p["flux_mjy_sr"] > 3 * p["flux_uncertainty"]]
+    nir = [p["flux_mjy_sr"] for p in significant if 0.75 <= p["wavelength_um"] < 2.5]
+    mir = [p["flux_mjy_sr"] for p in significant if 3 <= p["wavelength_um"] <= 5]
+    if not nir or not mir:
+        return result
+    ratio = float(np.mean(mir) / np.mean(nir))
+    result["classification"] = (
+        "Flujo dominante en infrarrojo medio" if ratio > 1.15
+        else "Flujo dominante en infrarrojo cercano" if ratio < 0.85
+        else "Flujos cercanos y medios similares"
+    )
+    result["summary"] = (
+        f"Relación de brillo medio/cercano ≈ {ratio:.2f} en puntos con SNR > 3. "
+        "Descripción preliminar de color: no determina tipo estelar, temperatura ni composición. "
+        "Las exposiciones pueden provenir de distintas fechas."
+    )
+    return result
