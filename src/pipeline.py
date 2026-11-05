@@ -95,7 +95,14 @@ def _infer_wavelength(hdul: fits.HDUList, img_hdu, header, x: float, y: float) -
             del spec_header[k]
         spectral_wcs = WCS(spec_header, hdul, key="W", fix=False)
         wl, bw = spectral_wcs.pixel_to_world(x, y)
-        return float(getattr(wl, "value", wl)), float(getattr(bw, "value", bw))
+        wl_value = float(getattr(wl, "value", wl))
+        bw_value = float(getattr(bw, "value", bw))
+        # Algunos FITS publican el centro espectral pero no el ancho de banda.
+        # SPHEREx tiene una resolución aproximada R~100, por lo que usamos
+        # Δλ≈λ/100 como estimación explícita en vez de mostrar cero.
+        if bw_value <= 0 and wl_value > 0:
+            bw_value = wl_value / 100.0
+        return wl_value, bw_value
     except Exception:
         pass
     # 2) llaves de header comunes

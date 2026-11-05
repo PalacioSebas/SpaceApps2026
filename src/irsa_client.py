@@ -418,6 +418,7 @@ def _build_fallback_fits_from_local_cache(
         "dec": dec_deg,
         "fov": fov_deg,
         "original_source": "IRSA_SPHEREX_CACHE_FALLBACK",
+        "complete": True,
         "tap_query": tap_query,
         "frames": adapted_frames,
     }
@@ -464,8 +465,12 @@ def _obtain_real_fits_impl(
                         item = {**item, "local_path": str(alt_path)}
                 if fpath.exists():
                     cached_items.append(item)
-            manifest_age_s = time.time() - manifest_path.stat().st_mtime
-            if len(cached_items) >= 2 or (len(cached_items) >= 1 and manifest_age_s < 600):
+            # La caché satisface la petición si contiene la cantidad solicitada
+            # o si el manifest confirma que IRSA ya agotó los datos disponibles.
+            # Antes cualquier manifest con >=2 FITS devolvía inmediatamente los
+            # primeros 10, por lo que el botón "Cargar hasta 102" nunca ampliaba
+            # una caché creada por la carga inicial.
+            if len(cached_items) >= max_epochs or bool(manifest.get("complete", False)):
                 return (
                     cached_items[:max_epochs],
                     matched,
@@ -537,6 +542,10 @@ def _obtain_real_fits_impl(
         "dec": dec_deg,
         "fov": fov_deg,
         "original_source": data_source,
+        # Solo marcamos la consulta como completa si todas las filas devueltas
+        # entraron en el límite solicitado y fueron descargadas correctamente.
+        # Así una carga inicial de 10 no bloquea luego una ampliación a 102.
+        "complete": len(records) <= max_epochs and len(downloaded_frames) >= len(records),
         "tap_query": tap_query,
         "frames": downloaded_frames,
     }

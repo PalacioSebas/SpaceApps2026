@@ -72,6 +72,7 @@ def explore_sky_region(
     ra: float = Query(133.795129, ge=0.0, le=360.0, description="Ascensión Recta en grados decimales (ICRS)"),
     dec: float = Query(-7.245147, ge=-90.0, le=90.0, description="Declinación en grados decimales (ICRS)"),
     fov: float = Query(DEFAULT_FOV_DEG, gt=0.005, le=1.0, description="Campo de visión (FoV) en grados"),
+    max_epochs: int = Query(10, ge=1, le=102, description="Cantidad de bandas/recortes a cargar (hasta 102)"),
     refresh: bool = Query(False, description="Forzar re-descarga en vivo desde NASA/IPAC IRSA"),
 ) -> ExploreResponse:
     """
@@ -79,7 +80,7 @@ def explore_sky_region(
     limpia la máscara FLAGS, sustrae el fondo con SEP, alinea las épocas con `reproject_interp`,
     calcula `coadd` y `diff`, y detecta dipolos/variables cruzándolos con Gaia DR3 y AllWISE.
     """
-    cache_key = (round(ra, 5), round(dec, 5), round(fov, 4))
+    cache_key = (round(ra, 5), round(dec, 5), round(fov, 4), max_epochs)
     if not refresh and cache_key in _EXPLORE_CACHE:
         logger.info("explore: respuesta servida desde caché en memoria %s", cache_key)
         return _EXPLORE_CACHE[cache_key]
@@ -87,7 +88,7 @@ def explore_sky_region(
     t0 = time.perf_counter()
     try:
         frames_meta, matched_meta, data_source, tap_query = obtain_real_fits_for_coordinates(
-            ra, dec, fov_deg=fov, max_epochs=10, force_refresh=refresh
+            ra, dec, fov_deg=fov, max_epochs=max_epochs, force_refresh=refresh
         )
         t_irsa = time.perf_counter()
         # Verificar que hay datos disponibles (P2-005: validación de datos)
@@ -96,7 +97,7 @@ def explore_sky_region(
         
         # Cargar y limpiar cada recorte; los que fallen se omiten
         cleaned_epochs: List[Dict[str, Any]] = []
-        for fm in frames_meta[:10]:
+        for fm in frames_meta[:max_epochs]:
             p = Path(fm["local_path"])
             if not p.exists():
                 continue
@@ -128,14 +129,31 @@ def explore_sky_region(
 
         t_align = time.perf_counter()
 
+        # Separar explícitamente la dimensión temporal de la espectral:
+        # varios detectores/bandas pueden compartir el mismo instante de observación.
+        epoch_ids: Dict[str, int] = {}
+        band_ids: set[str] = set()
+        for ep_meta in cleaned_epochs:
+            obs_key = str(ep_meta.get("obs_time") or "sin-fecha")
+            if obs_key not in epoch_ids:
+                epoch_ids[obs_key] = len(epoch_ids)
+            wavelength = float(ep_meta.get("wavelength_center_um", 0.0) or 0.0)
+            detector = str(ep_meta.get("detector") or "detector")
+            ep_meta["epoch_id"] = epoch_ids[obs_key]
+            ep_meta["band_id"] = f"{detector}@{wavelength:.4f}um"
+            band_ids.add(ep_meta["band_id"])
+
         epoch_frames: List[EpochFrame] = []
         for idx, (ep_meta, al_img, al_flg) in enumerate(zip(cleaned_epochs, aligned_imgs, aligned_flags)):
             epoch_frames.append(
                 EpochFrame(
                     index=idx,
+                    epoch_id=int(ep_meta["epoch_id"]),
+                    band_id=str(ep_meta["band_id"]),
                     obs_time=ep_meta["obs_time"],
                     detector=ep_meta["detector"],
                     wavelength_center_um=ep_meta["wavelength_center_um"],
+                    bandwidth_um=ep_meta.get("bandwidth_um", 0.0),
                     cutout_url=ep_meta["cutout_url"],
                     image_base64=matrix_to_base64_png(al_img, mode="science"),
                     flags_base64=matrix_to_base64_png(al_flg, mode="flags"),
@@ -153,6 +171,16 @@ def explore_sky_region(
         )
         ai_detections = [AIDetection(**det) for det in raw_detections]
 
+        available_bands = sorted({
+            round(float(ep.get("wavelength_center_um", 0.0)), 4)
+            for ep in cleaned_epochs
+            if float(ep.get("wavelength_center_um", 0.0)) > 0
+        })
+        best_band_index = max(
+            range(len(cleaned_epochs)),
+            key=lambda idx: float(cleaned_epochs[idx].get("clean_pixels_pct", 0.0)),
+            default=None,
+        )
         target_info = TargetInfo(
             ra=round(ra, 6),
             dec=round(dec, 6),
@@ -163,6 +191,14 @@ def explore_sky_region(
             matched_description=matched_meta["description"] if matched_meta else None,
             data_source=data_source,
             tap_query_executed=tap_query,
+            available_bands=available_bands,
+            best_band_index=best_band_index,
+            best_band_clean_pct=(
+                round(float(cleaned_epochs[best_band_index].get("clean_pixels_pct", 0.0)), 2)
+                if best_band_index is not None else None
+            ),
+            total_epochs=len(epoch_ids),
+            total_bands=len(band_ids),
         )
 
         response = ExploreResponse(
@@ -206,6 +242,7 @@ def get_point_spectrum(
     center_ra: float | None = Query(None),
     center_dec: float | None = Query(None),
     fov: float = Query(DEFAULT_FOV_DEG, gt=0.005, le=1.0),
+    max_epochs: int = Query(10, ge=1, le=102),
 ) -> SpectrumResponse:
     """
     Extrae la fotometría de apertura real y las longitudes de onda (vía `WCS key='W'` o headers calibrados)
@@ -214,7 +251,7 @@ def get_point_spectrum(
     ref_ra = center_ra if center_ra is not None else ra
     ref_dec = center_dec if center_dec is not None else dec
 
-    frames_meta, _, _, _ = obtain_real_fits_for_coordinates(ref_ra, ref_dec, fov_deg=fov, max_epochs=10)
+    frames_meta, _, _, _ = obtain_real_fits_for_coordinates(ref_ra, ref_dec, fov_deg=fov, max_epochs=max_epochs)
     
     # Verificar que hay datos disponibles (P2-005: validación de datos)
     if not frames_meta:

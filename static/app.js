@@ -14,6 +14,7 @@ const state = {
   targets: [],
   exploreData: null,
   currentEpochIdx: 0,
+  selectedBand: "auto",
   isPlaying: true,
   fps: 2,
   timerId: null,
@@ -679,6 +680,19 @@ function loadImagePromise(b64Src) {
   });
 }
 
+function getSelectedBandIndex(epochs) {
+  if (!epochs.length) return 0;
+  if (state.selectedBand === "auto") {
+    return Number.isInteger(state.exploreData?.target_info?.best_band_index)
+      ? state.exploreData.target_info.best_band_index % epochs.length
+      : state.currentEpochIdx % epochs.length;
+  }
+  const selected = Number.parseInt(state.selectedBand, 10);
+  return Number.isInteger(selected) && selected >= 0 && selected < epochs.length
+    ? selected
+    : state.currentEpochIdx % epochs.length;
+}
+
 function renderCanvas() {
   const canvas = document.getElementById("spherex-canvas");
   if (!canvas || !state.exploreData) return;
@@ -687,7 +701,7 @@ function renderCanvas() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const epochs = state.exploreData.epochs || [];
-  const epIdx = epochs.length > 0 ? state.currentEpochIdx % epochs.length : 0;
+  const epIdx = getSelectedBandIndex(epochs);
   let baseImg = null;
 
   if (state.viewMode === "diff") {
@@ -802,16 +816,20 @@ function renderCanvas() {
 
   if (epochs.length > 0) {
     const ep = epochs[epIdx];
-    const epochLabel = `Época ${epIdx + 1}/${epochs.length}`;
+    const totalEpochs = state.exploreData.target_info.total_epochs || epochs.length;
+    const epochLabel = `Época temporal ${ep.epoch_id + 1}/${totalEpochs}`;
+    const bandLabel = `${Number(ep.wavelength_center_um).toFixed(3)} µm · ${ep.detector || "detector"}`;
     document.getElementById("frame-counter").textContent =
       state.viewMode === "blink"
-        ? epochLabel
+        ? `${epochLabel} · ${bandLabel}`
         : state.viewMode === "diff"
         ? `Resta ΔI · ${epochLabel}`
         : `Suma SNR · ${epochLabel}`;
     document.getElementById("overlay-date").textContent = `Fecha Real: ${ep.obs_time}`;
+    document.getElementById("overlay-detector").textContent = `Banda: ${bandLabel} | Δλ: ${Number(ep.bandwidth_um || 0).toFixed(3)} µm`;
     document.getElementById("overlay-detector").textContent = `Banda/Det: ${ep.detector} | λc: ${ep.wavelength_center_um.toFixed(2)} μm`;
     document.getElementById("overlay-clean").textContent = `Píxeles limpios: ${ep.clean_pixels_pct}%`;
+    document.getElementById("overlay-detector").textContent = `Banda: ${bandLabel} | Δλ: ${Number(ep.bandwidth_um || 0).toFixed(3)} µm`;
   }
 }
 
@@ -925,7 +943,7 @@ function renderAIDetectionsList(detections) {
 
 async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = false) {
   try {
-    const url = `/api/spectrum?ra=${pointRa}&dec=${pointDec}&center_ra=${state.ra}&center_dec=${state.dec}&fov=${state.fov}`;
+    const url = `/api/spectrum?ra=${pointRa}&dec=${pointDec}&center_ra=${state.ra}&center_dec=${state.dec}&fov=${state.fov}&max_epochs=${state.exploreData?.epochs?.length || 10}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -1053,7 +1071,40 @@ function setExploreProgress(message) {
   if (status) status.textContent = message;
 }
 
-async function exploreCoordinates(ra, dec, fov) {
+function populateBandSelector(epochs, targetInfo) {
+  const select = document.getElementById("select-band");
+  const summary = document.getElementById("band-summary");
+  if (!select) return;
+  select.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = "auto";
+  auto.textContent = `Automática · más píxeles limpios${targetInfo.best_band_clean_pct != null ? ` (${targetInfo.best_band_clean_pct}%)` : ""}`;
+  select.appendChild(auto);
+  epochs.forEach((ep, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    const wavelength = Number(ep.wavelength_center_um);
+    const wavelengthLabel = wavelength > 0 ? `${wavelength.toFixed(3)} µm` : "λ desconocida";
+    const bandwidth = Number(ep.bandwidth_um);
+    const bandwidthLabel = bandwidth > 0 ? `Δλ ${bandwidth.toFixed(3)} µm` : "Δλ n/a";
+    option.textContent = `${index + 1}. ${wavelengthLabel} · ${bandwidthLabel} · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% limpios`;
+    select.appendChild(option);
+  });
+  select.value = "auto";
+  state.selectedBand = "auto";
+  if (summary) {
+    const best = targetInfo.best_band_index;
+    const bestEp = Number.isInteger(best) ? epochs[best] : null;
+    const loadedBands = Number.isInteger(targetInfo.total_bands) && targetInfo.total_bands > 0
+      ? targetInfo.total_bands
+      : epochs.length;
+    summary.textContent = bestEp
+      ? `Automática: ${Number(bestEp.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(bestEp.bandwidth_um || 0).toFixed(3)} µm) · ${bestEp.detector || "detector"} · ${bestEp.clean_pixels_pct}% de píxeles limpios · ${loadedBands} bandas cargadas.`
+      : `Automática: no se pudo determinar una longitud de onda válida · ${loadedBands} bandas cargadas.`;
+  }
+}
+
+async function exploreCoordinates(ra, dec, fov, maxEpochs = 10) {
   const stopLoading = showLoading("Consultando NASA/IPAC IRSA y procesando recortes FITS...");
   state.ra = Number(ra);
   state.dec = Number(dec);
@@ -1068,7 +1119,7 @@ async function exploreCoordinates(ra, dec, fov) {
   setExploreProgress("1/5 · Consultando servidor TAP de NASA/IPAC IRSA…");
 
   try {
-    const res = await fetch(`/api/explore?ra=${state.ra}&dec=${state.dec}&fov=${state.fov}`, {
+    const res = await fetch(`/api/explore?ra=${state.ra}&dec=${state.dec}&fov=${state.fov}&max_epochs=${maxEpochs}`, {
       signal: AbortSignal.timeout(240000),
     });
     if (!res.ok) {
@@ -1083,6 +1134,7 @@ async function exploreCoordinates(ra, dec, fov) {
     const slider = document.getElementById("slider-epoch");
     slider.max = Math.max(0, data.epochs.length - 1);
     slider.value = 0;
+    populateBandSelector(data.epochs, data.target_info);
 
     document.querySelectorAll(".preset-btn").forEach((btn) => {
       if (btn.dataset.target === data.target_info.matched_target_id) {
@@ -1093,7 +1145,7 @@ async function exploreCoordinates(ra, dec, fov) {
     });
 
     const badge = document.getElementById("badge-datasource");
-    badge.textContent = `${data.target_info.data_source} (${data.target_info.total_frames} FITS)`;
+    badge.textContent = `${data.target_info.data_source} (${data.target_info.total_epochs || data.target_info.total_frames} épocas · ${data.target_info.total_bands || data.target_info.total_frames} bandas)`;
     document.getElementById("target-banner-desc").textContent =
       data.target_info.matched_description ||
       `Recortes .FITS reales de NASA IRSA para RA=${state.ra.toFixed(4)}°, Dec=${state.dec.toFixed(4)}°`;
@@ -1203,13 +1255,49 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("btn-play-pause").addEventListener("click", (e) => {
     state.isPlaying = !state.isPlaying;
+    if (state.isPlaying && state.selectedBand === "auto") {
+      state.selectedBand = String(state.currentEpochIdx);
+      document.getElementById("select-band").value = state.selectedBand;
+    }
     e.currentTarget.textContent = state.isPlaying ? "Pausar" : "Reproducir";
     startBlinkTimer();
   });
 
   document.getElementById("slider-epoch").addEventListener("input", (e) => {
     state.currentEpochIdx = parseInt(e.target.value, 10);
+    state.selectedBand = String(state.currentEpochIdx);
+    const bandSelect = document.getElementById("select-band");
+    if (bandSelect) bandSelect.value = state.selectedBand;
     renderCanvas();
+  });
+
+  document.getElementById("select-band").addEventListener("change", (e) => {
+    state.selectedBand = e.target.value;
+    const epochs = state.exploreData?.epochs || [];
+    const selectedIndex = getSelectedBandIndex(epochs);
+    state.currentEpochIdx = selectedIndex;
+    document.getElementById("slider-epoch").value = selectedIndex;
+    const ep = epochs[selectedIndex];
+    const summary = document.getElementById("band-summary");
+    if (summary && ep) {
+      summary.textContent = state.selectedBand === "auto"
+        ? `Automática: ${Number(ep.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(ep.bandwidth_um || 0).toFixed(3)} µm) · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% de píxeles limpios.`
+        : `Manual: ${Number(ep.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(ep.bandwidth_um || 0).toFixed(3)} µm) · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% de píxeles limpios.`;
+    }
+    renderCanvas();
+  });
+
+  document.getElementById("btn-load-102-bands").addEventListener("click", async (e) => {
+    const button = e.currentTarget;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = "Cargando…";
+    try {
+      await exploreCoordinates(state.ra, state.dec, state.fov, 102);
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   });
 
   document.getElementById("select-fps").addEventListener("change", (e) => {

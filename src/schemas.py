@@ -16,13 +16,21 @@ class TargetInfo(BaseModel):
     matched_description: Optional[str] = None
     data_source: str = Field(..., description="IRSA_SPHEREX_TAP, IRSA_IBE_REAL_FITS o CACHE_REAL_FITS")
     tap_query_executed: str = Field(..., description="Consulta ADQL ejecutada contra IRSA TAP")
+    available_bands: List[float] = Field(default_factory=list, description="Longitudes de onda disponibles en los recortes cargados")
+    best_band_index: Optional[int] = Field(None, description="Índice de la banda con mayor porcentaje de píxeles limpios")
+    best_band_clean_pct: Optional[float] = Field(None, description="Porcentaje de píxeles limpios de la mejor banda")
+    total_epochs: int = Field(0, description="Cantidad de instantes temporales distintos")
+    total_bands: int = Field(0, description="Cantidad de combinaciones detector/longitud de onda")
 
 
 class EpochFrame(BaseModel):
     index: int
+    epoch_id: int = Field(0, description="Índice temporal agrupado por instante de observación")
+    band_id: str = Field("", description="Identificador estable de detector y banda espectral")
     obs_time: str
     detector: str
     wavelength_center_um: float
+    bandwidth_um: float = 0.0
     cutout_url: str
     image_base64: str
     flags_base64: str
