@@ -1,0 +1,53 @@
+{
+  "ra": 76.9565,
+  "dec": 30.401417,
+  "fov": 0.05,
+  "total_identified": 3,
+  "objects": [
+    {
+      "id": "RW Aurigae",
+      "name": "RW Aurigae",
+      "raw_id": "V* RW Aur",
+      "ra": 76.956526,
+      "dec": 30.401438,
+      "category": "Estrella Joven en Formación (T Tauri)",
+      "kind": "variable_star",
+      "spectral_type": "K1/5e+K5e",
+      "proper_motion_mas_yr": 21.6,
+      "planets": [],
+      "distance_arcsec": 0.1,
+      "in_fov": true,
+      "explanation": "Estrella muy joven rodeada de un disco de gas y polvo donde pueden formarse planetas (tipo espectral K1/5e+K5e)."
+    },
+    {
+      "id": "RW Aurigae B",
+      "name": "RW Aurigae B",
+      "raw_id": "V* RW Aur B",
+      "ra": 76.956519,
+      "dec": 30.401425,
+      "category": "Estrella Joven Variable (Tipo Orión)",
+      "kind": "variable_star",
+      "spectral_type": "K2",
+      "proper_motion_mas_yr": 25.1,
+      "planets": [],
+      "distance_arcsec": 0.1,
+      "in_fov": true,
+      "explanation": "Estrella recién formada cuyo brillo varía por actividad magnética y material circundante (tipo espectral K2)."
+    },
+    {
+      "id": "RW Aurigae A",
+      "name": "RW Aurigae A",
+      "raw_id": "V* RW Aur A",
+      "ra": 76.956068,
+      "dec": 30.401326,
+      "category": "Estrella Joven Variable (Tipo Orión)",
+      "kind": "variable_star",
+      "spectral_type": "K6",
+      "proper_motion_mas_yr": 27.5,
+      "planets": [],
+      "distance_arcsec": 1.4,
+      "in_fov": true,
+      "explanation": "Estrella recién formada cuyo brillo varía por actividad magnética y material circundante (tipo espectral K6)."
+    }
+  ]
+}

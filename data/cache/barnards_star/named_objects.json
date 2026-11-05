@@ -1,0 +1,43 @@
+{
+  "ra": 269.452075,
+  "dec": 4.693364,
+  "fov": 0.05,
+  "total_identified": 2,
+  "objects": [
+    {
+      "id": "Barnard's Star",
+      "name": "Barnard's Star",
+      "raw_id": "NAME Barnard's star",
+      "ra": 269.452077,
+      "dec": 4.693365,
+      "category": "Estrella Enana Activa (Variable BY Dra) · 4 Exoplanetas",
+      "kind": "planet_host",
+      "spectral_type": "M4V",
+      "proper_motion_mas_yr": 10393.3,
+      "planets": [
+        "Barnard's Star b",
+        "Barnard's Star c",
+        "Barnard's Star d",
+        "Barnard's Star e"
+      ],
+      "distance_arcsec": 0.0,
+      "in_fov": true,
+      "explanation": "Estrella fría cercana con manchas estelares y rotación activa (tipo espectral M4V). Hospeda 4 planetas confirmados: Barnard's Star b, Barnard's Star c, Barnard's Star d, Barnard's Star e."
+    },
+    {
+      "id": "TYC 425-262-1",
+      "name": "TYC 425-262-1",
+      "raw_id": "TYC  425-262-1",
+      "ra": 269.466458,
+      "dec": 4.705611,
+      "category": "Sistema Estelar Binario",
+      "kind": "star",
+      "spectral_type": "A3V",
+      "proper_motion_mas_yr": 8.7,
+      "planets": [],
+      "distance_arcsec": 67.9,
+      "in_fov": true,
+      "explanation": "Dos estrellas que orbitan mutuamente muy cerca entre sí (tipo espectral A3V)."
+    }
+  ]
+}

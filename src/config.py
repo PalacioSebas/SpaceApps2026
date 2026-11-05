@@ -13,11 +13,13 @@ STATIC_DIR: Path = BASE_DIR / "static"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# Endpoints Oficiales de Datos Abiertos de NASA/IPAC IRSA y CDS
+# Endpoints Oficiales de Datos Abiertos de NASA/IPAC IRSA, CDS y DPAC Gaia
 IRSA_TAP_URL: str = "https://irsa.ipac.caltech.edu/TAP"
+IRSA_SCS_URL: str = "https://irsa.ipac.caltech.edu/SCS"
 IRSA_BASE_URL: str = "https://irsa.ipac.caltech.edu/"
 IRSA_SIA_SPHEREX_URL: str = "https://irsa.ipac.caltech.edu/SIA?COLLECTION=spherex_qr2&"
 CDS_TAP_URL: str = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap"
+ARI_GAIA_TAP_URL: str = "https://gaia.ari.uni-heidelberg.de/tap"
 
 DEFAULT_FOV_DEG: float = 0.05
 DEFAULT_CUTOUT_PIXELS: int = 128

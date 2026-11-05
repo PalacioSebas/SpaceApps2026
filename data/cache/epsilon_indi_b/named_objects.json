@@ -1,0 +1,55 @@
+{
+  "ra": 331.043833,
+  "dec": -56.782694,
+  "fov": 0.05,
+  "total_identified": 3,
+  "objects": [
+    {
+      "id": "Epsilon Indi B",
+      "name": "Epsilon Indi B",
+      "raw_id": "* eps Ind B",
+      "ra": 331.044147,
+      "dec": -56.782844,
+      "category": "Enana Marrón (Objeto Subestelar)",
+      "kind": "brown_dwarf",
+      "spectral_type": "T1V+T6V",
+      "proper_motion_mas_yr": 4684.2,
+      "planets": [],
+      "distance_arcsec": 0.8,
+      "in_fov": true,
+      "explanation": "Cuerpo frío intermedio entre un planeta gigante y una estrella (tipo espectral T1V+T6V); brilla principalmente en el infrarrojo."
+    },
+    {
+      "id": "Gaia DR3 6412596287024000896",
+      "name": "Gaia DR3 6412596287024000896",
+      "raw_id": "Gaia DR3 6412596287024000896",
+      "ra": 331.024853,
+      "dec": -56.767332,
+      "category": "Estrella Variable Pulsante (RR Lyrae)",
+      "kind": "variable_star",
+      "spectral_type": null,
+      "proper_motion_mas_yr": 16.1,
+      "planets": [],
+      "distance_arcsec": 66.8,
+      "in_fov": true,
+      "explanation": "Estrella cuyo brillo oscila periódicamente; usada para medir distancias en la galaxia."
+    },
+    {
+      "id": "Epsilon Indi A (Epsilon Indi A b)",
+      "name": "Sistema Planetario Epsilon Indi A",
+      "raw_id": "Epsilon Indi A b",
+      "ra": 330.871402,
+      "dec": -56.796902,
+      "category": "Estrella con Exoplaneta Confirmado (Epsilon Indi A b)",
+      "kind": "planet_host",
+      "spectral_type": null,
+      "proper_motion_mas_yr": null,
+      "planets": [
+        "Epsilon Indi A b"
+      ],
+      "distance_arcsec": 343.9,
+      "in_fov": false,
+      "explanation": "Estrella que hospeda al exoplaneta confirmado Epsilon Indi A b (~6.5 masas de Júpiter), ubicada en este mismo sistema/vecindad a 5.7′."
+    }
+  ]
+}

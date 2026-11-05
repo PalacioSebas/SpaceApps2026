@@ -14,6 +14,7 @@ const state = {
   targets: [],
   exploreData: null,
   currentEpochIdx: 0,
+  selectedBand: "auto",
   isPlaying: true,
   fps: 2,
   timerId: null,
@@ -26,8 +27,16 @@ const state = {
   flagImages: [],
   coaddImage: null,
   diffImage: null,
-  diffEpochImages: [],
-  coaddEpochImages: [],
+  exploreController: null,
+  spectrumController: null,
+  exploreSequence: 0,
+  spectrumSequence: 0,
+  isLoading: false,
+  catalogStatus: {},
+  temporalSearch: false,
+  showNamedObjects: false,
+  selectedNamedObjectId: null,
+  hoveredNamedObjectId: null,
   showGaiaCat: true,
   showWiseCat: true,
   crossmatchByDetId: {},
@@ -45,6 +54,7 @@ const state = {
     hoverDec: null,
     gaiaSources: [],
     wiseSources: [],
+    namedObjects: [],
     colorSkyCanvas: null,
   },
 };
@@ -58,37 +68,44 @@ function getParamsFromUrl() {
     ra: !isNaN(ra) ? ra : 133.795129,
     dec: !isNaN(dec) ? dec : -7.245147,
     fov: !isNaN(fov) ? fov : 0.05,
+    temporalSearch: params.get("temporal") === "1",
   };
 }
 
-function syncUrlParams(ra, dec, fov) {
+function syncUrlParams(ra, dec, fov, temporalSearch = false) {
   const url = new URL(window.location);
   url.searchParams.set("ra", Number(ra).toFixed(6));
   url.searchParams.set("dec", Number(dec).toFixed(6));
   url.searchParams.set("fov", Number(fov).toFixed(4));
+  if (temporalSearch) url.searchParams.set("temporal", "1");
+  else url.searchParams.delete("temporal");
   window.history.replaceState({}, "", url);
 }
 
 function pixelToRaDec(xPix, yPix) {
-  const scaleDeg = state.fov / CUTOUT_NPIX;
-  const dx = xPix - CUTOUT_NPIX / 2.0;
-  const dy = yPix - CUTOUT_NPIX / 2.0;
-  const cosDec = Math.max(0.05, Math.cos((state.dec * Math.PI) / 180.0));
+  // Inversa de la proyección TAN usada por Astropy, con origen de píxel 0.
+  const radians = Math.PI / 180;
+  const center = (CUTOUT_NPIX - 1) / 2;
+  const xi = -(xPix - center) * state.fov / CUTOUT_NPIX * radians;
+  const eta = (yPix - center) * state.fov / CUTOUT_NPIX * radians;
+  const dec0 = state.dec * radians;
+  const denominator = Math.cos(dec0) - eta * Math.sin(dec0);
   return {
-    ra: state.ra - (dx * scaleDeg) / cosDec,
-    dec: state.dec + dy * scaleDeg,
+    ra: ((state.ra + Math.atan2(xi, denominator) / radians) % 360 + 360) % 360,
+    dec: Math.atan2(Math.sin(dec0) + eta * Math.cos(dec0), Math.hypot(denominator, xi)) / radians,
   };
 }
 
 function raDecToPixel(ra, dec) {
-  const scaleDeg = state.fov / CUTOUT_NPIX;
-  const cosDec = Math.max(0.05, Math.cos((state.dec * Math.PI) / 180.0));
-  const dx = -((ra - state.ra) * cosDec) / scaleDeg;
-  const dy = (dec - state.dec) / scaleDeg;
-  return {
-    x: CUTOUT_NPIX / 2.0 + dx,
-    y: CUTOUT_NPIX / 2.0 + dy,
-  };
+  const radians = Math.PI / 180;
+  const delta = (ra - state.ra) * radians;
+  const d = dec * radians, d0 = state.dec * radians;
+  const denominator = Math.sin(d0) * Math.sin(d) + Math.cos(d0) * Math.cos(d) * Math.cos(delta);
+  const xi = Math.cos(d) * Math.sin(delta) / denominator;
+  const eta = (Math.cos(d0) * Math.sin(d) - Math.sin(d0) * Math.cos(d) * Math.cos(delta)) / denominator;
+  const center = (CUTOUT_NPIX - 1) / 2;
+  return { x: center - xi / radians * CUTOUT_NPIX / state.fov,
+    y: center + eta / radians * CUTOUT_NPIX / state.fov };
 }
 
 // ----------------------------------------------------------------------------
@@ -172,6 +189,21 @@ function initAladinLite(ra, dec, fov) {
     if (coordsEl) {
       coordsEl.textContent = `Cursor RA: ${coords.ra.toFixed(5)}° | Dec: ${coords.dec.toFixed(5)}°`;
     }
+
+    const hoveredObj = findHoveredNamedObject(xPix, yPix, 5.5 / state.skyView.zoom);
+    const prevHoverId = state.hoveredNamedObjectId;
+    state.hoveredNamedObjectId = hoveredObj ? hoveredObj.id : null;
+    skyCanvas.style.cursor = hoveredObj ? "pointer" : "grab";
+    if (state.hoveredNamedObjectId !== prevHoverId) {
+      if (hoveredObj) {
+        showNamedObjectDetail(hoveredObj);
+      } else {
+        const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
+        if (activeObj) showNamedObjectDetail(activeObj);
+      }
+      renderContextSkyMap();
+      renderCanvas();
+    }
   });
 
   skyCanvas.addEventListener("mouseleave", () => {
@@ -179,10 +211,17 @@ function initAladinLite(ra, dec, fov) {
     if (coordsEl) {
       coordsEl.textContent = `Centro RA: ${state.skyView.centerRa.toFixed(5)}° | Dec: ${state.skyView.centerDec.toFixed(5)}°`;
     }
+    if (state.hoveredNamedObjectId !== null) {
+      state.hoveredNamedObjectId = null;
+      const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
+      if (activeObj) showNamedObjectDetail(activeObj);
+      renderContextSkyMap();
+      renderCanvas();
+    }
   });
 
   skyCanvas.addEventListener("click", (e) => {
-    if (state.skyView.moved) return;
+    if (state.skyView.moved || state.isLoading || !state.exploreData) return;
     const rect = skyCanvas.getBoundingClientRect();
     const cx = ((e.clientX - rect.left) / rect.width) * skyCanvas.width;
     const cy = ((e.clientY - rect.top) / rect.height) * skyCanvas.height;
@@ -279,68 +318,225 @@ function buildCatalogSourcesFromField() {
   colorCtx.putImageData(colorImg, 0, 0);
   state.skyView.colorSkyCanvas = colorCanvas;
 
-  // Extraer picos locales reales de la imagen coadd para las capas Gaia DR3 y AllWISE
-  const peaks = [];
-  const margin = 5;
-  for (let cy = margin; cy < h - margin; cy++) {
-    for (let cx = margin; cx < w - margin; cx++) {
-      const val = coaddData[(cy * w + cx) * 4];
-      if (val < threshold) continue;
-      let isMax = true;
-      for (let dy = -2; dy <= 2 && isMax; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          if (dx === 0 && dy === 0) continue;
-          if (coaddData[((cy + dy) * w + (cx + dx)) * 4] > val) {
-            isMax = false;
-            break;
-          }
-        }
-      }
-      if (isMax) {
-        const xFits = cx;
-        const yFits = h - 1 - cy;
-        const { ra, dec } = pixelToRaDec(xFits, yFits);
-        const colorIdx = (cy * w + cx) * 4;
-        const irExcess = lateData[colorIdx] - earlyData[colorIdx];
-        peaks.push({ x: xFits, y: yFits, val, ra, dec, irExcess });
-      }
-    }
-  }
+  state.skyView.gaiaSources = [];
+  state.skyView.wiseSources = [];
+  state.skyView.namedObjects = [];
+  state.selectedNamedObjectId = null;
+  state.hoveredNamedObjectId = null;
+}
 
-  peaks.sort((a, b) => b.val - a.val);
-  const topPeaks = peaks.slice(0, 32);
-
-  const gaiaSources = [];
-  const wiseSources = [];
-
-  topPeaks.forEach((pk, idx) => {
-    if (pk.val >= threshold + 10 || idx % 2 === 0) {
-      gaiaSources.push({
-        x: pk.x,
-        y: pk.y,
-        ra: pk.ra,
-        dec: pk.dec,
-        mag: +(19.4 - (pk.val / 255) * 7.2).toFixed(2),
-      });
-    }
-    if (pk.val >= threshold || pk.irExcess >= -12) {
-      wiseSources.push({
-        x: pk.x,
-        y: pk.y,
-        ra: pk.ra,
-        dec: pk.dec,
-        w1: +(16.6 - (pk.val / 255) * 6.4).toFixed(2),
-      });
+function findHoveredNamedObject(xPix, yPix, maxDistFitsPx = 5.5) {
+  const objects = state.skyView.namedObjects || [];
+  let best = null;
+  let bestDist = maxDistFitsPx;
+  objects.forEach((obj) => {
+    if (!obj.in_fov) return;
+    const d = Math.hypot(obj.x - xPix, obj.y - yPix);
+    if (d <= bestDist) {
+      bestDist = d;
+      best = obj;
     }
   });
+  return best;
+}
 
-  state.skyView.gaiaSources = gaiaSources;
-  state.skyView.wiseSources = wiseSources;
+function drawTagAbovePoint(ctx, cx, cy, labelText, borderColor, textColor, canvasW) {
+  ctx.save();
+  ctx.font = "600 11px ui-sans-serif, system-ui, sans-serif";
+  const tw = ctx.measureText(labelText).width;
+  const padX = 6;
+  const boxW = tw + padX * 2;
+  const boxH = 18;
+  const boxX = Math.min(canvasW - boxW - 4, Math.max(4, cx - boxW / 2));
+  const placeBelow = cy < 32;
+  const boxY = placeBelow ? cy + 12 : cy - 11 - boxH;
 
-  const badgeEl = document.getElementById("aladin-catalog-badge");
-  if (badgeEl) {
-    badgeEl.textContent = `Gaia: ${gaiaSources.length} | WISE: ${wiseSources.length}`;
+  ctx.fillStyle = "rgba(6, 9, 17, 0.92)";
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 1.1;
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  ctx.beginPath();
+  if (placeBelow) {
+    ctx.moveTo(cx, cy + 7);
+    ctx.lineTo(cx, boxY);
+  } else {
+    ctx.moveTo(cx, boxY + boxH);
+    ctx.lineTo(cx, cy - 7);
   }
+  ctx.stroke();
+
+  ctx.fillStyle = textColor;
+  ctx.fillText(labelText, boxX + padX, boxY + 13);
+  ctx.restore();
+}
+
+function showNamedObjectDetail(obj) {
+  const detailEl = document.getElementById("named-object-detail");
+  if (!detailEl) return;
+  detailEl.replaceChildren();
+
+  const header = document.createElement("div");
+  header.className = "flex flex-wrap items-center justify-between gap-1 mb-0.5";
+  const title = document.createElement("span");
+  title.className = "font-bold text-emerald-300";
+  title.textContent = obj.name;
+  const cat = document.createElement("span");
+  cat.className = "text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 border border-slate-700";
+  cat.textContent = obj.category;
+  header.append(title, cat);
+  detailEl.appendChild(header);
+
+  const expl = document.createElement("p");
+  expl.className = "text-slate-200 leading-snug";
+  expl.textContent = obj.explanation;
+  detailEl.appendChild(expl);
+
+  if (!obj.in_fov) {
+    const jumpWrap = document.createElement("div");
+    jumpWrap.className = "mt-1 flex items-center justify-between gap-2 text-[10px] text-amber-300";
+    const note = document.createElement("span");
+    note.textContent = `A ${(obj.distance_arcsec / 60).toFixed(1)}′ del centro (mismo sistema).`;
+    const btnJump = document.createElement("button");
+    btnJump.type = "button";
+    btnJump.className = "px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-semibold transition shrink-0";
+    btnJump.textContent = "Ir a este astro";
+    btnJump.addEventListener("click", () => {
+      exploreCoordinates(obj.ra, obj.dec, state.fov);
+    });
+    jumpWrap.append(note, btnJump);
+    detailEl.appendChild(jumpWrap);
+  }
+}
+
+function renderNamedObjectsPanel() {
+  const countEl = document.getElementById("named-objects-count");
+  const listEl = document.getElementById("named-objects-list");
+  const detailEl = document.getElementById("named-object-detail");
+  if (!countEl || !listEl || !detailEl) return;
+
+  const objects = state.skyView.namedObjects || [];
+  listEl.replaceChildren();
+
+  if (objects.length === 0) {
+    countEl.textContent = "0 con nombre propio";
+    detailEl.textContent = "Sin estrellas con nombre propio en este recorte. Tocá cualquier fuente para medir su espectro.";
+    return;
+  }
+
+  const totalPlanets = objects.reduce((acc, o) => acc + (o.planets ? o.planets.length : 0) + (o.kind === "planet" ? 1 : 0), 0);
+  countEl.textContent = totalPlanets > 0
+    ? `${objects.length} astro${objects.length === 1 ? "" : "s"} · ${totalPlanets} planeta${totalPlanets === 1 ? "" : "s"}`
+    : `${objects.length} identificado${objects.length === 1 ? "" : "s"}`;
+
+  objects.forEach((obj) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    const isSelected = state.selectedNamedObjectId === obj.id;
+    const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
+    btn.className = `px-2 py-0.5 rounded text-[11px] font-medium border transition ${
+      isSelected
+        ? "bg-emerald-500/25 border-emerald-400 text-white"
+        : hasPlanets
+        ? "bg-indigo-950/70 hover:bg-indigo-900/80 border-indigo-500/50 text-indigo-200"
+        : "bg-slate-800/90 hover:bg-slate-700 border-slate-700 text-slate-200"
+    }`;
+    const planetBadge = obj.planets && obj.planets.length > 0
+      ? ` (${obj.planets.length} planeta${obj.planets.length === 1 ? "" : "s"})`
+      : "";
+    btn.textContent = `${obj.name}${planetBadge}`;
+    btn.addEventListener("mouseenter", () => {
+      state.hoveredNamedObjectId = obj.id;
+      showNamedObjectDetail(obj);
+      renderContextSkyMap();
+      renderCanvas();
+    });
+    btn.addEventListener("mouseleave", () => {
+      state.hoveredNamedObjectId = null;
+      const activeObj = objects.find((o) => o.id === state.selectedNamedObjectId) || objects[0];
+      if (activeObj) showNamedObjectDetail(activeObj);
+      renderContextSkyMap();
+      renderCanvas();
+    });
+    btn.addEventListener("click", () => {
+      state.selectedNamedObjectId = obj.id;
+      showNamedObjectDetail(obj);
+      renderNamedObjectsPanel();
+      if (obj.in_fov) {
+        state.selectedDetectionId = null;
+        state.selectedPixel = {
+          x: Math.max(0, Math.min(127, obj.x)),
+          y: Math.max(0, Math.min(127, obj.y)),
+        };
+        updateAIDetectionCardsSelection();
+        updateAladinView(obj.ra, obj.dec, state.fov);
+        renderCanvas();
+        fetchAndRenderSpectrum(obj.ra, obj.dec, true);
+      } else {
+        renderContextSkyMap();
+      }
+    });
+    listEl.appendChild(btn);
+  });
+
+  const activeObj = objects.find((o) => o.id === state.selectedNamedObjectId) || objects[0];
+  if (activeObj) {
+    state.selectedNamedObjectId = activeObj.id;
+    showNamedObjectDetail(activeObj);
+  }
+}
+
+async function loadFieldCatalogs(sequence) {
+  state.catalogStatus = { gaia: "consultando", allwise: "consultando" };
+  const refreshBadge = () => {
+    document.getElementById("aladin-catalog-badge").textContent =
+      `Gaia: ${state.catalogStatus.gaia} · WISE: ${state.catalogStatus.allwise}`;
+  };
+  refreshBadge();
+
+  const objectsPromise = (async () => {
+    try {
+      const res = await fetch(`/api/objects?ra=${state.ra}&dec=${state.dec}&fov=${state.fov}`,
+        { signal: state.exploreController.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (sequence !== state.exploreSequence) return;
+      state.skyView.namedObjects = (data.objects || []).map((obj) => ({
+        ...obj,
+        ...raDecToPixel(obj.ra, obj.dec),
+      }));
+      renderNamedObjectsPanel();
+      renderContextSkyMap();
+      renderCanvas();
+    } catch (error) {
+      if (sequence !== state.exploreSequence || error.name === "AbortError") return;
+      const countEl = document.getElementById("named-objects-count");
+      if (countEl) countEl.textContent = "Sin conexión";
+    }
+  })();
+
+  await Promise.all([
+    objectsPromise,
+    ...["gaia", "allwise"].map(async (catalog) => {
+      try {
+        const res = await fetch(`/api/catalog?catalog=${catalog}&ra=${state.ra}&dec=${state.dec}&fov=${state.fov}`,
+          { signal: state.exploreController.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (sequence !== state.exploreSequence) return;
+        const sources = data.sources.map((src) => ({ ...src, ...raDecToPixel(src.ra, src.dec), w1: src.mag }));
+        state.skyView[catalog === "gaia" ? "gaiaSources" : "wiseSources"] = sources;
+        state.catalogStatus[catalog] = `${sources.length}${data.truncated ? "+" : ""} · ${data.service || "catálogo"}`;
+      } catch (error) {
+        if (sequence !== state.exploreSequence || error.name === "AbortError") return;
+        state.catalogStatus[catalog] = "no disponible";
+      }
+      refreshBadge();
+      updateCatalogSelectionSummary();
+      renderContextSkyMap();
+    }),
+  ]);
 }
 
 function updateCatalogSelectionSummary() {
@@ -351,47 +547,18 @@ function updateCatalogSelectionSummary() {
   const pix = state.selectedPixel || { x: 64, y: 64 };
   const coords = pixelToRaDec(pix.x, pix.y);
 
-  // Buscar fuente Gaia DR3 y AllWISE más cercana al punto seleccionado
-  const arcsecPerPx = (state.fov * 3600.0) / CUTOUT_NPIX;
-  let minGaiaDistPx = Infinity;
-  let nearestGaia = null;
-  state.skyView.gaiaSources.forEach((g) => {
-    const d = Math.hypot(g.x - pix.x, g.y - pix.y);
-    if (d < minGaiaDistPx) {
-      minGaiaDistPx = d;
-      nearestGaia = g;
-    }
-  });
-
-  let minWiseDistPx = Infinity;
-  let nearestWise = null;
-  state.skyView.wiseSources.forEach((w) => {
-    const d = Math.hypot(w.x - pix.x, w.y - pix.y);
-    if (d < minWiseDistPx) {
-      minWiseDistPx = d;
-      nearestWise = w;
-    }
-  });
-
-  const gaiaArcsec = (minGaiaDistPx * arcsecPerPx).toFixed(1);
-  const wiseArcsec = (minWiseDistPx * arcsecPerPx).toFixed(1);
-
-  if (state.selectedDetectionId && state.exploreData && state.exploreData.ai_detections) {
-    const det = state.exploreData.ai_detections.find((d) => d.id === state.selectedDetectionId);
-    if (det) {
-      const liveMatch = state.crossmatchByDetId[det.id];
-      selHud.textContent = `Seleccionado: #${det.id} (${det.type === "MOVING_DIPOLE" ? "Dipolo" : "Variable"}) en RA ${det.ra.toFixed(4)}°, Dec ${det.dec.toFixed(4)}°`;
-      if (liveMatch) {
-        summaryEl.textContent = `Anomalía #${det.id} | ${liveMatch} | Separación en campo: Gaia DR3 a ${gaiaArcsec}", AllWISE a ${wiseArcsec}".`;
-      } else {
-        summaryEl.textContent = `Anomalía #${det.id} (${det.snr_score}σ) | Separación en campo: fuente Gaia DR3 más cercana a ${gaiaArcsec}"${nearestGaia ? ` (G~${nearestGaia.mag})` : ""}, AllWISE a ${wiseArcsec}"${nearestWise ? ` (W1~${nearestWise.w1})` : ""}.`;
-      }
-      return;
-    }
-  }
-
-  selHud.textContent = `Cursor en Píxel (${pix.x.toFixed(1)}, ${pix.y.toFixed(1)}) · RA ${coords.ra.toFixed(4)}°, Dec ${coords.dec.toFixed(4)}°`;
-  summaryEl.textContent = `Posición seleccionada: RA ${coords.ra.toFixed(5)}°, Dec ${coords.dec.toFixed(5)}° | Fuente Gaia DR3 más próxima a ${isFinite(minGaiaDistPx) ? gaiaArcsec + '"' : "N/A"}, AllWISE a ${isFinite(minWiseDistPx) ? wiseArcsec + '"' : "N/A"}.`;
+  const nearest = (sources) => sources.reduce((best, src) => {
+    const distance = Math.hypot(src.x - pix.x, src.y - pix.y);
+    return !best || distance < best.distance ? { ...src, distance } : best;
+  }, null);
+  const describe = (name, sources) => {
+    const source = nearest(sources);
+    return source ? `${name}: ${source.id} a ${(source.distance * state.fov * 3600 / CUTOUT_NPIX).toFixed(1)}″`
+      : `${name}: ${state.catalogStatus[name === "Gaia" ? "gaia" : "allwise"] || "sin consulta"}`;
+  };
+  selHud.textContent = `Píxel (${pix.x.toFixed(1)}, ${pix.y.toFixed(1)}) · RA ${coords.ra.toFixed(5)}°, Dec ${coords.dec.toFixed(5)}°`;
+  const match = state.crossmatchByDetId[state.selectedDetectionId];
+  summaryEl.textContent = match || `${describe("Gaia", state.skyView.gaiaSources)} · ${describe("AllWISE", state.skyView.wiseSources)}`;
 }
 
 function updateAladinView(ra, dec, fov) {
@@ -442,13 +609,11 @@ function renderContextSkyMap() {
     ctx.restore();
   }
 
-  // 2. Grilla astrométrica ICRS (RA / Dec) con etiquetas de grados
+  // 2. Grilla astrométrica ICRS sutil (sin números internos que saturen el mapa)
   ctx.save();
-  ctx.strokeStyle = "rgba(56, 189, 248, 0.20)";
-  ctx.fillStyle = "rgba(148, 163, 184, 0.78)";
-  ctx.font = "10px monospace";
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.12)";
   ctx.lineWidth = 1;
-  const gridSteps = [24, 64, 104];
+  const gridSteps = [32, 64, 96];
   gridSteps.forEach((gp) => {
     const p1 = fitsToSkyCanvas(gp, 0, W);
     const p2 = fitsToSkyCanvas(gp, CUTOUT_NPIX - 1, W);
@@ -457,34 +622,24 @@ function renderContextSkyMap() {
     ctx.lineTo(p2.cx, H);
     ctx.stroke();
 
-    const coordRa = pixelToRaDec(gp, 64).ra;
-    if (p1.cx > 24 && p1.cx < W - 44) {
-      ctx.fillText(`${coordRa.toFixed(3)}°`, p1.cx + 3, 48);
-    }
-
     const q1 = fitsToSkyCanvas(0, gp, W);
     const q2 = fitsToSkyCanvas(CUTOUT_NPIX - 1, gp, W);
     ctx.beginPath();
     ctx.moveTo(0, q1.cy);
     ctx.lineTo(W, q2.cy);
     ctx.stroke();
-
-    const coordDec = pixelToRaDec(64, gp).dec;
-    if (q1.cy > 56 && q1.cy < H - 48) {
-      ctx.fillText(`${coordDec.toFixed(3)}°`, 6, q1.cy - 3);
-    }
   });
   ctx.restore();
 
-  // 3. Superponer fuentes del catálogo AllWISE (rombos ámbar)
+  // 3. Superponer fuentes del catálogo AllWISE (rombos ámbar discretos)
   if (state.showWiseCat && state.skyView.wiseSources.length > 0) {
     ctx.save();
-    ctx.strokeStyle = "#f59e0b";
-    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = "rgba(245, 158, 11, 0.65)";
+    ctx.lineWidth = 1.2;
     state.skyView.wiseSources.forEach((src) => {
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
-      const r = 6.5;
+      const r = 4.5;
       ctx.beginPath();
       ctx.moveTo(cx, cy - r);
       ctx.lineTo(cx + r, cy);
@@ -496,73 +651,74 @@ function renderContextSkyMap() {
     ctx.restore();
   }
 
-  // 4. Superponer fuentes del catálogo Gaia DR3 (círculos celestes)
+  // 4. Superponer fuentes del catálogo Gaia DR3 (círculos celestes discretos)
   if (state.showGaiaCat && state.skyView.gaiaSources.length > 0) {
     ctx.save();
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.70)";
+    ctx.lineWidth = 1.2;
     state.skyView.gaiaSources.forEach((src) => {
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
       ctx.beginPath();
-      ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
       ctx.stroke();
     });
     ctx.restore();
   }
 
-  // 5. Superponer detecciones IA (Dipolos y Variables)
-  if (state.exploreData && state.exploreData.ai_detections) {
-    state.exploreData.ai_detections.forEach((det) => {
-      const { cx, cy } = fitsToSkyCanvas(det.x_pix, det.y_pix, W);
-      const isSelected = state.selectedDetectionId === det.id;
-      ctx.save();
-
-      if (det.type === "MOVING_DIPOLE" && det.neg_x_pix !== null && det.neg_y_pix !== null) {
-        const negPt = fitsToSkyCanvas(det.neg_x_pix, det.neg_y_pix, W);
-        ctx.strokeStyle = "#fb7185";
-        ctx.lineWidth = 1.8;
-        ctx.beginPath();
-        ctx.moveTo(negPt.cx, negPt.cy);
-        ctx.lineTo(cx, cy);
-        ctx.stroke();
-      }
-
-      ctx.strokeStyle = isSelected
-        ? "#10b981"
-        : det.type === "MOVING_DIPOLE"
-        ? "#fb7185"
-        : "#fde047";
-      ctx.lineWidth = isSelected ? 2.8 : 1.8;
-      ctx.setLineDash(isSelected ? [] : [3, 2]);
-      ctx.beginPath();
-      ctx.arc(cx, cy, isSelected ? 14 : 10, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.fillStyle = isSelected ? "#6ee7b7" : "#fda4af";
-      ctx.font = "bold 11px monospace";
-      ctx.fillText(`#${det.id}`, cx + 12, cy - 4);
-      ctx.restore();
-    });
-  }
-
-  // 6. Retícula del píxel/objeto seleccionado
+  // 5. Retícula del píxel/objeto seleccionado
   if (state.selectedPixel) {
     const { cx, cy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
     ctx.save();
     ctx.strokeStyle = "#10b981";
-    ctx.lineWidth = 2.0;
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
-    ctx.moveTo(cx - 12, cy);
+    ctx.moveTo(cx - 10, cy);
     ctx.lineTo(cx - 3, cy);
     ctx.moveTo(cx + 3, cy);
-    ctx.lineTo(cx + 12, cy);
-    ctx.moveTo(cx, cy - 12);
+    ctx.lineTo(cx + 10, cy);
+    ctx.moveTo(cx, cy - 10);
     ctx.lineTo(cx, cy - 3);
     ctx.moveTo(cx, cy + 3);
-    ctx.lineTo(cx, cy + 12);
+    ctx.lineTo(cx, cy + 10);
     ctx.stroke();
     ctx.restore();
+  }
+
+  // 6. Astros identificados: anillo discreto siempre, etiqueta arriba SOLO al pasar el cursor (o si "Fijar nombres" está activo)
+  if (state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
+    state.skyView.namedObjects.forEach((obj) => {
+      if (!obj.in_fov) return;
+      const { cx, cy } = fitsToSkyCanvas(obj.x, obj.y, W);
+      if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
+      const isHovered = state.hoveredNamedObjectId === obj.id;
+      const isSelected = state.selectedNamedObjectId === obj.id;
+      const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
+      const ringColor = isHovered ? "#34d399" : hasPlanets ? "#a78bfa" : "#fde047";
+
+      ctx.save();
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = isHovered || isSelected ? 2.2 : 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, isHovered ? 9 : 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      if (isHovered || state.showNamedObjects) {
+        const labelText = hasPlanets
+          ? `${obj.name} · ${obj.planets.length} planeta${obj.planets.length === 1 ? "" : "s"}`
+          : obj.name;
+        drawTagAbovePoint(
+          ctx,
+          cx,
+          cy,
+          labelText,
+          ringColor,
+          isHovered ? "#6ee7b7" : hasPlanets ? "#ddd6fe" : "#fef08a",
+          W
+        );
+      }
+    });
   }
 
   // Actualizar HUD de FoV y conteo de fuentes activas
@@ -576,107 +732,26 @@ function renderContextSkyMap() {
 }
 
 // ----------------------------------------------------------------------------
-// Generación de cuadros por época para Resta (ΔI) y Suma SNR en Loop
+// Los productos científicos se calculan en el backend, antes del contraste PNG.
 // ----------------------------------------------------------------------------
-function buildPerEpochDiffAndCoadd() {
-  state.diffEpochImages = [];
-  state.coaddEpochImages = [];
-  if (!state.epochImages.length || !state.coaddImage || !state.diffImage) return;
-
-  const w = 128;
-  const h = 128;
-
-  const getPixels = (img) => {
-    const c = document.createElement("canvas");
-    c.width = w;
-    c.height = h;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(img, 0, 0, w, h);
-    return ctx.getImageData(0, 0, w, h).data;
-  };
-
-  const epochDataList = state.epochImages.map(getPixels);
-  const coaddPixels = getPixels(state.coaddImage);
-  const globalDiffPixels = getPixels(state.diffImage);
-
-  const runningSum = new Float32Array(w * h);
-  const runningCount = new Uint16Array(w * h);
-
-  for (let idx = 0; idx < epochDataList.length; idx++) {
-    const epPixels = epochDataList[idx];
-    const refIdx = (idx + Math.max(1, Math.floor(epochDataList.length / 2))) % epochDataList.length;
-    const refPixels = epochDataList[refIdx];
-
-    const diffCanvas = document.createElement("canvas");
-    diffCanvas.width = w;
-    diffCanvas.height = h;
-    const diffCtx = diffCanvas.getContext("2d");
-    const diffImgData = diffCtx.createImageData(w, h);
-
-    const snrCanvas = document.createElement("canvas");
-    snrCanvas.width = w;
-    snrCanvas.height = h;
-    const snrCtx = snrCanvas.getContext("2d");
-    const snrImgData = snrCtx.createImageData(w, h);
-
-    const snrWeight = (idx + 1) / epochDataList.length;
-
-    for (let p = 0; p < w * h; p++) {
-      const i = p * 4;
-      const valEp = epPixels[i];
-      const valRef = refPixels[i];
-      const valCoadd = coaddPixels[i];
-
-      // --- Resta (ΔI) por época ---
-      const delta = (valEp - valRef) * 1.6 + (valEp - valCoadd) * 0.9;
-      const norm = Math.max(-1, Math.min(1, delta / 110));
-      let rCol, gCol, bCol;
-      if (norm >= 0) {
-        rCol = 245;
-        gCol = Math.round(245 * (1 - 0.72 * norm));
-        bCol = Math.round(245 * (1 - 0.85 * norm));
-      } else {
-        const a = -norm;
-        rCol = Math.round(245 * (1 - 0.85 * a));
-        gCol = Math.round(245 * (1 - 0.48 * a));
-        bCol = 248;
-      }
-
-      diffImgData.data[i] = Math.round(globalDiffPixels[i] * 0.55 + rCol * 0.45);
-      diffImgData.data[i + 1] = Math.round(globalDiffPixels[i + 1] * 0.55 + gCol * 0.45);
-      diffImgData.data[i + 2] = Math.round(globalDiffPixels[i + 2] * 0.55 + bCol * 0.45);
-      diffImgData.data[i + 3] = 255;
-
-      // --- Suma SNR progresiva por época ---
-      if (valEp > 0) {
-        runningSum[p] += valEp;
-        runningCount[p] += 1;
-      }
-      const avgSoFar = runningCount[p] > 0 ? runningSum[p] / runningCount[p] : valCoadd;
-      const snrVal = Math.min(
-        255,
-        Math.round(avgSoFar * (1 - 0.45 * snrWeight) + valCoadd * (0.45 * snrWeight) * 1.08)
-      );
-      snrImgData.data[i] = snrVal;
-      snrImgData.data[i + 1] = snrVal;
-      snrImgData.data[i + 2] = snrVal;
-      snrImgData.data[i + 3] = 255;
-    }
-
-    diffCtx.putImageData(diffImgData, 0, 0);
-    snrCtx.putImageData(snrImgData, 0, 0);
-
-    state.diffEpochImages.push(diffCanvas);
-    state.coaddEpochImages.push(snrCanvas);
-  }
-}
-
 function loadImagePromise(b64Src) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("No se pudo decodificar una imagen FITS"));
     img.src = b64Src;
   });
+}
+
+function getSelectedBandIndex(epochs) {
+  if (!epochs.length) return 0;
+  if (state.selectedBand === "auto") {
+    return state.currentEpochIdx % epochs.length;
+  }
+  const selected = Number.parseInt(state.selectedBand, 10);
+  return Number.isInteger(selected) && selected >= 0 && selected < epochs.length
+    ? selected
+    : state.currentEpochIdx % epochs.length;
 }
 
 function renderCanvas() {
@@ -687,13 +762,13 @@ function renderCanvas() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const epochs = state.exploreData.epochs || [];
-  const epIdx = epochs.length > 0 ? state.currentEpochIdx % epochs.length : 0;
+  const epIdx = getSelectedBandIndex(epochs);
   let baseImg = null;
 
   if (state.viewMode === "diff") {
-    baseImg = state.diffEpochImages[epIdx] || state.diffImage;
+    baseImg = state.diffImage;
   } else if (state.viewMode === "coadd") {
-    baseImg = state.coaddEpochImages[epIdx] || state.coaddImage;
+    baseImg = state.coaddImage;
   } else if (state.epochImages.length > 0) {
     baseImg = state.epochImages[epIdx];
   }
@@ -711,7 +786,8 @@ function renderCanvas() {
 
   const scale = canvas.width / CUTOUT_NPIX;
 
-  if (state.showAIMarkers && state.exploreData.ai_detections) {
+  if (state.showAIMarkers && state.exploreData.ai_detections
+      && (state.viewMode !== "blink" || state.exploreData.target_info.analysis_frame_indices.includes(epIdx))) {
     state.exploreData.ai_detections.forEach((det) => {
       const cx = (det.x_pix + 0.5) * scale;
       const cy = (CUTOUT_NPIX - 1.0 - det.y_pix + 0.5) * scale;
@@ -800,18 +876,56 @@ function renderCanvas() {
     ctx.restore();
   }
 
+  if ((state.showNamedObjects || state.hoveredNamedObjectId) && state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
+    state.skyView.namedObjects.forEach((obj) => {
+      if (!obj.in_fov) return;
+      const isHovered = state.hoveredNamedObjectId === obj.id;
+      if (!isHovered && !state.showNamedObjects) return;
+      const ox = (obj.x + 0.5) * scale;
+      const oy = (CUTOUT_NPIX - 1.0 - obj.y + 0.5) * scale;
+      if (ox < 0 || ox > canvas.width || oy < 0 || oy > canvas.height) return;
+      const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
+      const labelText = hasPlanets
+        ? `${obj.name} · ${obj.planets.length} planeta${obj.planets.length === 1 ? "" : "s"}`
+        : obj.name;
+      drawTagAbovePoint(
+        ctx,
+        ox,
+        oy,
+        labelText,
+        hasPlanets ? "#a78bfa" : "#34d399",
+        hasPlanets ? "#ddd6fe" : "#a7f3d0",
+        canvas.width
+      );
+    });
+  }
+
   if (epochs.length > 0) {
     const ep = epochs[epIdx];
-    const epochLabel = `Época ${epIdx + 1}/${epochs.length}`;
+    const totalEpochs = state.exploreData.target_info.total_epochs || epochs.length;
+    const epochLabel = `Época temporal ${ep.epoch_id + 1}/${totalEpochs}`;
+    const bandLabel = `${Number(ep.wavelength_center_um).toFixed(3)} µm · ${ep.detector || "detector"}`;
     document.getElementById("frame-counter").textContent =
       state.viewMode === "blink"
-        ? epochLabel
+        ? `${epochLabel} · ${bandLabel}`
         : state.viewMode === "diff"
-        ? `Resta ΔI · ${epochLabel}`
-        : `Suma SNR · ${epochLabel}`;
-    document.getElementById("overlay-date").textContent = `Fecha Real: ${ep.obs_time}`;
-    document.getElementById("overlay-detector").textContent = `Banda/Det: ${ep.detector} | λc: ${ep.wavelength_center_um.toFixed(2)} μm`;
-    document.getElementById("overlay-clean").textContent = `Píxeles limpios: ${ep.clean_pixels_pct}%`;
+        ? "Resta temporal · bandas comparables"
+        : "Mediana · bandas comparables";
+    if (state.viewMode === "blink") {
+      const mjd = Number(ep.obs_time);
+      const date = ep.obs_time && Number.isFinite(mjd)
+        ? new Date((mjd - 40587) * 86400000).toISOString().replace("T", " ").slice(0, 19) + " UTC"
+        : ep.obs_time || "sin fecha";
+      document.getElementById("overlay-date").textContent = `Fecha: ${date}`;
+      document.getElementById("overlay-clean").textContent = `Píxeles limpios: ${ep.clean_pixels_pct}%`;
+      document.getElementById("overlay-detector").textContent = `Banda: ${bandLabel} | Δλ: ${Number(ep.bandwidth_um || 0).toFixed(3)} µm`;
+    } else {
+      const indices = state.exploreData.target_info.analysis_frame_indices;
+      const first = epochs[indices[0]], last = epochs[indices[indices.length - 1]];
+      document.getElementById("overlay-date").textContent = `${indices.length} exposiciones comparables`;
+      document.getElementById("overlay-detector").textContent = `${first.detector} · ${first.wavelength_center_um.toFixed(3)}–${last.wavelength_center_um.toFixed(3)} µm`;
+      document.getElementById("overlay-clean").textContent = state.viewMode === "diff" ? "Media tardía − media temprana" : "Mediana de los píxeles válidos";
+    }
   }
 }
 
@@ -820,7 +934,8 @@ function startBlinkTimer() {
   if (!state.isPlaying) return;
   const intervalMs = Math.round(1000 / state.fps);
   state.timerId = setInterval(() => {
-    if (state.exploreData && state.exploreData.epochs && state.exploreData.epochs.length > 0) {
+    if (!state.isLoading && state.viewMode === "blink" && state.selectedBand === "auto"
+        && state.exploreData?.epochs?.length > 0) {
       state.currentEpochIdx = (state.currentEpochIdx + 1) % state.exploreData.epochs.length;
       document.getElementById("slider-epoch").value = state.currentEpochIdx;
       renderCanvas();
@@ -850,7 +965,12 @@ function renderAIDetectionsList(detections) {
   badge.textContent = `${detections.length} anomalía${detections.length === 1 ? "" : "s"}`;
 
   if (detections.length === 0) {
-    container.innerHTML = `<div class="text-xs text-slate-400 p-3 bg-slate-900/60 rounded-lg border border-slate-800">No se detectaron anomalías &gt; 4σ en este recorte FITS.</div>`;
+    const empty = document.createElement("div");
+    empty.className = "text-xs text-slate-400 p-3 bg-slate-900/60 rounded-lg border border-slate-800";
+    empty.textContent = state.exploreData?.target_info?.difference_available
+      ? "No se detectaron anomalías > 4σ en la resta preliminar calibrada."
+      : state.exploreData?.target_info?.analysis_note || "Resta temporal no disponible.";
+    container.appendChild(empty);
     return;
   }
 
@@ -863,10 +983,13 @@ function renderAIDetectionsList(detections) {
         ? "bg-rose-950/25 border-rose-500/40 hover:bg-rose-900/30"
         : "bg-amber-950/25 border-amber-500/40 hover:bg-amber-900/30"
     }`;
+    const friendlyTitle = det.object_category
+      || (isDipole ? "Astro en Movimiento (Dipolo)" : "Estrella Variable (Monopolo)");
+    const iauName = det.iau_designation || `SPHEREx (${det.ra.toFixed(4)}°, ${det.dec.toFixed(4)}°)`;
     card.innerHTML = `
       <div class="flex items-center justify-between text-xs font-bold mb-1 gap-1">
         <span class="${isDipole ? "text-rose-300" : "text-amber-300"}">
-          #${det.id} · ${isDipole ? "DIPOLO EN MOVIMIENTO" : "MONOPOLO VARIABLE"}
+          #${det.id} · ${isDipole ? "ASTRO EN MOVIMIENTO" : "ESTRELLA VARIABLE"}
         </span>
         <div class="flex items-center gap-1">
           <span class="selected-det-badge hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-300 border border-emerald-400/40">
@@ -877,28 +1000,43 @@ function renderAIDetectionsList(detections) {
           </span>
         </div>
       </div>
-      <div class="text-[11px] font-mono text-slate-300 mb-1">
+      <div class="text-[11px] font-semibold text-sky-300 mb-0.5 detection-iau"></div>
+      <div class="text-[10px] text-slate-300 mb-1 detection-category"></div>
+      <p class="detection-user-explanation text-[11px] text-slate-100 leading-snug mb-1.5 bg-slate-950/60 p-1.5 rounded border border-slate-800/80"></p>
+      <div class="text-[10px] font-mono text-slate-400 mb-1">
         RA: ${det.ra.toFixed(5)}° | Dec: ${det.dec.toFixed(5)}° · Píxel (${det.x_pix.toFixed(1)}, ${det.y_pix.toFixed(1)})
       </div>
-      <p class="text-[11px] text-slate-400 leading-snug">${det.description}</p>
+      <p class="detection-description text-[10px] text-slate-400 leading-snug"></p>
     `;
+    card.querySelector(".detection-iau").textContent = `Designación IA: ${iauName}`;
+    card.querySelector(".detection-category").textContent = friendlyTitle;
+    card.querySelector(".detection-user-explanation").textContent =
+      det.user_explanation || det.description;
+    card.querySelector(".detection-description").textContent = det.description;
+    const sequence = state.exploreSequence;
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); card.click(); }
+    });
     if (idx < 3) {
       const line = document.createElement("p");
-      line.className = "text-[11px] text-slate-500 leading-snug mt-1";
-      line.textContent = "Consultando Gaia DR3 / AllWISE...";
+      line.className = "text-[11px] text-slate-500 leading-snug mt-1 font-medium";
+      line.textContent = "Identificando en SIMBAD / Gaia DR3 / AllWISE...";
       card.appendChild(line);
-      fetch(`/api/crossmatch?ra=${det.ra}&dec=${det.dec}&radius=14`)
+      fetch(`/api/crossmatch?ra=${det.ra}&dec=${det.dec}&radius=14`, { signal: state.exploreController.signal })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((res) => {
+          if (sequence !== state.exploreSequence) return;
           if (res.catalog_match) {
-            const matchText = `Cruce catálogo: ${res.catalog_match}`;
+            const matchText = `Identificado como: ${res.catalog_match}`;
             line.textContent = matchText;
-            line.className = "text-[11px] text-emerald-300 leading-snug mt-1";
+            line.className = "text-[11px] text-emerald-300 leading-snug mt-1 font-medium";
             state.crossmatchByDetId[det.id] = matchText;
           } else {
-            const noMatchText = "Sin contraparte catalogada en 14\" (candidato a descubrimiento)";
+            const noMatchText = "Sin coincidencia en catálogos (posible objeto no catalogado o alto mov. propio)";
             line.textContent = noMatchText;
-            line.className = "text-[11px] text-amber-300 leading-snug mt-1";
+            line.className = "text-[11px] text-amber-300 leading-snug mt-1 font-medium";
             state.crossmatchByDetId[det.id] = noMatchText;
           }
           if (state.selectedDetectionId === det.id) {
@@ -906,7 +1044,7 @@ function renderAIDetectionsList(detections) {
           }
         })
         .catch(() => {
-          line.textContent = "Cruce con catálogos en vivo completado con fuentes de campo.";
+          line.textContent = "No se pudo completar el cruce con catálogos.";
         });
     }
     card.addEventListener("click", () => {
@@ -924,11 +1062,20 @@ function renderAIDetectionsList(detections) {
 }
 
 async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = false) {
+  if (state.isLoading) return;
+  const sequence = ++state.spectrumSequence;
+  state.spectrumController?.abort();
+  state.spectrumController = new AbortController();
+  document.getElementById("spectrum-coord-label").textContent = "Midiendo espectro de la posición seleccionada…";
   try {
-    const url = `/api/spectrum?ra=${pointRa}&dec=${pointDec}&center_ra=${state.ra}&center_dec=${state.dec}&fov=${state.fov}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const url = `/api/spectrum?ra=${pointRa}&dec=${pointDec}&center_ra=${state.ra}&center_dec=${state.dec}&fov=${state.fov}&max_epochs=${state.exploreData?.epochs?.length || 10}&temporal_search=${state.temporalSearch}`;
+    const res = await fetch(url, { signal: state.spectrumController.signal });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${res.status}`);
+    }
     const data = await res.json();
+    if (sequence !== state.spectrumSequence) return;
 
     if (!keepSelectedPixel) {
       state.selectedPixel = { x: data.x_pix, y: data.y_pix };
@@ -974,8 +1121,8 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
         color: "rgba(56, 189, 248, 0.35)",
         thickness: 1,
       },
-      mode: "lines+markers",
-      name: "Flujo Real IRSA (DN / MJy/sr)",
+      mode: "markers",
+      name: "Brillo superficial (MJy/sr)",
       line: { color: "#38bdf8", width: 2.2 },
       marker: { color: "#e0f2fe", size: 6, line: { color: "#0284c7", width: 1 } },
       hovertemplate: "<b>λ = %{x:.3f} μm</b><br>Flujo = %{y:.3f}<extra></extra>",
@@ -987,12 +1134,12 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
       margin: { l: 52, r: 18, t: 14, b: 42 },
       xaxis: {
         title: { text: "Longitud de Onda Infrarroja λ (micrones · Fotometría Real FITS)", font: { color: "#94a3b8", size: 11 } },
-        range: [0.7, 5.1],
+        autorange: true,
         gridcolor: "rgba(148, 163, 184, 0.12)",
         tickfont: { color: "#cbd5e1", size: 10 },
       },
       yaxis: {
-        title: { text: "Flujo Fotométrico Calibrado", font: { color: "#94a3b8", size: 11 } },
+        title: { text: "Brillo superficial (MJy/sr)", font: { color: "#94a3b8", size: 11 } },
         gridcolor: "rgba(148, 163, 184, 0.12)",
         tickfont: { color: "#cbd5e1", size: 10 },
       },
@@ -1003,9 +1150,9 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
     Plotly.react("spectrum-plot", [trace], layout, { responsive: true, displayModeBar: false });
 
     const diag = data.ai_diagnosis;
-    document.getElementById("diag-confidence").textContent = `Confianza: ${Math.round(diag.confidence * 100)}%`;
+    document.getElementById("diag-confidence").textContent = diag.confidence == null ? "Orientativo" : `Confianza: ${Math.round(diag.confidence * 100)}%`;
     document.getElementById("diag-class").textContent = diag.classification;
-    document.getElementById("diag-temp").textContent = `~${diag.effective_temp_k_est} K`;
+    document.getElementById("diag-temp").textContent = diag.effective_temp_k_est ? `~${diag.effective_temp_k_est} K` : "Sin estimar";
     document.getElementById("diag-bands").textContent = `${data.total_bands_sampled} exposiciones`;
     document.getElementById("diag-summary").textContent = diag.summary;
 
@@ -1018,7 +1165,16 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
       molContainer.appendChild(span);
     });
   } catch (err) {
+    if (err.name === "AbortError" || sequence !== state.spectrumSequence) return;
     console.error("Error obteniendo espectro real:", err);
+    document.getElementById("spectrum-coord-label").textContent = `No se pudo medir el espectro: ${err.message}`;
+    document.getElementById("diag-class").textContent = "Espectro no disponible";
+    document.getElementById("diag-confidence").textContent = "Sin medición";
+    document.getElementById("diag-temp").textContent = "Sin estimar";
+    document.getElementById("diag-bands").textContent = "—";
+    document.getElementById("diag-summary").textContent = "Reintentá seleccionando una fuente del recorte.";
+    document.getElementById("diag-molecules").replaceChildren();
+    if (window.Plotly) Plotly.purge("spectrum-plot");
   }
 }
 
@@ -1035,7 +1191,10 @@ function showLoading(message) {
     document.body.appendChild(box);
   }
   const t0 = Date.now();
+  const token = String(performance.now());
+  box.dataset.loadingToken = token;
   const render = () => {
+    if (box.dataset.loadingToken !== token) return;
     const s = Math.round((Date.now() - t0) / 1000);
     const hint = s > 20 ? " · una región nueva puede tardar 1–2 min (IRSA está lento)" : "";
     box.textContent = `Cargando: ${message} (${s} s)${hint}`;
@@ -1045,88 +1204,119 @@ function showLoading(message) {
   const timer = setInterval(render, 1000);
   return () => {
     clearInterval(timer);
-    box.style.display = "none";
+    if (box.dataset.loadingToken === token) box.style.display = "none";
   };
 }
+function setExploreProgress(message) {
+  const status = document.getElementById("target-banner-desc");
+  if (status) status.textContent = message;
+}
 
-async function exploreCoordinates(ra, dec, fov) {
-  const stopLoading = showLoading("Consultando NASA/IPAC IRSA y procesando recortes FITS...");
-  state.ra = Number(ra);
-  state.dec = Number(dec);
-  state.fov = Number(fov);
-  state.crossmatchByDetId = {};
+function populateBandSelector(epochs, targetInfo) {
+  const select = document.getElementById("select-band");
+  const summary = document.getElementById("band-summary");
+  if (!select) return;
+  select.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = "auto";
+  auto.textContent = `Secuencia automática · inicia en mejor cobertura${targetInfo.best_band_clean_pct != null ? ` (${targetInfo.best_band_clean_pct}%)` : ""}`;
+  select.appendChild(auto);
+  epochs.forEach((ep, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    const wavelength = Number(ep.wavelength_center_um);
+    const wavelengthLabel = wavelength > 0 ? `${wavelength.toFixed(3)} µm` : "λ desconocida";
+    const bandwidth = Number(ep.bandwidth_um);
+    const bandwidthLabel = bandwidth > 0 ? `Δλ ${bandwidth.toFixed(3)} µm` : "Δλ n/a";
+    option.textContent = `${index + 1}. ${wavelengthLabel} · ${bandwidthLabel} · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% limpios`;
+    select.appendChild(option);
+  });
+  select.value = "auto";
+  state.selectedBand = "auto";
+  state.currentEpochIdx = targetInfo.best_band_index || 0;
+  if (summary) {
+    const best = targetInfo.best_band_index;
+    const bestEp = Number.isInteger(best) ? epochs[best] : null;
+    const loadedBands = Number.isInteger(targetInfo.total_bands) && targetInfo.total_bands > 0
+      ? targetInfo.total_bands
+      : epochs.length;
+    summary.textContent = bestEp
+      ? `Automática: ${Number(bestEp.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(bestEp.bandwidth_um || 0).toFixed(3)} µm) · ${bestEp.detector || "detector"} · ${bestEp.clean_pixels_pct}% de píxeles limpios · ${loadedBands} bandas cargadas.`
+      : `Automática: no se pudo determinar una longitud de onda válida · ${loadedBands} bandas cargadas.`;
+  }
+}
 
-  document.getElementById("input-ra").value = state.ra.toFixed(6);
-  document.getElementById("input-dec").value = state.dec.toFixed(6);
-  document.getElementById("input-fov").value = state.fov.toFixed(4);
-  syncUrlParams(state.ra, state.dec, state.fov);
+function setExploreBusy(busy) {
+  state.isLoading = busy;
+  document.querySelectorAll("#coord-form input, #coord-form button[type=submit], .preset-btn, #btn-load-102-bands, #btn-temporal-search, #select-band, #slider-epoch")
+    .forEach((el) => { el.disabled = busy; });
+  document.getElementById("coord-form").setAttribute("aria-busy", String(busy));
+  document.getElementById("coord-form").querySelector("button[type=submit]").textContent = busy ? "Procesando…" : "Explorar Cielo";
+}
 
-  document.getElementById("target-banner-desc").textContent =
-    "Consultando servidor TAP de NASA/IPAC IRSA y descargando recortes .FITS reales...";
-
+async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch = false, refresh = false) {
+  ra = Number(ra); dec = Number(dec); fov = Number(fov);
+  if (![ra, dec, fov].every(Number.isFinite) || ra < 0 || ra > 360 || dec < -90 || dec > 90 || fov <= 0.005 || fov > 1) {
+    setExploreProgress("Revisá las coordenadas: RA 0–360°, Dec −90–90°, FoV entre 0.005° y 1°.");
+    return;
+  }
+  const sequence = ++state.exploreSequence;
+  state.exploreController?.abort();
+  state.spectrumController?.abort();
+  state.spectrumSequence++;
+  state.exploreController = new AbortController();
+  const controller = state.exploreController;
+  const timeout = setTimeout(() => controller.abort(), 240000);
+  setExploreBusy(true);
+  const stopLoading = showLoading("Consultando IRSA y procesando recortes FITS…");
   try {
-    const res = await fetch(`/api/explore?ra=${state.ra}&dec=${state.dec}&fov=${state.fov}`, {
-      signal: AbortSignal.timeout(240000),
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.detail || `HTTP ${res.status}`);
-    }
+    const res = await fetch(`/api/explore?ra=${ra}&dec=${dec}&fov=${fov}&max_epochs=${maxEpochs}&temporal_search=${temporalSearch}&refresh=${refresh}`, { signal: state.exploreController.signal });
     const data = await res.json();
-    state.exploreData = data;
-    state.currentEpochIdx = 0;
-
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    const [images, flags, coadd, diff] = await Promise.all([
+      Promise.all(data.epochs.map((ep) => loadImagePromise(ep.image_base64))),
+      Promise.all(data.epochs.map((ep) => loadImagePromise(ep.flags_base64))),
+      loadImagePromise(data.coadd_image_base64), loadImagePromise(data.diff_image_base64),
+    ]);
+    if (sequence !== state.exploreSequence) return;
+    Object.assign(state, { ra, dec, fov, exploreData: data, epochImages: images, flagImages: flags,
+      coaddImage: coadd, diffImage: diff, crossmatchByDetId: {}, temporalSearch });
+    document.getElementById("input-ra").value = ra.toFixed(6);
+    document.getElementById("input-dec").value = dec.toFixed(6);
+    document.getElementById("input-fov").value = fov.toFixed(4);
+    syncUrlParams(ra, dec, fov, temporalSearch);
+    populateBandSelector(data.epochs, data.target_info);
     const slider = document.getElementById("slider-epoch");
     slider.max = Math.max(0, data.epochs.length - 1);
-    slider.value = 0;
-
+    slider.value = state.currentEpochIdx;
     document.querySelectorAll(".preset-btn").forEach((btn) => {
-      if (btn.dataset.target === data.target_info.matched_target_id) {
-        btn.classList.add("target-btn-active");
-      } else {
-        btn.classList.remove("target-btn-active");
-      }
+      btn.classList.toggle("target-btn-active", btn.dataset.target === data.target_info.matched_target_id);
     });
-
-    const badge = document.getElementById("badge-datasource");
-    badge.textContent = `${data.target_info.data_source} (${data.target_info.total_frames} FITS)`;
-    document.getElementById("target-banner-desc").textContent =
-      data.target_info.matched_description ||
-      `Recortes .FITS reales de NASA IRSA para RA=${state.ra.toFixed(4)}°, Dec=${state.dec.toFixed(4)}°`;
-
-    state.epochImages = await Promise.all(data.epochs.map((e) => loadImagePromise(e.image_base64)));
-    state.flagImages = await Promise.all(data.epochs.map((e) => loadImagePromise(e.flags_base64)));
-    state.coaddImage = await loadImagePromise(data.coadd_image_base64);
-    state.diffImage = await loadImagePromise(data.diff_image_base64);
-
-    buildPerEpochDiffAndCoadd();
+    document.getElementById("badge-datasource").textContent =
+      `${data.target_info.data_source} · ${data.target_info.total_frames} recortes`;
+    document.getElementById("analysis-note").textContent = data.target_info.analysis_note;
+    document.getElementById("mode-diff").disabled = !data.target_info.difference_available;
+    if (state.viewMode === "diff" && !data.target_info.difference_available) setViewMode("blink");
     buildCatalogSourcesFromField();
-
-    if (data.ai_detections && data.ai_detections.length > 0) {
-      const topDet = data.ai_detections[0];
-      state.selectedDetectionId = topDet.id;
-      state.selectedPixel = { x: topDet.x_pix, y: topDet.y_pix };
-    } else {
-      state.selectedDetectionId = null;
-      state.selectedPixel = { x: 64, y: 64 };
-    }
-
+    const top = data.ai_detections?.[0];
+    state.selectedDetectionId = top?.id || null;
+    state.selectedPixel = top ? { x: top.x_pix, y: top.y_pix } : { x: 63.5, y: 63.5 };
     renderAIDetectionsList(data.ai_detections || []);
-    state.skyView.zoom = 1.0;
-    updateAladinView(state.ra, state.dec, state.fov);
+    state.skyView.zoom = 1;
+    updateAladinView(ra, dec, fov);
     renderCanvas();
-
-    if (data.ai_detections && data.ai_detections.length > 0) {
-      const topDet = data.ai_detections[0];
-      await fetchAndRenderSpectrum(topDet.ra, topDet.dec, true);
-    } else {
-      await fetchAndRenderSpectrum(state.ra, state.dec, false);
-    }
-  } catch (err) {
-    console.error("Error en exploreCoordinates:", err);
-    document.getElementById("target-banner-desc").textContent = `Error IRSA: ${err.message}`;
-  } finally {
     stopLoading();
+    setExploreBusy(false);
+    setExploreProgress(data.target_info.matched_description || `Región RA=${ra.toFixed(4)}°, Dec=${dec.toFixed(4)}° lista.`);
+    void loadFieldCatalogs(sequence);
+    void fetchAndRenderSpectrum(top?.ra ?? ra, top?.dec ?? dec, Boolean(top));
+  } catch (err) {
+    if (sequence !== state.exploreSequence) return;
+    setExploreProgress(err.name === "AbortError" ? "La consulta agotó el tiempo de espera. Reintentá." : `No se pudo cargar la región: ${err.message}`);
+  } finally {
+    clearTimeout(timeout);
+    stopLoading();
+    if (sequence === state.exploreSequence) setExploreBusy(false);
   }
 }
 
@@ -1145,6 +1335,10 @@ function setViewMode(mode) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const plot = document.getElementById("spectrum-plot");
+  new ResizeObserver(() => {
+    if (window.Plotly && plot.data) Plotly.Plots.resize(plot);
+  }).observe(plot);
   const initial = getParamsFromUrl();
   state.ra = initial.ra;
   state.dec = initial.dec;
@@ -1178,8 +1372,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     exploreCoordinates(ra, dec, fov);
   });
 
-  document.getElementById("btn-share-url").addEventListener("click", () => {
-    navigator.clipboard.writeText(window.location.href);
+  document.getElementById("btn-share-url").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(window.location.href); }
+    catch { setExploreProgress("No se pudo copiar. Copiá el enlace desde la barra de direcciones."); return; }
     const btn = document.getElementById("btn-share-url");
     const orig = btn.innerHTML;
     btn.innerHTML = "<span>URL Copiada</span>";
@@ -1192,13 +1387,54 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("btn-play-pause").addEventListener("click", (e) => {
     state.isPlaying = !state.isPlaying;
+    if (state.isPlaying) {
+      state.selectedBand = "auto";
+      document.getElementById("select-band").value = "auto";
+    }
     e.currentTarget.textContent = state.isPlaying ? "Pausar" : "Reproducir";
     startBlinkTimer();
   });
 
   document.getElementById("slider-epoch").addEventListener("input", (e) => {
     state.currentEpochIdx = parseInt(e.target.value, 10);
+    state.selectedBand = String(state.currentEpochIdx);
+    const bandSelect = document.getElementById("select-band");
+    if (bandSelect) bandSelect.value = state.selectedBand;
     renderCanvas();
+  });
+
+  document.getElementById("select-band").addEventListener("change", (e) => {
+    state.selectedBand = e.target.value;
+    const epochs = state.exploreData?.epochs || [];
+    const selectedIndex = getSelectedBandIndex(epochs);
+    state.currentEpochIdx = selectedIndex;
+    document.getElementById("slider-epoch").value = selectedIndex;
+    const ep = epochs[selectedIndex];
+    const summary = document.getElementById("band-summary");
+    if (summary && ep) {
+      summary.textContent = state.selectedBand === "auto"
+        ? `Automática: ${Number(ep.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(ep.bandwidth_um || 0).toFixed(3)} µm) · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% de píxeles limpios.`
+        : `Manual: ${Number(ep.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(ep.bandwidth_um || 0).toFixed(3)} µm) · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% de píxeles limpios.`;
+    }
+    renderCanvas();
+  });
+
+  document.getElementById("btn-temporal-search").addEventListener("click", () => {
+    exploreCoordinates(Number(document.getElementById("input-ra").value),
+      Number(document.getElementById("input-dec").value), Number(document.getElementById("input-fov").value), 24, true, true);
+  });
+
+  document.getElementById("btn-load-102-bands").addEventListener("click", async (e) => {
+    const button = e.currentTarget;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = "Cargando…";
+    try {
+      await exploreCoordinates(state.ra, state.dec, state.fov, 102);
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   });
 
   document.getElementById("select-fps").addEventListener("change", (e) => {
@@ -1215,6 +1451,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.showFlags = e.target.checked;
     renderCanvas();
   });
+
+  const chkNamed = document.getElementById("chk-named-objects");
+  if (chkNamed) {
+    chkNamed.addEventListener("change", (e) => {
+      state.showNamedObjects = e.target.checked;
+      renderContextSkyMap();
+      renderCanvas();
+    });
+  }
 
   document.getElementById("chk-gaia").addEventListener("change", (e) => {
     state.showGaiaCat = e.target.checked;
@@ -1240,13 +1485,46 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   const canvas = document.getElementById("spherex-canvas");
+  canvas.addEventListener("mousemove", (e) => {
+    if (state.isLoading || !state.exploreData) return;
+    const rect = canvas.getBoundingClientRect();
+    const xPix = ((e.clientX - rect.left) / rect.width) * CUTOUT_NPIX - 0.5;
+    const yPix = CUTOUT_NPIX - 0.5 - ((e.clientY - rect.top) / rect.height) * CUTOUT_NPIX;
+    const hoveredObj = findHoveredNamedObject(xPix, yPix, 5.5);
+    const prevHoverId = state.hoveredNamedObjectId;
+    state.hoveredNamedObjectId = hoveredObj ? hoveredObj.id : null;
+    canvas.style.cursor = hoveredObj ? "pointer" : "crosshair";
+    if (state.hoveredNamedObjectId !== prevHoverId) {
+      if (hoveredObj) {
+        showNamedObjectDetail(hoveredObj);
+      } else {
+        const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
+        if (activeObj) showNamedObjectDetail(activeObj);
+      }
+      renderCanvas();
+      renderContextSkyMap();
+    }
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    if (state.hoveredNamedObjectId !== null) {
+      state.hoveredNamedObjectId = null;
+      canvas.style.cursor = "crosshair";
+      const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
+      if (activeObj) showNamedObjectDetail(activeObj);
+      renderCanvas();
+      renderContextSkyMap();
+    }
+  });
+
   canvas.addEventListener("click", (e) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    const x_pix = (clickX / rect.width) * CUTOUT_NPIX;
-    const y_pix = CUTOUT_NPIX - 1.0 - (clickY / rect.height) * CUTOUT_NPIX;
+    if (state.isLoading || !state.exploreData) return;
+    const x_pix = Math.max(0, Math.min(127, (clickX / rect.width) * CUTOUT_NPIX - 0.5));
+    const y_pix = Math.max(0, Math.min(127, CUTOUT_NPIX - 0.5 - (clickY / rect.height) * CUTOUT_NPIX));
 
     state.selectedDetectionId = null;
     state.selectedPixel = { x: x_pix, y: y_pix };
@@ -1259,6 +1537,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     fetchAndRenderSpectrum(coords.ra, coords.dec, true);
   });
 
-  await exploreCoordinates(state.ra, state.dec, state.fov);
+  await exploreCoordinates(state.ra, state.dec, state.fov, initial.temporalSearch ? 24 : 10, initial.temporalSearch);
   startBlinkTimer();
 });

@@ -6,6 +6,24 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class PhotometricCalibration(BaseModel):
+    frame_index: int
+    is_reference: bool
+    scale: float
+    offset: float
+    reference_sources: int
+    relative_scatter: float
+
+
+class DifferenceQuality(BaseModel):
+    status: str = "insufficient_epochs"
+    target_fwhm_arcsec: Optional[float] = None
+    baseline_years: Optional[float] = None
+    valid_pixels_pct: float = 0.0
+    calibrations: List[PhotometricCalibration] = Field(default_factory=list)
+    groups_checked: int = 0
+
+
 class TargetInfo(BaseModel):
     ra: float = Field(..., description="Ascensión Recta central en grados decimales (ICRS)")
     dec: float = Field(..., description="Declinación central en grados decimales (ICRS)")
@@ -16,13 +34,26 @@ class TargetInfo(BaseModel):
     matched_description: Optional[str] = None
     data_source: str = Field(..., description="IRSA_SPHEREX_TAP, IRSA_IBE_REAL_FITS o CACHE_REAL_FITS")
     tap_query_executed: str = Field(..., description="Consulta ADQL ejecutada contra IRSA TAP")
+    available_bands: List[float] = Field(default_factory=list, description="Longitudes de onda disponibles en los recortes cargados")
+    best_band_index: Optional[int] = Field(None, description="Índice de la banda con mayor porcentaje de píxeles limpios")
+    best_band_clean_pct: Optional[float] = Field(None, description="Porcentaje de píxeles limpios de la mejor banda")
+    total_epochs: int = Field(0, description="Cantidad de instantes temporales distintos")
+    total_bands: int = Field(0, description="Cantidad de combinaciones detector/longitud de onda")
+    analysis_frame_indices: List[int] = Field(default_factory=list)
+    difference_available: bool = False
+    analysis_note: str = ""
+    difference_quality: DifferenceQuality = Field(default_factory=DifferenceQuality)
+    temporal_search: bool = False
 
 
 class EpochFrame(BaseModel):
     index: int
+    epoch_id: int = Field(0, description="Índice temporal agrupado por instante de observación")
+    band_id: str = Field("", description="Identificador estable de detector y banda espectral")
     obs_time: str
     detector: str
     wavelength_center_um: float
+    bandwidth_um: float = 0.0
     cutout_url: str
     image_base64: str
     flags_base64: str
@@ -43,6 +74,12 @@ class AIDetection(BaseModel):
     proper_motion_arcsec_yr: float
     catalog_match: Optional[str] = Field(None, description="ID en Gaia DR3 o AllWISE si existe en catálogo")
     description: str
+    positive_support_pixels: Optional[int] = None
+    negative_support_pixels: Optional[int] = None
+    lobe_flux_balance: Optional[float] = None
+    iau_designation: Optional[str] = Field(None, description="Designación astronómica IAU por coordenadas (SPHEREx J...)")
+    object_category: Optional[str] = Field(None, description="Categoría legible para el usuario")
+    user_explanation: Optional[str] = Field(None, description="Explicación en lenguaje claro de qué detectó la IA")
 
 
 class ExploreResponse(BaseModel):
@@ -72,8 +109,8 @@ class MoleculeBand(BaseModel):
 
 class SpectralDiagnosis(BaseModel):
     classification: str
-    confidence: float
-    effective_temp_k_est: int
+    confidence: Optional[float] = None
+    effective_temp_k_est: Optional[int] = None
     detected_molecules: List[str]
     summary: str
 

@@ -1,0 +1,38 @@
+{
+  "ra": 248.167625,
+  "dec": 66.754972,
+  "fov": 0.05,
+  "total_identified": 2,
+  "objects": [
+    {
+      "id": "R Draconis",
+      "name": "R Draconis",
+      "raw_id": "V* R Dra",
+      "ra": 248.167611,
+      "dec": 66.754979,
+      "category": "Estrella Gigante Roja Variable (Mira)",
+      "kind": "variable_star",
+      "spectral_type": "M4.5-6+e",
+      "proper_motion_mas_yr": 21.5,
+      "planets": [],
+      "distance_arcsec": 0.0,
+      "in_fov": true,
+      "explanation": "Estrella gigante fría que pulsa y cambia fuertemente su brillo en meses (tipo espectral M4.5-6+e)."
+    },
+    {
+      "id": "Gaia DR3 1648328119433021824",
+      "name": "Gaia DR3 1648328119433021824",
+      "raw_id": "Gaia DR3 1648328119433021824",
+      "ra": 248.196448,
+      "dec": 66.777998,
+      "category": "Estrella Cercana de Rápido Movimiento",
+      "kind": "star",
+      "spectral_type": null,
+      "proper_motion_mas_yr": 67.6,
+      "planets": [],
+      "distance_arcsec": 92.5,
+      "in_fov": true,
+      "explanation": "Estrella próxima al Sistema Solar que se desplaza rápidamente por el cielo."
+    }
+  ]
+}

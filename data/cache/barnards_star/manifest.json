@@ -64,6 +64,43 @@
       "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_1B/l2b-v20-2025-267/3/level2_2025W34_1B_0164_1D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
       "obs_time": "60905.853257",
       "detector_band": "SPHEREx-D3"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_01.fits",
+      "cutout_url": "",
+      "obs_time": "60902.86471456",
+      "detector_band": "SPHEREx-D3"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_10.fits",
+      "cutout_url": "",
+      "obs_time": "60905.853256597",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_12.fits",
+      "cutout_url": "",
+      "obs_time": "60905.854748854",
+      "detector_band": "SPHEREx-D3"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_13.fits",
+      "cutout_url": "",
+      "obs_time": "60905.854748854",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_14.fits",
+      "cutout_url": "",
+      "obs_time": "60905.856241111",
+      "detector_band": "SPHEREx-D6"
+    },
+    {
+      "local_path": "C:\\Users\\Sebas\\OneDrive\\Desktop\\Nasa\\data\\cache\\barnards_star\\real_epoch_15.fits",
+      "cutout_url": "",
+      "obs_time": "60905.856241111",
+      "detector_band": "SPHEREx-D3"
     }
-  ]
+  ],
+  "complete": false
 }
