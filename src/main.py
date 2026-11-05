@@ -4,9 +4,9 @@ Servidor FastAPI v2.0 conectado 100% a NASA/IPAC IRSA TAP/IBE y CDS Gaia/AllWISE
 
 import logging
 import time
+import threading
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
-import numpy as np
+from typing import Dict, Any, List
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,7 +29,9 @@ from src.schemas import (
     MoleculeBand,
     SpectralDiagnosis,
 )
-from src.irsa_client import obtain_real_fits_for_coordinates
+from src.irsa_client import obtain_real_fits_for_coordinates, NoCoverageError, query_catalog_field
+from src.analysis import observation_mjd, rank_analysis_groups
+from src.temporal_search import obtain_temporal_fits_for_coordinates
 from src.pipeline import (
     build_common_target_wcs,
     load_and_clean_real_fits,
@@ -45,6 +47,7 @@ logger = logging.getLogger("spherex.api")
 # Caché en memoria de respuestas /api/explore (misma región = respuesta instantánea)
 _EXPLORE_CACHE: Dict[tuple, Any] = {}
 _EXPLORE_CACHE_MAX = 16
+_EXPLORE_CACHE_LOCK = threading.Lock()
 
 app = FastAPI(
     title="Papastronomy v2.0 - NASA SPHEREx & IRSA Live Discovery API",
@@ -74,20 +77,23 @@ def explore_sky_region(
     fov: float = Query(DEFAULT_FOV_DEG, gt=0.005, le=1.0, description="Campo de visión (FoV) en grados"),
     max_epochs: int = Query(10, ge=1, le=102, description="Cantidad de bandas/recortes a cargar (hasta 102)"),
     refresh: bool = Query(False, description="Forzar re-descarga en vivo desde NASA/IPAC IRSA"),
+    temporal_search: bool = False,
 ) -> ExploreResponse:
     """
     Consulta en vivo NASA/IPAC IRSA (o lee los archivos .FITS reales ya descargados en caché),
-    limpia la máscara FLAGS, sustrae el fondo con SEP, alinea las épocas con `reproject_interp`,
+    limpia la máscara FLAGS, resta una mediana de fondo, alinea las épocas con `reproject_interp`,
     calcula `coadd` y `diff`, y detecta dipolos/variables cruzándolos con Gaia DR3 y AllWISE.
     """
-    cache_key = (round(ra, 5), round(dec, 5), round(fov, 4), max_epochs)
-    if not refresh and cache_key in _EXPLORE_CACHE:
-        logger.info("explore: respuesta servida desde caché en memoria %s", cache_key)
-        return _EXPLORE_CACHE[cache_key]
+    cache_key = (ra, dec, fov, max_epochs, temporal_search)
+    with _EXPLORE_CACHE_LOCK:
+        if not refresh and cache_key in _EXPLORE_CACHE:
+            logger.info("explore: respuesta servida desde caché en memoria %s", cache_key)
+            return _EXPLORE_CACHE[cache_key]
 
     t0 = time.perf_counter()
     try:
-        frames_meta, matched_meta, data_source, tap_query = obtain_real_fits_for_coordinates(
+        obtain = obtain_temporal_fits_for_coordinates if temporal_search else obtain_real_fits_for_coordinates
+        frames_meta, matched_meta, data_source, tap_query = obtain(
             ra, dec, fov_deg=fov, max_epochs=max_epochs, force_refresh=refresh
         )
         t_irsa = time.perf_counter()
@@ -102,7 +108,7 @@ def explore_sky_region(
             if not p.exists():
                 continue
             try:
-                ep = load_and_clean_real_fits([p])
+                ep = load_and_clean_real_fits([p], ra=ra, dec=dec)
             except Exception as e:
                 logger.warning("Se omite %s: %s", p.name, e)
                 continue
@@ -123,10 +129,21 @@ def explore_sky_region(
             logger.warning("No se pudo construir WCS para (%.4f, %.4f), FoV=%.3f", ra, dec, fov)
             raise HTTPException(status_code=503, detail="WCS invalido para estas coordenadas o campo de visión")
 
+        cleaned_epochs.sort(key=lambda ep: observation_mjd(ep["obs_time"]) or 0)
+        analysis_groups = rank_analysis_groups(cleaned_epochs)
+        analysis_indices = analysis_groups[0]
+        difference_quality: Dict[str, Any] = {}
         aligned_imgs, aligned_flags, coadd_img, diff_img = align_coadd_and_diff(
-            cleaned_epochs, target_wcs, shape_out
+            cleaned_epochs, target_wcs, shape_out, analysis_indices=analysis_indices,
+            diagnostics=difference_quality,
+            analysis_groups=analysis_groups,
         )
-
+        analysis_indices = difference_quality.pop("analysis_frame_indices")
+        analysis_epochs = [cleaned_epochs[i] for i in analysis_indices]
+        difference_available = difference_quality.pop("available")
+        analysis_note = difference_quality.pop("note")
+        if temporal_search and "parcial" in data_source.lower():
+            analysis_note += " La búsqueda remota fue parcial; reintentá para ampliar las fechas."
         t_align = time.perf_counter()
 
         # Separar explícitamente la dimensión temporal de la espectral:
@@ -166,9 +183,11 @@ def explore_sky_region(
 
         t_png = time.perf_counter()
         raw_detections = detect_anomalies_on_diff(
-            diff_img, target_wcs, fov_deg=fov, epochs_meta=cleaned_epochs, threshold_sigma=4.0,
+            diff_img, target_wcs, fov_deg=fov, epochs_meta=analysis_epochs, threshold_sigma=4.0,
             do_crossmatch=False,  # el cruce con catálogos se pide aparte (/api/crossmatch) para no bloquear la carga
-        )
+            baseline_years=difference_quality["baseline_years"],
+            psf_fwhm_pixels=(difference_quality["target_fwhm_arcsec"] / (fov * 3600 / shape_out[1])),
+        ) if difference_available else []
         ai_detections = [AIDetection(**det) for det in raw_detections]
 
         available_bands = sorted({
@@ -199,6 +218,11 @@ def explore_sky_region(
             ),
             total_epochs=len(epoch_ids),
             total_bands=len(band_ids),
+            analysis_frame_indices=analysis_indices,
+            difference_available=difference_available,
+            analysis_note=analysis_note,
+            difference_quality=difference_quality,
+            temporal_search=temporal_search,
         )
 
         response = ExploreResponse(
@@ -214,12 +238,15 @@ def explore_sky_region(
             "explore %s tiempos(s): IRSA/caché-disco=%.2f carga FITS=%.2f alineación=%.2f PNGs=%.2f IA+catálogos=%.2f TOTAL=%.2f",
             cache_key, t_irsa - t0, t_load - t_irsa, t_align - t_load, t_png - t_align, t_ai - t_png, t_ai - t0,
         )
-        if len(_EXPLORE_CACHE) >= _EXPLORE_CACHE_MAX:
-            _EXPLORE_CACHE.pop(next(iter(_EXPLORE_CACHE)))
-        _EXPLORE_CACHE[cache_key] = response
+        with _EXPLORE_CACHE_LOCK:
+            if cache_key not in _EXPLORE_CACHE and len(_EXPLORE_CACHE) >= _EXPLORE_CACHE_MAX:
+                _EXPLORE_CACHE.pop(next(iter(_EXPLORE_CACHE)))
+            _EXPLORE_CACHE[cache_key] = response
         return response
     except HTTPException:
         raise
+    except NoCoverageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error procesando datos reales en /api/explore:")
         raise HTTPException(status_code=502, detail=f"Error comunicando con NASA/IPAC IRSA: {exc}") from exc
@@ -232,17 +259,35 @@ def crossmatch_one(
     radius: float = Query(14.0, gt=0.0, le=60.0, description="Radio de búsqueda en arcsec"),
 ) -> Dict[str, Any]:
     """Cruce en vivo con AllWISE / Gaia DR3 para UNA posición (con caché en memoria)."""
-    return {"catalog_match": _crossmatch_cached(ra, dec, radius)}
+    try:
+        return {"catalog_match": _crossmatch_cached(ra, dec, radius)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/catalog")
+def catalog_field(
+    catalog: str = Query(..., pattern="^(gaia|allwise)$"),
+    ra: float = Query(..., ge=0, le=360),
+    dec: float = Query(..., ge=-90, le=90),
+    fov: float = Query(DEFAULT_FOV_DEG, gt=0.005, le=1),
+) -> Dict[str, Any]:
+    try:
+        return query_catalog_field(catalog, ra, dec, fov)
+    except Exception as exc:
+        logger.warning("Catálogo %s no disponible: %s", catalog, exc)
+        raise HTTPException(status_code=502, detail=f"No se pudo consultar {catalog}") from exc
 
 
 @app.get("/api/spectrum", response_model=SpectrumResponse)
 def get_point_spectrum(
     ra: float = Query(..., ge=0.0, le=360.0),
     dec: float = Query(..., ge=-90.0, le=90.0),
-    center_ra: float | None = Query(None),
-    center_dec: float | None = Query(None),
+    center_ra: float | None = Query(None, ge=0, le=360),
+    center_dec: float | None = Query(None, ge=-90, le=90),
     fov: float = Query(DEFAULT_FOV_DEG, gt=0.005, le=1.0),
     max_epochs: int = Query(10, ge=1, le=102),
+    temporal_search: bool = False,
 ) -> SpectrumResponse:
     """
     Extrae la fotometría de apertura real y las longitudes de onda (vía `WCS key='W'` o headers calibrados)
@@ -251,11 +296,15 @@ def get_point_spectrum(
     ref_ra = center_ra if center_ra is not None else ra
     ref_dec = center_dec if center_dec is not None else dec
 
-    frames_meta, _, _, _ = obtain_real_fits_for_coordinates(ref_ra, ref_dec, fov_deg=fov, max_epochs=max_epochs)
+    try:
+        obtain = obtain_temporal_fits_for_coordinates if temporal_search else obtain_real_fits_for_coordinates
+        frames_meta, _, _, _ = obtain(ref_ra, ref_dec, fov_deg=fov, max_epochs=max_epochs)
+    except NoCoverageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     
     # Verificar que hay datos disponibles (P2-005: validación de datos)
     if not frames_meta:
-        raise RuntimeError(f"No se encontraron datos para RA={ref_ra:.4f}, Dec={ref_dec:.4f}, FoV={fov}º")
+        raise HTTPException(status_code=503, detail="No hay observaciones de esta región")
     
     target_wcs, _ = build_common_target_wcs(ref_ra, ref_dec, fov)
 
@@ -300,7 +349,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.get("/")
 def serve_frontend() -> HTMLResponse:
     html_content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    bust = int(time.time())
+    bust = (STATIC_DIR / "app.js").stat().st_mtime_ns
     html_content = html_content.replace("/static/app.js?v=2.4", f"/static/app.js?v={bust}")
     return HTMLResponse(
         content=html_content,

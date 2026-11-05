@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from astropy.io import fits
 
+from src.cache_utils import resolve_cached_path
 from src.config import BASE_DIR, CACHE_DIR, MANDATORY_TARGETS
 from src.irsa_client import obtain_real_fits_for_coordinates, build_spherex_adql_query
 
@@ -82,7 +83,7 @@ def detect_downloaded_target(target: Dict[str, Any], min_epochs: int = 2) -> Tup
 
             for item in manifest.get("frames", []):
                 raw_path = Path(item.get("local_path", ""))
-                candidate = raw_path if raw_path.exists() else (tdir / raw_path.name)
+                candidate = resolve_cached_path(item.get("local_path", ""), tdir)
                 if candidate.exists() and candidate.stat().st_size > 0:
                     if str(candidate.resolve()) != str(raw_path):
                         item["local_path"] = str(candidate.resolve())

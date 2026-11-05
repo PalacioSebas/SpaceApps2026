@@ -1,25 +1,53 @@
 @echo off
-cd /d "%~dp0"
-echo ==================================================================
-echo Iniciando Plataforma Papastronomy: SPHEREx ^& Planet X Explorer
-echo Directorio activo: %CD%
-echo ==================================================================
+setlocal
+rem Solo buscar interpretes instalados, sin descargas automaticas del gestor.
+set "PYTHON_MANAGER_AUTOMATIC_INSTALL=false"
+set "PYLAUNCHER_ALLOW_INSTALL="
+set "PYLAUNCHER_ALWAYS_INSTALL="
+pushd "%~dp0"
+if errorlevel 1 exit /b 1
+set "PAPASTRONOMY_EXIT_CODE=1"
 
-if not exist ".venv\Scripts\python.exe" (
-    echo [1/3] Creando entorno virtual Python .venv...
-    py -3.14 -m venv .venv
-    if errorlevel 1 (
-        echo No se pudo crear el entorno. Verifica que Python 3.14 este instalado.
-        exit /b 1
+if defined PAPASTRONOMY_PYTHON goto custom_python
+if exist ".venv\Scripts\python.exe" goto existing_python
+where py >nul 2>nul
+if errorlevel 1 goto path_python
+for %%V in (3.12 3.13 3.14 3.11 3.10) do (
+    py -%%V -c "import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] < (3, 15)))" >nul 2>nul
+    if not errorlevel 1 (
+        set "PAPASTRONOMY_VERSION=%%V"
+        goto python_launcher
     )
 )
 
-echo [2/3] Instalando dependencias compatibles con Python 3.14...
-.venv\Scripts\python.exe -m pip install --upgrade pip
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-if errorlevel 1 exit /b 1
+:path_python
+where python >nul 2>nul
+if errorlevel 1 goto missing_python
+python -c "import sys; sys.exit(not ((3, 10) <= sys.version_info[:2] < (3, 15)))" >nul 2>nul
+if errorlevel 1 goto missing_python
+python "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
 
-echo [3/3] Levantando servidor en http://127.0.0.1:8000 ...
-set "MPLCONFIGDIR=%CD%\.matplotlib"
-if not exist "%MPLCONFIGDIR%" mkdir "%MPLCONFIGDIR%"
-.venv\Scripts\python.exe -m uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
+:python_launcher
+py -%PAPASTRONOMY_VERSION% "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
+
+:existing_python
+".venv\Scripts\python.exe" "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
+
+:custom_python
+"%PAPASTRONOMY_PYTHON%" "%~dp0start_project.py" %*
+set "PAPASTRONOMY_EXIT_CODE=%errorlevel%"
+goto finished
+
+:missing_python
+echo No se encontro Python 3.10-3.14. Se recomienda 3.12.
+echo Instala Python o indica su ejecutable con PAPASTRONOMY_PYTHON.
+
+:finished
+popd
+exit /b %PAPASTRONOMY_EXIT_CODE%

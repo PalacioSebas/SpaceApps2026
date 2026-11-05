@@ -1,0 +1,190 @@
+{
+  "region": {
+    "ra": 269.452075,
+    "dec": 4.693364,
+    "fov": 0.12
+  },
+  "source": "CACHE_REAL_FITS (SPHEREX_TEMPORAL; parcial)",
+  "selected_frames": [
+    {
+      "index": 7,
+      "epoch_id": 4,
+      "band_id": "SPHEREx-D2@1.4827um",
+      "obs_time": "60917.67394",
+      "detector": "SPHEREx-D2",
+      "wavelength_center_um": 1.482658636878641,
+      "bandwidth_um": 0.03608987689070648,
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_2A/l2b-v20-2025-270/2/level2_2025W35_2A_0418_1D2_spx_l2b-v20-2025-270.fits?center=269.452075,4.693364d&size=0.12",
+      "clean_pixels_pct": 99.18,
+      "local_index": 7
+    },
+    {
+      "index": 14,
+      "epoch_id": 9,
+      "band_id": "SPHEREx-D2@1.4977um",
+      "obs_time": "61270.867116",
+      "detector": "SPHEREx-D2",
+      "wavelength_center_um": 1.4977041874467856,
+      "bandwidth_um": 0.036795162344181384,
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr3/level2/2026W34_1A/l2b-v27-2026-243/2/level2_2026W34_1A_0363_1D2_spx_l2b-v27-2026-243.fits?center=269.452075,4.693364d&size=0.12",
+      "clean_pixels_pct": 98.57,
+      "local_index": 14
+    },
+    {
+      "index": 21,
+      "epoch_id": 13,
+      "band_id": "SPHEREx-D2@1.4977um",
+      "obs_time": "61305.628021",
+      "detector": "SPHEREx-D2",
+      "wavelength_center_um": 1.4977369312198268,
+      "bandwidth_um": 0.03679695170833468,
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr3/level2/2026W39_1A/l2b-v27-2026-268/2/level2_2026W39_1A_0371_1D2_spx_l2b-v27-2026-268.fits?center=269.452075,4.693364d&size=0.12",
+      "clean_pixels_pct": 96.18,
+      "local_index": 21
+    }
+  ],
+  "quality": {
+    "status": "gaussian_approximation",
+    "target_fwhm_arcsec": 7.46070125580342,
+    "baseline_years": 1.0145753004791096,
+    "valid_pixels_pct": 65.27,
+    "calibrations": [
+      {
+        "frame_index": 7,
+        "is_reference": false,
+        "scale": 1.0314973132704421,
+        "offset": -0.010408930463904953,
+        "reference_sources": 7,
+        "relative_scatter": 0.04564373310625217
+      },
+      {
+        "frame_index": 14,
+        "is_reference": true,
+        "scale": 1.0,
+        "offset": 0.0,
+        "reference_sources": 0,
+        "relative_scatter": 0.0
+      },
+      {
+        "frame_index": 21,
+        "is_reference": false,
+        "scale": 0.9676373215268272,
+        "offset": -0.0018042302765099473,
+        "reference_sources": 4,
+        "relative_scatter": 0.0018984715696249751
+      }
+    ],
+    "groups_checked": 1
+  },
+  "detections": [
+    {
+      "id": 1,
+      "type": "VARIABLE_MONOPOLE",
+      "x_pix": 38.0,
+      "y_pix": 50.0,
+      "neg_x_pix": null,
+      "neg_y_pix": null,
+      "ra": 269.476061,
+      "dec": 4.680707,
+      "snr_score": 391.73,
+      "shift_pixels": 0.0,
+      "proper_motion_arcsec_yr": 0.0,
+      "catalog_match": null,
+      "description": "Monopolo de Variabilidad Fotométrica (391.7σ) sin desplazamiento espacial.",
+      "positive_support_pixels": null,
+      "negative_support_pixels": null,
+      "lobe_flux_balance": null
+    },
+    {
+      "id": 2,
+      "type": "MOVING_DIPOLE",
+      "x_pix": 48.0,
+      "y_pix": 76.0,
+      "neg_x_pix": 50.0,
+      "neg_y_pix": 76.0,
+      "ra": 269.466655,
+      "dec": 4.705083,
+      "snr_score": 272.4,
+      "shift_pixels": 2.0,
+      "proper_motion_arcsec_yr": 6.65,
+      "catalog_match": null,
+      "description": "Candidato a dipolo positivo-negativo (Δ=2.0 px, μ≈6.65\"/año). Núcleos compactos compatibles; balance de flujo 0.57. Requiere validación astrométrica y fotométrica.",
+      "positive_support_pixels": 6,
+      "negative_support_pixels": 11,
+      "lobe_flux_balance": 0.567
+    },
+    {
+      "id": 3,
+      "type": "VARIABLE_MONOPOLE",
+      "x_pix": 59.0,
+      "y_pix": 78.0,
+      "neg_x_pix": null,
+      "neg_y_pix": null,
+      "ra": 269.456308,
+      "dec": 4.706958,
+      "snr_score": 266.77,
+      "shift_pixels": 0.0,
+      "proper_motion_arcsec_yr": 0.0,
+      "catalog_match": null,
+      "description": "Monopolo de Variabilidad Fotométrica (266.8σ) sin desplazamiento espacial.",
+      "positive_support_pixels": null,
+      "negative_support_pixels": null,
+      "lobe_flux_balance": null
+    },
+    {
+      "id": 4,
+      "type": "VARIABLE_MONOPOLE",
+      "x_pix": 97.0,
+      "y_pix": 104.0,
+      "neg_x_pix": null,
+      "neg_y_pix": null,
+      "ra": 269.420561,
+      "dec": 4.731332,
+      "snr_score": 206.78,
+      "shift_pixels": 0.0,
+      "proper_motion_arcsec_yr": 0.0,
+      "catalog_match": null,
+      "description": "Monopolo de Variabilidad Fotométrica (206.8σ) sin desplazamiento espacial.",
+      "positive_support_pixels": null,
+      "negative_support_pixels": null,
+      "lobe_flux_balance": null
+    },
+    {
+      "id": 5,
+      "type": "VARIABLE_MONOPOLE",
+      "x_pix": 97.0,
+      "y_pix": 106.0,
+      "neg_x_pix": null,
+      "neg_y_pix": null,
+      "ra": 269.420561,
+      "dec": 4.733207,
+      "snr_score": 168.15,
+      "shift_pixels": 0.0,
+      "proper_motion_arcsec_yr": 0.0,
+      "catalog_match": null,
+      "description": "Candidato variable con disminución de brillo; verificar PSF y fotometría.",
+      "positive_support_pixels": null,
+      "negative_support_pixels": null,
+      "lobe_flux_balance": null
+    },
+    {
+      "id": 6,
+      "type": "VARIABLE_MONOPOLE",
+      "x_pix": 57.0,
+      "y_pix": 79.0,
+      "neg_x_pix": null,
+      "neg_y_pix": null,
+      "ra": 269.458189,
+      "dec": 4.707895,
+      "snr_score": 117.77,
+      "shift_pixels": 0.0,
+      "proper_motion_arcsec_yr": 0.0,
+      "catalog_match": null,
+      "description": "Candidato variable con disminución de brillo; verificar PSF y fotometría.",
+      "positive_support_pixels": null,
+      "negative_support_pixels": null,
+      "lobe_flux_balance": null
+    }
+  ],
+  "interpretation": "Candidatos preliminares en un campo real; sin identificación ni movimiento confirmado de Barnard’s Star."
+}

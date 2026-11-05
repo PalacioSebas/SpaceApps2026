@@ -13,24 +13,24 @@ Cliente de Producción v2.0 para NASA/IPAC IRSA y CDS VizieR/Gaia.
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeout
 import random
-import re
 import threading
 import time
 import io
 import json
 import logging
+import uuid
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import urllib.parse
 import urllib.request
 
-import numpy as np
 import pyvo
-from astropy.coordinates import SkyCoord
-import astropy.units as u
+import numpy as np
+import requests
 from astropy.io import fits
-from astropy.wcs import WCS
 
+from src.cache_utils import resolve_cached_path
 from src.config import (
     CACHE_DIR,
     IRSA_TAP_URL,
@@ -39,6 +39,80 @@ from src.config import (
 )
 
 logger = logging.getLogger("spherex.irsa_client")
+
+
+class _TimedSession(requests.Session):
+    def __init__(self, timeout=12):
+        super().__init__()
+        self.default_timeout = timeout
+
+    def request(self, method, url, **kwargs):
+        kwargs.setdefault("timeout", self.default_timeout)
+        return super().request(method, url, **kwargs)
+
+
+def _tap_service(url: str):
+    return pyvo.dal.TAPService(url, session=_TimedSession())
+
+
+def _tap_get_table(query: str, timeout=12):
+    # TAP permite GET para consultas síncronas. PyVO valida QUERY_STATUS y errores
+    # del VOTable antes de aceptar una respuesta como un catálogo vacío.
+    url = IRSA_TAP_URL + "/sync?" + urllib.parse.urlencode({
+        "REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "votable", "QUERY": query,
+    })
+    with _TimedSession(timeout=timeout) as session:
+        return pyvo.dal.TAPResults.from_result_url(url, session=session).to_table()
+
+
+@lru_cache(maxsize=64)
+def _catalog_field_cached(catalog: str, ra: float, dec: float, fov: float, time_bucket: int):
+    if catalog not in {"gaia", "allwise"}:
+        raise ValueError("Catálogo desconocido")
+    irsa_spec = (
+        ("gaia_dr3_source", "source_id, ra, dec, phot_g_mean_mag", "ra", "dec") if catalog == "gaia"
+        else ("allwise_p3as_psd", "designation, ra, dec, w1mpro", "ra", "dec")
+    )
+    cds_spec = (
+        ('"I/355/gaiadr3"', "Source, RA_ICRS, DE_ICRS, Gmag", "RA_ICRS", "DE_ICRS") if catalog == "gaia"
+        else ('"II/328/allwise"', "AllWISE, RAJ2000, DEJ2000, W1mag", "RAJ2000", "DEJ2000")
+    )
+    radius = fov / np.sqrt(2)
+    errors = []
+    for service, spec in (("IRSA TAP", irsa_spec), ("CDS VizieR", cds_spec)):
+        table, columns, ra_col, dec_col = spec
+        query = f"""SELECT TOP 2000 {columns} FROM {table}
+            WHERE 1 = CONTAINS(POINT('ICRS', {ra_col}, {dec_col}),
+            CIRCLE('ICRS', {ra}, {dec}, {radius}))"""
+        try:
+            rows = (_tap_get_table(query) if service == "IRSA TAP"
+                    else _tap_service(CDS_TAP_URL).search(query).to_table())
+            if len(rows.colnames) != 4:
+                raise ValueError("El catálogo no devolvió las cuatro columnas solicitadas")
+            sources = []
+            # IRSA puede publicar nombres genéricos col_0... en el VOTable.
+            # El orden de las cuatro columnas lo fija el SELECT anterior.
+            for row in rows:
+                source_id, ra_value, dec_value, mag_value = row
+                if np.ma.is_masked(ra_value) or np.ma.is_masked(dec_value):
+                    continue
+                source_ra, source_dec = float(ra_value), float(dec_value)
+                if not np.isfinite(source_ra) or not np.isfinite(source_dec):
+                    continue
+                mag = None if np.ma.is_masked(mag_value) else float(mag_value)
+                sources.append({
+                    "id": str(source_id), "ra": source_ra, "dec": source_dec,
+                    "mag": mag if mag is not None and np.isfinite(mag) else None,
+                })
+            return {"catalog": catalog, "sources": sources, "truncated": len(rows) >= 2000, "service": service}
+        except Exception as exc:
+            logger.warning("Consulta %s en %s falló: %s", catalog, service, exc)
+            errors.append(f"{service}: {exc}")
+    raise RuntimeError("Catálogo no disponible en IRSA ni CDS: " + "; ".join(errors))
+
+
+def query_catalog_field(catalog: str, ra: float, dec: float, fov: float) -> Dict[str, Any]:
+    return _catalog_field_cached(catalog, ra, dec, fov, int(time.time() // 600))
 
 # Mapeo de longitudes de onda centrales reales por banda/detector infrarrojo (en micrones)
 BAND_WAVELENGTH_UM: Dict[str, Tuple[float, float]] = {
@@ -99,7 +173,7 @@ def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05,
             try:
                 t_tap = time.perf_counter()
                 with _IRSA_TAP_LOCK:
-                    service = pyvo.dal.TAPService(IRSA_TAP_URL)
+                    service = _tap_service(IRSA_TAP_URL)
                     results = service.search(primary_adql)
                     df = results.to_table().to_pandas()
                 logger.info("TAP spherex: %.1f s, %d filas (intento %d)", time.perf_counter() - t_tap, len(df), attempt)
@@ -182,7 +256,7 @@ def query_irsa_real_infrared_cutouts(ra_deg: float, dec_deg: float, fov_deg: flo
                     records.append(
                         {
                             "cutout_url": cutout_url,
-                            "obs_time": f"{scandate}T00:00:00",
+                            "obs_time": "",  # se toma DATE-OBS/MJD del FITS, no de la ruta
                             "detector_band": f"2MASS-{band}",
                         }
                     )
@@ -193,11 +267,10 @@ def query_irsa_real_infrared_cutouts(ra_deg: float, dec_deg: float, fov_deg: flo
                     p2 = coadd_id[:4]
                     rel_uri = f"{p1}/{p2}/{coadd_id}/{coadd_id}-w{band}-int-3.fits"
                     cutout_url = f"{data_base}/{rel_uri}?center={ra_deg},{dec_deg}d&size={fov_deg}"
-                    obs_date = f"2010-0{min(9, band * 2)}-15T00:00:00"
                     records.append(
                         {
                             "cutout_url": cutout_url,
-                            "obs_time": obs_date,
+                            "obs_time": "",  # las bandas no representan fechas diferentes
                             "detector_band": f"W{band}",
                         }
                     )
@@ -208,7 +281,7 @@ def query_irsa_real_infrared_cutouts(ra_deg: float, dec_deg: float, fov_deg: flo
     if time.time() >= _IRSA_503_UNTIL:
         try:
             with _IRSA_TAP_LOCK:
-                service = pyvo.dal.TAPService(IRSA_TAP_URL)
+                service = _tap_service(IRSA_TAP_URL)
                 neowise_adql = f"""
                 SELECT TOP 12
                     scan_id,
@@ -308,124 +381,46 @@ def _download_single_cutout(record: Dict[str, Any], dest_path: Path) -> Dict[str
         return None
 
 
+class NoCoverageError(RuntimeError):
+    """No hay observaciones verificables de la región solicitada."""
+
+
+def _read_cached_manifest(manifest_path: Path, region: tuple | None = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Versiones anteriores trasladaban imágenes de otros campos. No son observaciones
+    # de esta coordenada: conservar los archivos, pero excluirlos del análisis.
+    if "FALLBACK" in str(manifest.get("original_source", "")).upper():
+        raise ValueError("Caché antigua con astrometría modificada; requiere datos originales de IRSA")
+    if region is not None and any(
+        abs(float(manifest.get(key, float("inf"))) - expected) > 1e-6
+        for key, expected in zip(("ra", "dec", "fov"), region)
+    ):
+        raise ValueError("El centro o tamaño de esta caché no coincide con la región solicitada")
+    frames = []
+    for item in manifest.get("frames", []):
+        path = resolve_cached_path(item.get("local_path", ""), manifest_path.parent)
+        if path.is_file():
+            frames.append({**item, "local_path": str(path)})
+    return frames, manifest
+
+
 def _build_fallback_fits_from_local_cache(
-    ra_deg: float,
-    dec_deg: float,
-    fov_deg: float,
-    target_dir: Path,
-    max_epochs: int,
-    tap_query: str,
+    ra_deg: float, dec_deg: float, fov_deg: float, target_dir: Path,
+    max_epochs: int, tap_query: str,
 ) -> Tuple[List[Dict[str, Any]], str]:
-    """
-    Respaldo científico cuando el servidor de NASA/IPAC IRSA devuelve HTTP 503 Service Unavailable
-    o corta la conexión (WinError 10054) para una coordenada personalizada:
-    Adapta un conjunto de recortes .FITS reales de SPHEREx ya presentes en `data/cache/`,
-    recentrando su astrometría WCS a `(ra_deg, dec_deg)` y preservando los 7 HDUs reales
-    (`PRIMARY`, `IMAGE`, `FLAGS`, `VARIANCE`, `ZODI`, `PSF`, `WCS-WAVE`).
-    """
-    candidate_manifests = sorted(
-        p for p in CACHE_DIR.glob("*/manifest.json")
-        if p.parent != target_dir and p.exists()
-    )
-    if not candidate_manifests:
-        raise RuntimeError(
-            f"El servidor de NASA/IPAC IRSA está en mantenimiento (HTTP 503) y no hay caché local de respaldo para RA={ra_deg}, Dec={dec_deg}."
-        )
-
-    seed = int(abs(round(ra_deg * 1000.0) * 31 + round(dec_deg * 1000.0) * 17))
-    chosen_manifest_path = candidate_manifests[seed % len(candidate_manifests)]
-    tpl_manifest = json.loads(chosen_manifest_path.read_text(encoding="utf-8"))
-    tpl_ra = float(tpl_manifest.get("ra", ra_deg))
-    tpl_dec = float(tpl_manifest.get("dec", dec_deg))
-    cos_tpl = max(0.05, float(np.cos(np.deg2rad(tpl_dec))))
-    cos_new = max(0.05, float(np.cos(np.deg2rad(dec_deg))))
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    adapted_frames: List[Dict[str, Any]] = []
-
-    for idx, item in enumerate(tpl_manifest.get("frames", [])[:max_epochs]):
-        src_path = Path(item.get("local_path", ""))
-        if not src_path.exists():
-            src_path = chosen_manifest_path.parent / src_path.name
-        if not src_path.exists():
-            continue
-
-        dest_file = target_dir / f"real_epoch_{idx:02d}.fits"
+    """Usa solo la caché original de esta región; nunca modifica la astrometría."""
+    manifest_path = target_dir / "manifest.json"
+    if manifest_path.exists():
         try:
-            with fits.open(src_path) as hdul:
-                img_hdu = hdul[1] if len(hdul) > 1 and hdul[1].data is not None else hdul[0]
-                hdr = img_hdu.header
-                ny, nx = img_hdu.data.shape[-2], img_hdu.data.shape[-1]
-                cx_0, cy_0 = nx / 2.0, ny / 2.0
-
-                wcs_copy = hdr.copy()
-                if "A_ORDER" in wcs_copy:
-                    for key in ("CTYPE1", "CTYPE2"):
-                        ctype = str(wcs_copy.get(key, ""))
-                        if ctype and not ctype.endswith("-SIP"):
-                            wcs_copy[key] = ctype + "-SIP"
-                orig_wcs = WCS(wcs_copy, naxis=2)
-                c0 = orig_wcs.pixel_to_world(cx_0, cy_0)
-                cx_pt = orig_wcs.pixel_to_world(cx_0 + 1.0, cy_0)
-                cy_pt = orig_wcs.pixel_to_world(cx_0, cy_0 + 1.0)
-
-                dra_cos = (float(c0.ra.deg) - tpl_ra) * cos_tpl
-                ddec = float(c0.dec.deg) - tpl_dec
-
-                cd11 = (float(cx_pt.ra.deg) - float(c0.ra.deg)) * float(np.cos(np.deg2rad(c0.dec.deg)))
-                cd21 = float(cx_pt.dec.deg) - float(c0.dec.deg)
-                cd12 = (float(cy_pt.ra.deg) - float(c0.ra.deg)) * float(np.cos(np.deg2rad(c0.dec.deg)))
-                cd22 = float(cy_pt.dec.deg) - float(c0.dec.deg)
-
-                # Limpiar coeficientes SIP del WCS espacial manteniendo intacto el WCS espectral (key='W')
-                for k in [k for k in list(hdr.keys()) if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", k)]:
-                    del hdr[k]
-                for k in ("PC1_1", "PC1_2", "PC2_1", "PC2_2", "CDELT1", "CDELT2"):
-                    if k in hdr:
-                        del hdr[k]
-
-                hdr["CTYPE1"] = "RA---TAN"
-                hdr["CTYPE2"] = "DEC--TAN"
-                hdr["CRPIX1"] = cx_0 + 1.0
-                hdr["CRPIX2"] = cy_0 + 1.0
-                hdr["CRVAL1"] = float((ra_deg + dra_cos / cos_new) % 360.0)
-                hdr["CRVAL2"] = float(np.clip(dec_deg + ddec, -89.9, 89.9))
-                hdr["CD1_1"] = float(cd11)
-                hdr["CD1_2"] = float(cd12)
-                hdr["CD2_1"] = float(cd21)
-                hdr["CD2_2"] = float(cd22)
-
-                hdul.writeto(dest_file, overwrite=True)
-
-            adapted_frames.append(
-                {
-                    "local_path": str(dest_file),
-                    "cutout_url": item.get("cutout_url", ""),
-                    "obs_time": str(item.get("obs_time", "")),
-                    "detector_band": str(item.get("detector_band", "SPHEREx")),
-                }
-            )
-        except Exception as exc:
-            logger.warning("Error adaptando recorte FITS de respaldo %s: %s", src_path.name, exc)
-
-    if not adapted_frames:
-        raise RuntimeError(
-            f"El servidor de NASA/IPAC IRSA no devolvió recortes disponibles para RA={ra_deg}, Dec={dec_deg}."
-        )
-
-    manifest_data = {
-        "ra": ra_deg,
-        "dec": dec_deg,
-        "fov": fov_deg,
-        "original_source": "IRSA_SPHEREX_CACHE_FALLBACK",
-        "complete": True,
-        "tap_query": tap_query,
-        "frames": adapted_frames,
-    }
-    (target_dir / "manifest.json").write_text(
-        json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8"
+            frames, manifest = _read_cached_manifest(manifest_path, (ra_deg, dec_deg, fov_deg))
+            if frames:
+                return frames[:max_epochs], f"CACHE_REAL_FITS ({manifest.get('original_source', 'IRSA')}; parcial)"
+        except (OSError, ValueError, KeyError) as exc:
+            logger.warning("Caché no utilizable %s: %s", manifest_path, exc)
+    raise NoCoverageError(
+        f"IRSA no devolvió recortes utilizables para RA={ra_deg:.5f}, Dec={dec_deg:.5f}, "
+        f"FoV={fov_deg}°. No hay caché original de esta región. Probá un objetivo precargado o reintentá."
     )
-    return adapted_frames, "CACHE_SPHEREX_REAL (IRSA 503 Respaldo)"
 
 
 def _obtain_real_fits_impl(
@@ -441,10 +436,12 @@ def _obtain_real_fits_impl(
     2. Si no están en caché (o `force_refresh=True`), ejecuta la consulta TAP en vivo contra IRSA
        y descarga los recortes .FITS en paralelo con `ThreadPoolExecutor`.
     3. Si el servidor de IRSA responde 503 Service Unavailable o corta la conexión (WinError 10054),
-       utiliza el respaldo de recortes .FITS reales de SPHEREx en caché recentrados a `(ra_deg, dec_deg)`.
+       utiliza únicamente observaciones originales de la misma región ya presentes en caché.
     """
     matched = find_mandatory_target_by_coords(ra_deg, dec_deg)
-    if matched is not None and abs(fov_deg - matched["default_fov"]) < 0.015:
+    if (matched is not None and abs(ra_deg - matched["ra_deg"]) < 1e-6
+            and abs(dec_deg - matched["dec_deg"]) < 1e-6
+            and abs(fov_deg - matched["default_fov"]) < 1e-6):
         folder_name = matched["id"]
     else:
         folder_name = f"sky_{ra_deg:.4f}_{dec_deg:.4f}_{fov_deg:.3f}".replace("-", "m").replace(".", "p")
@@ -454,23 +451,13 @@ def _obtain_real_fits_impl(
 
     if not force_refresh and manifest_path.exists():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            cached_items = []
-            for item in manifest.get("frames", []):
-                fpath = Path(item["local_path"])
-                if not fpath.exists():
-                    alt_path = target_dir / fpath.name
-                    if alt_path.exists():
-                        fpath = alt_path
-                        item = {**item, "local_path": str(alt_path)}
-                if fpath.exists():
-                    cached_items.append(item)
+            cached_items, manifest = _read_cached_manifest(manifest_path, (ra_deg, dec_deg, fov_deg))
             # La caché satisface la petición si contiene la cantidad solicitada
             # o si el manifest confirma que IRSA ya agotó los datos disponibles.
             # Antes cualquier manifest con >=2 FITS devolvía inmediatamente los
             # primeros 10, por lo que el botón "Cargar hasta 102" nunca ampliaba
             # una caché creada por la carga inicial.
-            if len(cached_items) >= max_epochs or bool(manifest.get("complete", False)):
+            if cached_items and (len(cached_items) >= max_epochs or bool(manifest.get("complete", False))):
                 return (
                     cached_items[:max_epochs],
                     matched,
@@ -495,6 +482,7 @@ def _obtain_real_fits_impl(
 
     target_dir.mkdir(parents=True, exist_ok=True)
     downloaded_frames: List[Dict[str, Any]] = []
+    download_id = uuid.uuid4().hex[:12]
 
     DOWNLOAD_BUDGET_S = 45.0
     n_total = len(records[: max_epochs + 6])
@@ -502,7 +490,8 @@ def _obtain_real_fits_impl(
     try:
         future_to_idx = {}
         for idx, rec in enumerate(records[: max_epochs + 6]):
-            dest_file = target_dir / f"real_epoch_{idx:02d}.fits"
+            # Una descarga que termine tarde no debe sobrescribir un FITS ya publicado.
+            dest_file = target_dir / f"real_{download_id}_epoch_{idx:02d}.fits"
             fut = executor.submit(_download_single_cutout, rec, dest_file)
             future_to_idx[fut] = idx
 
@@ -527,7 +516,7 @@ def _obtain_real_fits_impl(
     downloaded_frames.sort(key=lambda x: x["obs_time"])
     downloaded_frames = downloaded_frames[:max_epochs]
 
-    if len(downloaded_frames) < 2:
+    if not downloaded_frames:
         logger.warning(
             "Descarga de recortes desde IRSA incompleta (%d válidos); completando con respaldo FITS local.",
             len(downloaded_frames),
@@ -549,7 +538,9 @@ def _obtain_real_fits_impl(
         "tap_query": tap_query,
         "frames": downloaded_frames,
     }
-    manifest_path.write_text(json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary_manifest = target_dir / f"manifest_{download_id}.tmp"
+    temporary_manifest.write_text(json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary_manifest.replace(manifest_path)
 
     return downloaded_frames, matched, data_source, tap_query
 
@@ -573,14 +564,16 @@ def crossmatch_catalog_sources_live(ra_deg: float, dec_deg: float, radius_arcsec
     Prioriza CDS TAPVizieR para no saturar el servidor TAP de IRSA durante descargas de recortes.
     """
     radius_deg = radius_arcsec / 3600.0
+    errors = []
 
     # 1. Consultar Gaia DR3 en CDS TAPVizieR (no compite con IRSA TAP)
     try:
-        cds_tap = pyvo.dal.TAPService(CDS_TAP_URL)
+        cds_tap = _tap_service(CDS_TAP_URL)
         gaia_query = f"""
         SELECT TOP 1 Source, Gmag, pmRA, pmDE
         FROM "I/355/gaiadr3"
         WHERE 1 = CONTAINS(POINT('ICRS', RA_ICRS, DE_ICRS), CIRCLE('ICRS', {ra_deg}, {dec_deg}, {radius_deg}))
+        ORDER BY DISTANCE(POINT('ICRS', RA_ICRS, DE_ICRS), POINT('ICRS', {ra_deg}, {dec_deg}))
         """
         res = cds_tap.search(gaia_query).to_table()
         if len(res) > 0:
@@ -588,18 +581,19 @@ def crossmatch_catalog_sources_live(ra_deg: float, dec_deg: float, radius_arcsec
             pm_ra = res[0]["pmRA"]
             pm_de = res[0]["pmDE"]
             return f"Gaia DR3 {src_id} (pmRA={pm_ra} mas/yr, pmDE={pm_de} mas/yr)"
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(str(exc))
 
     # 2. Consultar AllWISE en IRSA TAP solo si IRSA no está en estado 503 y el lock está libre
     if time.time() >= _IRSA_503_UNTIL and not _IRSA_TAP_LOCK.locked():
         try:
             with _IRSA_TAP_LOCK:
-                irsa_tap = pyvo.dal.TAPService(IRSA_TAP_URL)
+                irsa_tap = _tap_service(IRSA_TAP_URL)
                 wise_query = f"""
                 SELECT TOP 1 designation, w1mpro, w2mpro, pmra, pmdec
                 FROM allwise_p3as_psd
                 WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra_deg}, {dec_deg}, {radius_deg}))
+                ORDER BY DISTANCE(POINT('ICRS', ra, dec), POINT('ICRS', {ra_deg}, {dec_deg}))
                 """
                 res = irsa_tap.search(wise_query).to_table()
             if len(res) > 0:
@@ -607,7 +601,11 @@ def crossmatch_catalog_sources_live(ra_deg: float, dec_deg: float, radius_arcsec
                 w1 = res[0]["w1mpro"]
                 w2 = res[0]["w2mpro"]
                 return f"AllWISE {desig} (W1={w1:.2f}, W2={w2:.2f} mag)"
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(str(exc))
+    else:
+        errors.append("IRSA temporalmente ocupado o no disponible")
 
+    if errors:
+        raise RuntimeError("Cruce incompleto: no se pudo verificar Gaia DR3 y AllWISE")
     return None
