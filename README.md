@@ -2,6 +2,26 @@
 
 Prototipo de exploración de imágenes infrarrojas para el proyecto NASA Space Apps 2026 del equipo Papastronomy. Permite consultar una región del cielo, recorrer sus exposiciones FITS, medir un espectro por posición y buscar candidatos a variación.
 
+## Funcionalidades
+
+| Función | Qué permite hacer |
+| --- | --- |
+| Exploración por coordenadas | Consultar RA, Dec y FoV, o cargar WISE 0855, Barnard's Star, Epsilon Indi B, RW Aurigae y R Draconis desde sus accesos directos. |
+| Selector de exposiciones y bandas | Comenzar en el recorte con mayor porcentaje de píxeles limpios, elegir una exposición manualmente y ampliar la carga normal hasta 102 recortes según la cobertura disponible. |
+| Flipbook | Reproducir y pausar la secuencia, recorrerla con un deslizador y elegir entre 1, 2, 4 y 6 fps. Cada exposición muestra fecha, detector, longitud de onda y porcentaje de píxeles limpios. |
+| Mediana y resta temporal | Ver los productos calculados sobre matrices FITS alineadas. La resta requiere observaciones comparables y aplica una igualación aproximada de PSF y una calibración fotométrica relativa. |
+| Capas de calidad y detecciones | Superponer FLAGS en magenta, transparentes en los píxeles válidos, y activar u ocultar los marcadores de candidatos. |
+| Búsqueda de pares temporales | Solicitar hasta 24 recortes de fechas antiguas y recientes de SPHEREx para ampliar el intervalo de observación. Se informa cuando la adquisición es parcial o faltan condiciones para calcular la resta. |
+| Detección automática de candidatos | Buscar dipolos positivos/negativos y variaciones de brillo de ambos signos. Las tarjetas muestran coordenadas, puntuación SNR y descripción; al seleccionarlas se actualizan la posición y el espectro. |
+| Espectro por posición | Seleccionar una fuente en el visor y medir brillo superficial, incertidumbre y longitud de onda en los FITS con cobertura válida. El gráfico interactivo incluye franjas de referencia de H₂O, CH₄ y CO. |
+| Contexto y catálogos | Navegar un compuesto visual con zoom y arrastre, activar Gaia DR3 y AllWISE y consultar fuentes próximas a la selección. Las consultas usan IRSA TAP con CDS VizieR como respaldo. |
+| Región compartible | Copiar una URL con las coordenadas, el campo y el modo de búsqueda temporal para abrir la misma región en otro navegador. |
+| Interfaz adaptable | Usar paneles que se acomodan al ancho de pantalla, estados de carga y error visibles, foco de teclado y tarjetas de candidatos accesibles con Enter o espacio. |
+| Arranque Windows/Linux | Usar `.bat` o `.sh` con un lanzador compartido, dependencias seleccionadas para Python 3.10–3.14 y conservación de entornos virtuales existentes. |
+| Pruebas y CI | Ejecutar 72 pruebas de regresión y una matriz de GitHub Actions para Windows/Linux con Python 3.10, 3.11, 3.12, 3.13 y 3.14. El alcance de validación local se detalla debajo. |
+
+La detección automática usa **estadística y reglas geométricas**, sin un modelo de aprendizaje automático entrenado. Sus resultados son candidatos preliminares para revisión.
+
 ## Ejecutar
 
 Se recomienda **CPython 3.12**. El lanzador admite 3.10–3.14 y usa dependencias compatibles con el intérprete del entorno virtual. Python 3.9 o anteriores no se admiten; el backend ya utiliza sintaxis de Python 3.10.
@@ -45,14 +65,22 @@ Este último script puede descargar archivos y limpiar archivos sintéticos anti
 
 ## Uso
 
-1. Elegir un objetivo precargado o ingresar RA, Dec y FoV en grados.
-2. Reproducir las exposiciones, elegir una manualmente o activar las máscaras de calidad.
-3. Seleccionar una posición para medir su brillo superficial y longitud de onda en cada FITS con cobertura válida.
-4. Consultar las posiciones de Gaia DR3 y AllWISE en el panel de contexto. Los errores de red se muestran como falta de disponibilidad.
-5. Para buscar movimiento, usar **Buscar pares temporales**: consulta fechas antiguas y recientes de SPHEREx y amplía la muestra hasta 24 recortes. Puede tardar unos minutos.
-6. Compartir la URL con `?ra=...&dec=...&fov=...`; `&temporal=1` conserva el modo temporal.
+1. **Cargar un campo.** Elegir un objetivo precargado o ingresar RA, Dec y FoV en grados y pulsar **Explorar Cielo**. La carga normal inicial solicita hasta diez recortes.
+2. **Recorrer las exposiciones.** El flipbook comienza en la imagen con mayor porcentaje de píxeles limpios. Usar **Pausar**, el deslizador, el selector **Banda** o los FPS. Una selección manual permanece fija; **Reproducir** retoma la secuencia automática.
+3. **Ampliar la muestra.** Pulsar **Hasta 102 recortes** para solicitar más archivos del campo en el modo normal. La cantidad efectivamente cargada depende de la cobertura y de la descarga.
+4. **Inspeccionar la calidad.** Activar **Superponer FLAGS** y consultar fecha, detector, longitud de onda y porcentaje de píxeles limpios. Los marcadores de detecciones se pueden ocultar independientemente.
+5. **Comparar los productos.** Alternar entre **Flipbook**, **Mediana** y **Resta (ΔI)**. Si la resta no está disponible, el visor explica qué condición falta; cargar imágenes por sí solo no garantiza una comparación temporal válida.
+6. **Ampliar las fechas.** Pulsar **Buscar pares temporales** para consultar observaciones antiguas y recientes y solicitar hasta 24 recortes. Puede tardar unos minutos. Si la búsqueda queda parcial, repetirla permite ampliar las fechas reutilizando los FITS ya descargados.
+7. **Inspeccionar una fuente.** Hacer clic en el visor o en una tarjeta de candidato para medir el espectro de esa posición y actualizar la selección en el contexto. Las tres primeras tarjetas solicitan además un cruce puntual con Gaia DR3 / AllWISE. Las tarjetas también se activan con Enter o espacio.
+8. **Explorar el contexto.** Usar el zoom, arrastrar el mapa, activar las capas Gaia DR3 y AllWISE y pulsar **Sincronizar Centro** para volver al campo activo. Los estados de consulta distinguen resultados vacíos de errores de red.
+9. **Compartir el campo.** Pulsar **Copiar URL Embebible** o copiar la barra de direcciones. El enlace conserva `?ra=...&dec=...&fov=...` y añade `&temporal=1` en el modo temporal; la fuente seleccionada y los controles del visor no se guardan en él.
 
-«Hasta 102 recortes» aumenta el límite de archivos solicitados; **no garantiza 102 bandas distintas**. Cada exposición tiene una fecha y una cobertura espectral propias.
+Un **recorte** es un archivo/exposición; una **banda** identifica una combinación de detector y longitud de onda, y una **época** agrupa un instante de observación. Varias bandas pueden compartir época. «Hasta 102 recortes» aumenta el límite de archivos solicitados; **no garantiza 102 bandas ni 102 fechas distintas**. El modo temporal tiene su propio límite.
+
+Ejemplos de enlaces para abrir directamente una región con el servidor iniciado:
+
+- [WISE 0855, carga normal](http://127.0.0.1:8000/?ra=133.795129&dec=-7.245147&fov=0.05).
+- [Campo de Barnard, búsqueda temporal con FoV de 0,12°](http://127.0.0.1:8000/?ra=269.452075&dec=4.693364&fov=0.12&temporal=1). Este modo consulta datos remotos si no tiene una caché temporal utilizable.
 
 ## Arquitectura
 
@@ -101,7 +129,21 @@ Documentación interactiva: http://127.0.0.1:8000/docs
 | `GET /api/catalog?catalog=gaia&ra=...&dec=...&fov=...` | Hasta 2000 fuentes reales del campo; también `allwise` |
 | `GET /api/crossmatch?ra=...&dec=...&radius=14` | Contraparte próxima en un radio en segundos de arco |
 
-`refresh=true` en `/api/explore` fuerza una consulta nueva. El campo `target_info.analysis_frame_indices` identifica los recortes usados en los productos; `difference_available` y `analysis_note` explican la disponibilidad de la resta. `difference_quality` incluye estado, PSF común en arcsec, tiempo entre las medias de las mitades, cobertura válida y factores/offsets de calibración por exposición. `temporal_search=true` en `/api/explore` o `/api/spectrum` utiliza el conjunto temporal, con límite de 32 archivos por petición; el botón solicita 24. Las descargas temporales quedan en `data/cache/temporal_*/`, excluido de Git. Las descargas parciales recientes se reutilizan durante diez minutos; pulsar el botón fuerza una nueva consulta de metadatos y reutiliza los FITS ya disponibles.
+En la API, `max_epochs` es el nombre histórico del **límite de recortes**, aunque no todos correspondan a fechas distintas. `temporal_search=true` en `/api/explore` o `/api/spectrum` utiliza el conjunto temporal, con límite de 32 archivos por petición; el botón del visor solicita 24. En las URLs del navegador el mismo modo se indica con `temporal=1`.
+
+La respuesta de exploración expone los datos usados para interpretar los productos:
+
+| Campo | Información |
+| --- | --- |
+| `target_info.data_source` y `tap_query_executed` | Origen de los datos y consulta registrada. |
+| `target_info.total_frames`, `total_epochs` y `total_bands` | Cantidades de recortes, instantes y combinaciones detector/banda. |
+| `target_info.available_bands`, `best_band_index` y `best_band_clean_pct` | Longitudes de onda disponibles y recorte inicial elegido por porcentaje de píxeles limpios. |
+| `target_info.analysis_frame_indices` | Recortes seleccionados para los productos científicos. |
+| `target_info.difference_available` y `analysis_note` | Disponibilidad de la resta y explicación del resultado. |
+| `target_info.difference_quality` | Estado, PSF común en arcsec, intervalo entre las fechas medias, cobertura válida, calibraciones por exposición y número de grupos comprobados. |
+| `epochs[].cutout_url` | Enlace al recorte original cuando está disponible en los metadatos. |
+
+`refresh=true` en `/api/explore` fuerza una consulta nueva. Las descargas temporales quedan en `data/cache/temporal_*/`, excluido de Git. Las descargas parciales recientes se reutilizan durante diez minutos; pulsar el botón temporal fuerza una nueva consulta de metadatos y reutiliza los FITS ya disponibles.
 
 ## Pruebas
 
@@ -113,6 +155,17 @@ Documentación interactiva: http://127.0.0.1:8000/docs
 En Windows se usa `.venv\Scripts\python.exe` en lugar de `.venv/bin/python`. También se puede ejecutar directamente `run_project.bat --test` o `bash run_project.sh --test`.
 
 **72 pruebas de regresión**, incluidas escenas controladas con cambios de PSF, ganancia, fondo, variabilidad y movimiento conocido. La ruta FITS → API verifica la detección automática de un dipolo. También se comprueba el respaldo de catálogos, las columnas genéricas de IRSA y las unidades de flujo/varianza. Las pruebas cubren rutas Windows/Linux, rechazo de caché trasladada, tiempos menores a un día, selección de bandas, productos numéricos, máscaras transparentes, fotometría puntual y errores HTTP. También prueban los cinco objetivos con la caché incluida y la consulta remota de imágenes bloqueada mediante mocks.
+
+| Suite | Cobertura principal |
+| --- | --- |
+| [test_catalogs.py](tests/test_catalogs.py) | Respaldo IRSA/CDS, columnas de catálogos, valores enmascarados y errores de consulta. |
+| [test_difference.py](tests/test_difference.py) | PSF, ganancia, fondo, referencias fotométricas, fechas y unidades para la resta. |
+| [test_dipoles.py](tests/test_dipoles.py) | Movimiento conocido, signos, morfología, rechazo de artefactos y recorrido FITS → API. |
+| [test_launcher.py](tests/test_launcher.py) | Versiones de Python, conservación de entornos, rutas con espacios y propagación de errores. |
+| [test_regressions.py](tests/test_regressions.py) | Caché portable, procesamiento, espectro, API y objetivos precargados. |
+| [test_temporal_search.py](tests/test_temporal_search.py) | Selección temporal, unidades, adquisición, reutilización de descargas y uso desde la API. |
+
+El workflow de compatibilidad ejecuta los lanzadores y estas pruebas en cada PR, en los pushes a `main` y mediante ejecución manual. La inclusión en la matriz de CI no equivale a una ejecución aprobada: se deben consultar los checks del PR.
 
 Las imágenes precargadas se procesan sin conexión. La interfaz utiliza Tailwind y Plotly desde CDN, y las consultas nuevas a IRSA/CDS necesitan internet: no es una aplicación web completamente offline.
 
