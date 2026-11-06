@@ -149,7 +149,7 @@
               </span>
             </h2>
             <p class="text-[11px] text-slate-400">
-              Seleccioná una fuente para medir el espectro de las exposiciones disponibles
+              Sección solicitada · Tocá una fuente para su espectro o activá el Mapa Global para descargar sectores vecinos
             </p>
           </div>
 
@@ -168,14 +168,19 @@
         </div>
 
         <!-- Contenedor del Canvas Astronómico Interactivo -->
-        <div class="astronomy-viewport relative mx-auto bg-black rounded-lg overflow-hidden border border-slate-700 flex items-center justify-center">
-          <canvas id="spherex-canvas" aria-label="Imagen astronómica; seleccioná una fuente para medir su espectro" width="384" height="384" class="w-full h-full object-contain"></canvas>
+        <div class="astronomy-viewport relative mx-auto bg-black rounded-lg overflow-hidden border border-slate-700 flex items-center justify-center select-none">
+          <canvas id="spherex-canvas" aria-label="Imagen astronómica; arrastrá para explorar el plano continuo o seleccioná una fuente para medir su espectro" width="384" height="384" class="w-full h-full object-contain cursor-grab active:cursor-grabbing"></canvas>
 
           <!-- Overlay informativo de época, detector y píxeles limpios -->
           <div class="absolute top-2.5 left-2.5 bg-slate-950/85 border border-slate-800 rounded-md px-2.5 py-1 text-[11px] font-mono space-y-0.5 pointer-events-none">
             <div id="overlay-date" class="text-sky-300">Fecha: --</div>
             <div id="overlay-detector" class="text-slate-300">Detector: -- | λc: -- μm</div>
             <div id="overlay-clean" class="text-emerald-400">Píxeles limpios: --%</div>
+          </div>
+
+          <!-- Indicador de precarga del plano infinito sincronizado -->
+          <div id="infinite-plane-badge" class="absolute top-2.5 right-2.5 bg-slate-950/85 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-mono text-sky-300 pointer-events-none">
+            Sección única · Mapa global inactivo
           </div>
 
           <!-- Leyenda en Modo Resta -->
@@ -219,11 +224,19 @@
         </div>
 
         <p id="analysis-note" class="text-[11px] text-slate-400" role="status"></p>
-        <button type="button" id="btn-temporal-search"
-          title="Busca observaciones SPHEREx antiguas y recientes del campo ingresado. Puede descargar hasta 24 recortes y tardar unos minutos."
-          class="px-3 py-1.5 rounded-lg text-xs bg-sky-950 border border-sky-700 text-sky-200 hover:bg-sky-900 transition">
-          Buscar pares temporales
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" id="btn-temporal-search"
+            title="Busca observaciones SPHEREx antiguas y recientes del campo ingresado. Puede descargar hasta 24 recortes y tardar unos minutos."
+            class="px-3 py-1.5 rounded-lg text-xs bg-sky-950 border border-sky-700 text-sky-200 hover:bg-sky-900 transition">
+            Buscar pares temporales
+          </button>
+          <button type="button" id="btn-toggle-infinite-plane"
+            aria-pressed="false"
+            title="Por defecto solo se carga la sección solicitada. Activá este modo para descargar sectores vecinos automáticamente al arrastrar."
+            class="px-3 py-1.5 rounded-lg text-xs bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition">
+            Activar Mapa Global Continuo
+          </button>
+        </div>
         <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
           <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
             <input type="checkbox" id="chk-ai-markers" checked class="accent-rose-500 rounded" />

@@ -1,21 +1,42 @@
 """
 Inicializador de Producción v2.0:
-1. Limpia cualquier archivo `.FITS` sintético viejo de la versión 1.0 (`epoch_*.fits`) sin borrar recortes reales.
-2. Detecta automáticamente cuáles de los 5 modelos/objetos obligatorios de la NASA (WISE 0855,
+1. Si se invoca con un Python global sin dependencias (ej. `py .\\setup_cache_and_inspect.py`),
+   redirige automáticamente la ejecución al entorno virtual `.venv` del proyecto.
+2. Limpia cualquier archivo `.FITS` sintético viejo de la versión 1.0 (`epoch_*.fits`) sin borrar recortes reales.
+3. Detecta automáticamente cuáles de los 5 objetos obligatorios de la NASA (WISE 0855,
    Barnard's Star, Epsilon Indi B, RW Aurigae y R Draconis) ya están descargados en `data/cache/`
    para ignorarlos y no volver a descargarlos.
-3. Solo consulta `https://irsa.ipac.caltech.edu/TAP` para los objetos que falten en caché.
-4. Inspecciona los headers reales descargados de la NASA y guarda `fits_structure.txt`.
+4. Consulta IRSA (TAP / SIA) solo para los objetos que falten en caché y precarga sus catálogos.
+5. Inspecciona los headers reales descargados de la NASA y guarda `fits_structure.txt`.
 """
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
-from astropy.io import fits
 
-from src.config import BASE_DIR, CACHE_DIR, MANDATORY_TARGETS
-from src.irsa_client import obtain_real_fits_for_coordinates, build_spherex_adql_query
+_PROJECT_ROOT = Path(__file__).resolve().parent
+_VENV_CANDIDATES = (
+    _PROJECT_ROOT / ".venv" / "Scripts" / "python.exe",
+    _PROJECT_ROOT / ".venv" / "bin" / "python",
+)
+try:
+    from astropy.io import fits  # noqa: E402
+except ModuleNotFoundError:
+    for _venv_py in _VENV_CANDIDATES:
+        if _venv_py.is_file() and _venv_py.resolve() != Path(sys.executable).resolve():
+            raise SystemExit(subprocess.call([str(_venv_py), str(Path(__file__).resolve()), *sys.argv[1:]]))
+    raise
+
+from src.config import BASE_DIR, CACHE_DIR, MANDATORY_TARGETS  # noqa: E402
+from src.irsa_client import (  # noqa: E402
+    _prioritize_records_with_temporal_pairs,
+    build_spherex_adql_query,
+    obtain_real_fits_for_coordinates,
+    query_catalog_field,
+    query_named_objects_field,
+)
 
 
 def _configure_console_utf8() -> None:
@@ -56,13 +77,31 @@ def _extract_fits_meta(fits_path: Path) -> Tuple[str, str]:
         return obs_time or "0.0", detector or "SPHEREx"
 
 
+def _ensure_target_catalogs_cached(target: Dict[str, Any]) -> None:
+    """Precarga en disco los catálogos Gaia DR3, AllWISE y astros nombrados del objetivo."""
+    tdir = CACHE_DIR / target["id"]
+    if not tdir.is_dir():
+        return
+    ra, dec, fov = target["ra_deg"], target["dec_deg"], target["default_fov"]
+    for cat in ("gaia", "allwise"):
+        if not (tdir / f"catalog_{cat}.json").is_file():
+            try:
+                query_catalog_field(cat, ra, dec, fov)
+            except Exception as exc:
+                print(f"     [AVISO] No se pudo precargar catálogo {cat} en {target['id']}: {exc}")
+    if not (tdir / "named_objects.json").is_file():
+        try:
+            query_named_objects_field(ra, dec, fov)
+        except Exception as exc:
+            print(f"     [AVISO] No se pudo precargar objetos nombrados en {target['id']}: {exc}")
+
+
 def detect_downloaded_target(target: Dict[str, Any], min_epochs: int = 2) -> Tuple[bool, List[Path], str]:
     """
     Detecta si un objeto/modelo ya está descargado en `data/cache/<target_id>`.
-    - Verifica tanto `manifest.json` como los archivos `real_epoch_*.fits` en disco.
-    - Si las rutas en `manifest.json` quedaron desactualizadas (p. ej. al mover la carpeta del proyecto),
-      las actualiza automáticamente a la ruta local actual.
-    - Si existen los archivos `real_epoch_*.fits` pero falta `manifest.json`, lo reconstruye sin re-descargar.
+    - Verifica tanto `manifest.json` como los archivos `real_*.fits` en disco.
+    - Si las rutas en `manifest.json` quedaron desactualizadas, las actualiza a rutas relativas.
+    - Si existen los archivos `real_*.fits` pero falta `manifest.json`, lo reconstruye sin re-descargar.
     """
     tdir = CACHE_DIR / target["id"]
     if not tdir.exists():
@@ -82,10 +121,12 @@ def detect_downloaded_target(target: Dict[str, Any], min_epochs: int = 2) -> Tup
 
             for item in manifest.get("frames", []):
                 raw_path = Path(item.get("local_path", ""))
-                candidate = raw_path if raw_path.exists() else (tdir / raw_path.name)
+                candidate = (tdir / raw_path.name) if not raw_path.is_absolute() else raw_path
+                if not candidate.exists():
+                    candidate = tdir / raw_path.name
                 if candidate.exists() and candidate.stat().st_size > 0:
-                    if str(candidate.resolve()) != str(raw_path):
-                        item["local_path"] = str(candidate.resolve())
+                    if item.get("local_path") != candidate.name:
+                        item["local_path"] = candidate.name
                         updated_manifest = True
                     valid_paths.append(candidate.resolve())
                     fixed_frames.append(item)
@@ -99,9 +140,9 @@ def detect_downloaded_target(target: Dict[str, Any], min_epochs: int = 2) -> Tup
         except Exception as exc:
             print(f"     [AVISO] No se pudo leer {manifest_path.name} ({exc}); verificando archivos .FITS en disco...")
 
-    # 2. Revisar archivos real_epoch_*.fits directamente en disco por si falta o falló el manifest
+    # 2. Revisar archivos real_*.fits directamente en disco por si falta o falló el manifest
     disk_fits = sorted(
-        p.resolve() for p in tdir.glob("real_epoch_*.fits") if p.is_file() and p.stat().st_size > 0
+        p.resolve() for p in tdir.glob("real_*.fits") if p.is_file() and p.stat().st_size > 0
     )
     if len(disk_fits) >= min_epochs:
         rebuilt_frames = []
@@ -112,7 +153,7 @@ def detect_downloaded_target(target: Dict[str, Any], min_epochs: int = 2) -> Tup
                 valid_disk_fits.append(fpath)
                 rebuilt_frames.append(
                     {
-                        "local_path": str(fpath),
+                        "local_path": fpath.name,
                         "cutout_url": "",
                         "obs_time": obs_time,
                         "detector_band": detector,
@@ -122,16 +163,18 @@ def detect_downloaded_target(target: Dict[str, Any], min_epochs: int = 2) -> Tup
                 continue
 
         if len(valid_disk_fits) >= min_epochs:
-            rebuilt_frames.sort(key=lambda x: x["obs_time"])
+            rebuilt_frames = _prioritize_records_with_temporal_pairs(rebuilt_frames)
+            valid_disk_fits = [ (tdir / item["local_path"]).resolve() for item in rebuilt_frames ]
             manifest_data = {
                 "ra": target["ra_deg"],
                 "dec": target["dec_deg"],
                 "fov": target["default_fov"],
                 "original_source": "IRSA_SPHEREX_TAP",
+                "complete": True,
                 "tap_query": build_spherex_adql_query(
                     target["ra_deg"], target["dec_deg"], target["default_fov"], max_rec=20
                 ),
-                "frames": rebuilt_frames[:12],
+                "frames": rebuilt_frames,
             }
             manifest_path.write_text(json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8")
             return True, valid_disk_fits, "CACHE_REAL_FITS (disco)"
@@ -143,15 +186,17 @@ def main() -> None:
     _configure_console_utf8()
 
     print("=========================================================================")
-    print("🌌 PAPASTRONOMY v2.0 - Verificador y Descargador de Recortes .FITS Reales")
+    print("PAPASTRONOMY v2.0 - Verificador y Descargador de Recortes .FITS Reales")
     print("=========================================================================")
 
-    # 1. Purgar únicamente archivos sintéticos antiguos (epoch_00.fits de la v1.0) sin borrar real_epoch_*.fits
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1. Purgar únicamente archivos sintéticos antiguos (epoch_00.fits de la v1.0) sin borrar real_*.fits
     for target in MANDATORY_TARGETS:
         tdir = CACHE_DIR / target["id"]
         if tdir.exists():
             old_synth = [
-                f for f in tdir.glob("epoch_*.fits") if not f.name.startswith("real_epoch_")
+                f for f in tdir.glob("epoch_*.fits") if not f.name.startswith("real_")
             ]
             if old_synth:
                 print(f"[LIMPIEZA] Eliminando {len(old_synth)} archivos sintéticos v1.0 en {tdir.name}...")
@@ -167,18 +212,19 @@ def main() -> None:
     for target in MANDATORY_TARGETS:
         already_cached, cached_paths, cache_source = detect_downloaded_target(target, min_epochs=2)
         if already_cached:
-            total_on_disk = len(list((CACHE_DIR / target["id"]).glob("real_epoch_*.fits")))
+            total_on_disk = len(list((CACHE_DIR / target["id"]).glob("real_*.fits")))
             print(
                 f"\n---> [YA DESCARGADO] {target['name']} ({target['id']}): "
                 f"{len(cached_paths)} épocas activas en manifest ({total_on_disk} archivos .FITS en disco) "
                 f"desde {cache_source}. Se ignora la descarga."
             )
+            _ensure_target_catalogs_cached(target)
             if first_real_fits is None and cached_paths:
                 first_real_fits = cached_paths[0]
             continue
 
         print(
-            f"\n---> Consultando IRSA TAP y descargando FITS reales para: {target['name']} "
+            f"\n---> Consultando IRSA y descargando FITS reales para: {target['name']} "
             f"(RA={target['ra_deg']}, Dec={target['dec_deg']})..."
         )
         try:
@@ -189,6 +235,7 @@ def main() -> None:
                 max_epochs=10,
                 force_refresh=False,
             )
+            _ensure_target_catalogs_cached(target)
             print(f"     [OK] {len(frames)} archivos .FITS reales disponibles desde {source_label}.")
             if first_real_fits is None and frames:
                 first_real_fits = Path(frames[0]["local_path"])
@@ -214,8 +261,8 @@ def main() -> None:
         print(f"\n[OK] Cabecera FITS real guardada en: {out_txt}")
 
     print("\n=========================================================================")
-    print("✅ Versión 2.0 lista con datos 100% reales de NASA/IPAC IRSA.")
-    print("Ejecutá ahora: uvicorn src.main:app --reload")
+    print("[OK] Versión 2.0 lista con datos 100% reales de NASA/IPAC IRSA.")
+    print("Ejecutá ahora: python -m uvicorn src.main:app --reload")
 
 
 if __name__ == "__main__":

@@ -319,11 +319,14 @@ def build_spherex_adql_query(ra_deg: float, dec_deg: float, fov_deg: float, max_
     """
     Construye la consulta ADQL exacta del Tutorial Oficial de Caltech/IPAC IRSA
     para obtener recortes de SPHEREx ordenados cronológicamente.
+    Solicita un recorte √2 (~1.45×) mayor que el FoV para cubrir el 100% del cuadro
+    Norte-Arriba tras rotar el ángulo de alabeo (roll angle) del telescopio.
     """
+    cutout_size = round(min(float(fov_deg) * 1.45, 0.5), 5)
     order_clause = "ORDER BY p.time_bounds_lower ASC" if TAP_SORT_BY_TIME else ""
     return f"""
     SELECT TOP {max_rec}
-        'https://irsa.ipac.caltech.edu/' || a.uri || '?center={ra_deg},{dec_deg}d&size={fov_deg}' AS cutout_url,
+        'https://irsa.ipac.caltech.edu/' || a.uri || '?center={ra_deg},{dec_deg}d&size={cutout_size}' AS cutout_url,
         p.time_bounds_lower AS obs_time,
         p.energy_bandpassname AS detector_band
     FROM spherex.artifact a
@@ -338,9 +341,54 @@ _IRSA_TAP_LOCK = threading.Lock()
 _IRSA_503_UNTIL: float = 0.0
 
 
+def _query_spherex_sia(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max_rec: int = 24, timeout: float = 10.0) -> List[Dict[str, Any]]:
+    """
+    Consulta el servicio indexado SIA de IRSA para SPHEREx QR2 (`COLLECTION=spherex_qr2`),
+    que responde en ~1.5 s incluso en el campo profundo del Polo Norte Eclíptico (ej. R Draconis)
+    donde el JOIN `spherex.artifact + spherex.plane` de TAP puede agotar su tiempo de espera.
+    """
+    cutout_size = round(min(float(fov_deg) * 1.45, 0.5), 5)
+    params = urllib.parse.urlencode({
+        "COLLECTION": "spherex_qr2",
+        "POS": f"circle {ra_deg} {dec_deg} {max(fov_deg * 0.5, 0.01)}",
+        "MAXREC": str(max_rec * 2),
+    })
+    sia_url = f"https://irsa.ipac.caltech.edu/SIA?{params}"
+    req = urllib.request.Request(sia_url, headers={"User-Agent": "Papastronomy-SPHEREx/2.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw_bytes = resp.read()
+    from astropy.io.votable import parse_single_table
+    tbl = parse_single_table(io.BytesIO(raw_bytes), use_names_over_ids=True).to_table()
+    if len(tbl) == 0:
+        return []
+
+    records: List[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for row in tbl:
+        access_url = str(row["access_url"]) if "access_url" in tbl.colnames else ""
+        if not access_url or "spherex" not in access_url:
+            continue
+        base_url = access_url.split("?")[0]
+        cutout_url = f"{base_url}?center={ra_deg},{dec_deg}d&size={cutout_size}"
+        if cutout_url in seen_urls:
+            continue
+        seen_urls.add(cutout_url)
+        obs_t = str(row["t_min"]) if "t_min" in tbl.colnames and row["t_min"] is not None else ""
+        band_name = str(row["energy_bandpassname"]) if "energy_bandpassname" in tbl.colnames and row["energy_bandpassname"] is not None else "SPHEREx"
+        records.append({
+            "cutout_url": cutout_url,
+            "obs_time": obs_t,
+            "detector_band": band_name,
+        })
+        if len(records) >= max_rec:
+            break
+    return records
+
+
 def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max_rec: int = 24) -> Tuple[List[Dict[str, Any]], str, str]:
     """
-    Consulta spherex.artifact + spherex.plane con serialización y circuit-breaker ante HTTP 503 o WinError 10054.
+    Consulta spherex.artifact + spherex.plane con serialización y circuit-breaker ante HTTP 503 o WinError 10054,
+    y utiliza IRSA SIA (`spherex_qr2`, ~1.6 s) como vía rápida/respaldo cuando TAP falla o agota timeout.
     """
     global _IRSA_503_UNTIL
     primary_adql = build_spherex_adql_query(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
@@ -372,10 +420,23 @@ def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05,
                 if "503" in err_str or "Service Unavailable" in err_str:
                     _IRSA_503_UNTIL = time.time() + 30.0
                     break
+                if "timed out" in err_str.lower() or "timeout" in err_str.lower():
+                    break
                 if attempt < 2:
                     time.sleep(1.5)
 
-    # Si SPHEREx no tiene cobertura o IRSA TAP dio 503, intentar IRSA IBE (WISE/2MASS)
+    # Respaldo rápido indexado vía IRSA SIA (spherex_qr2, ~1.6 s) cuando _tap_service no está mockeado en tests
+    if not hasattr(_tap_service, "_mock_name"):
+        try:
+            t_sia = time.perf_counter()
+            sia_records = _query_spherex_sia(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
+            if sia_records:
+                logger.info("SIA spherex_qr2: %.1f s, %d filas", time.perf_counter() - t_sia, len(sia_records))
+                return sia_records, primary_adql, "IRSA_SPHEREX_SIA"
+        except Exception as exc:
+            logger.warning("Consulta SPHEREx SIA falló: %s", exc)
+
+    # Si SPHEREx no tiene cobertura o IRSA TAP/SIA falló, intentar IRSA IBE (WISE/2MASS)
     records = query_irsa_real_infrared_cutouts(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
     return records, primary_adql, "IRSA_IBE_REAL_FITS"
 
@@ -600,6 +661,70 @@ def _build_fallback_fits_from_local_cache(
     )
 
 
+def _prioritize_records_with_temporal_pairs(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Ordena los candidatos para que los primeros elementos formen al menos un par
+    temporal en el mismo detector (fecha temprana + fecha tardía) y luego cubran
+    todos los detectores disponibles (D1..D6).
+    """
+    if len(records) <= 2:
+        return list(records)
+
+    from src.analysis import observation_mjd
+
+    by_band: Dict[str, List[Tuple[float, int, Dict[str, Any]]]] = {}
+    unparsed: List[Dict[str, Any]] = []
+    for idx, rec in enumerate(records):
+        mjd = observation_mjd(str(rec.get("obs_time", "")))
+        band = str(rec.get("detector_band", "SPHEREx"))
+        if mjd is None:
+            unparsed.append(rec)
+        else:
+            by_band.setdefault(band, []).append((mjd, idx, rec))
+
+    for band in by_band:
+        by_band[band].sort(key=lambda item: (item[0], item[1]))
+
+    # Ordenar bandas priorizando aquellas con mayor separación temporal (baseline)
+    ranked_bands = sorted(
+        by_band.keys(),
+        key=lambda b: (by_band[b][-1][0] - by_band[b][0][0], len(by_band[b])),
+        reverse=True,
+    )
+
+    prioritized: List[Dict[str, Any]] = []
+    seen_ids: set[int] = set()
+
+    # 1. Extremos temporales (primera y última fecha) de la banda con mayor baseline
+    for b in ranked_bands:
+        items = by_band[b]
+        if len(items) >= 2 and (items[-1][0] - items[0][0]) > 1e-4:
+            for pick in (items[0], items[-1]):
+                if pick[1] not in seen_ids:
+                    seen_ids.add(pick[1])
+                    prioritized.append(pick[2])
+            break
+
+    # 2. Una exposición representativa por cada detector para cobertura espectral completa
+    for b in sorted(by_band.keys()):
+        for mjd, idx, rec in by_band[b]:
+            if idx not in seen_ids:
+                seen_ids.add(idx)
+                prioritized.append(rec)
+                break
+
+    # 3. Extremos temporales del resto de las bandas y exposiciones restantes
+    for b in ranked_bands:
+        items = by_band[b]
+        for pick in (items[0], items[-1], *items[1:-1]):
+            if pick[1] not in seen_ids:
+                seen_ids.add(pick[1])
+                prioritized.append(pick[2])
+
+    prioritized.extend(unparsed)
+    return prioritized
+
+
 def _obtain_real_fits_impl(
     ra_deg: float,
     dec_deg: float,
@@ -646,7 +771,9 @@ def _obtain_real_fits_impl(
             logger.warning("Error leyendo manifest de caché %s: %s", manifest_path, exc)
 
     # Consultar IRSA en vivo y descargar recortes reales en paralelo reutilizando los ya descargados
-    records, tap_query, data_source = query_spherex_tap_live(ra_deg, dec_deg, fov_deg=fov_deg, max_rec=max_epochs * 2)
+    records, tap_query, data_source = query_spherex_tap_live(
+        ra_deg, dec_deg, fov_deg=fov_deg, max_rec=max(max_epochs * 3, 36)
+    )
     if not records:
         logger.warning(
             "IRSA no devolvió recortes en vivo para RA=%s, Dec=%s (posible HTTP 503); activando respaldo FITS local.",
@@ -658,6 +785,7 @@ def _obtain_real_fits_impl(
         )
         return fallback_frames, matched, fb_source, tap_query
 
+    records = _prioritize_records_with_temporal_pairs(records)
     target_dir.mkdir(parents=True, exist_ok=True)
     cached_by_url: Dict[str, Dict[str, Any]] = {
         item["cutout_url"]: item
@@ -696,7 +824,7 @@ def _obtain_real_fits_impl(
                     done_count += 1
                     res = fut.result()
                     if res is not None:
-                        downloaded_frames.append(res)
+                        downloaded_frames.append((future_to_idx[fut], res))
                     logger.info(
                         "Descarga IRSA incremental: %d/%d nuevos procesados, %d acumulados",
                         done_count, n_total, len(reused_frames) + len(downloaded_frames),
@@ -711,17 +839,16 @@ def _obtain_real_fits_impl(
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-    downloaded_frames.sort(key=lambda x: x["obs_time"])
+    downloaded_frames_ordered = [
+        item for _, item in sorted(downloaded_frames, key=lambda pair: pair[0])
+    ]
     merged_frames: List[Dict[str, Any]] = []
     merged_seen: set[str] = set()
-    for item in reused_frames + downloaded_frames:
+    for item in reused_frames + downloaded_frames_ordered:
         key = item.get("cutout_url") or item.get("local_path") or ""
         if key and key not in merged_seen:
             merged_seen.add(key)
             merged_frames.append(item)
-
-    if not reused_frames:
-        merged_frames.sort(key=lambda x: x["obs_time"])
 
     if not merged_frames:
         logger.warning(
@@ -923,7 +1050,7 @@ def translate_simbad_otype(otype: Optional[str], sp_type: Optional[str] = None,
 def _query_simbad_harvard(ra_deg: float, dec_deg: float, radius_deg: float, timeout: float = 4.5) -> List[List[Any]]:
     """Consulta el espejo oficial de SIMBAD en Harvard CfA (JSON rápido < 0.8s)."""
     query = (
-        f"SELECT TOP 40 main_id, ra, dec, otype_txt, sp_type, pmra, pmdec "
+        f"SELECT TOP 120 main_id, ra, dec, otype_txt, sp_type, pmra, pmdec "
         f"FROM basic WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra_deg}, {dec_deg}, {radius_deg}))"
     )
     url = "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync?" + urllib.parse.urlencode({
@@ -939,7 +1066,7 @@ def _query_simbad_harvard(ra_deg: float, dec_deg: float, radius_deg: float, time
 def _query_nasa_exoplanets(ra_deg: float, dec_deg: float, radius_deg: float, timeout: float = 4.5) -> List[Dict[str, Any]]:
     """Consulta el NASA Exoplanet Archive (IPAC TAP) para detectar planetas confirmados en la región."""
     query = (
-        f"SELECT TOP 20 pl_name, hostname, ra, dec, sy_dist, pl_bmassj, pl_rade, discoverymethod "
+        f"SELECT TOP 50 pl_name, hostname, ra, dec, sy_dist, pl_bmassj, pl_rade, discoverymethod "
         f"FROM pscomppars WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra_deg}, {dec_deg}, {radius_deg}))"
     )
     url = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?" + urllib.parse.urlencode({

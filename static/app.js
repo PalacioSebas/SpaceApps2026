@@ -6,6 +6,10 @@
  */
 
 const CUTOUT_NPIX = 128.0;
+const TILE_STEP_PIX = 96.0;
+const TILE_MARGIN_PIX = (CUTOUT_NPIX - TILE_STEP_PIX) / 2;
+const DEFAULT_SKY_ZOOM = +(CUTOUT_NPIX / TILE_STEP_PIX).toFixed(4);
+const MAX_CONCURRENT_TILE_FETCHES = 2;
 
 const state = {
   ra: 133.795129,
@@ -40,6 +44,15 @@ const state = {
   showGaiaCat: true,
   showWiseCat: true,
   crossmatchByDetId: {},
+  tileGrid: new Map(),
+  tileQueue: [],
+  activeTileFetches: 0,
+  tileControllers: new Set(),
+  prefetchTimerId: null,
+  catalogCentersQueried: [],
+  infinitePlaneEnabled: false,
+  allAiDetections: [],
+  nextDetectionId: 100,
   skyView: {
     centerRa: 133.795129,
     centerDec: -7.245147,
@@ -49,6 +62,10 @@ const state = {
     isDragging: false,
     dragStartX: 0,
     dragStartY: 0,
+    lastMoveX: 0,
+    lastMoveY: 0,
+    velX: 0,
+    velY: 0,
     moved: false,
     hoverRa: null,
     hoverDec: null,
@@ -108,80 +125,819 @@ function raDecToPixel(ra, dec) {
     y: center + eta / radians * CUTOUT_NPIX / state.fov };
 }
 
+function angularDistanceDeg(ra1, dec1, ra2, dec2) {
+  const rad = Math.PI / 180;
+  const dRa = (Number(ra2) - Number(ra1)) * rad;
+  const d1 = Number(dec1) * rad;
+  const d2 = Number(dec2) * rad;
+  const a =
+    Math.sin((d2 - d1) / 2) ** 2 +
+    Math.cos(d1) * Math.cos(d2) * Math.sin(dRa / 2) ** 2;
+  return (2 * Math.atan2(Math.sqrt(Math.max(0, a)), Math.sqrt(Math.max(0, 1 - a)))) / rad;
+}
+
 // ----------------------------------------------------------------------------
-// Visor Multi-Catálogo Interactivo (Gaia DR3 + AllWISE + Compuesto Infrarrojo)
+// Plano Infinito Sincronizado (Mosaico de Sectores FITS + Precarga Predictiva)
 // ----------------------------------------------------------------------------
-function initAladinLite(ra, dec, fov) {
-  state.skyView.centerRa = ra;
-  state.skyView.centerDec = dec;
-  state.skyView.zoom = 1.0;
-  state.skyView.panX = 0;
-  state.skyView.panY = 0;
+function getTileCenterCoords(gx, gy) {
+  const centerX = gx * TILE_STEP_PIX + (CUTOUT_NPIX - 1) / 2;
+  const centerY = gy * TILE_STEP_PIX + (CUTOUT_NPIX - 1) / 2;
+  return pixelToRaDec(centerX, centerY);
+}
 
-  const skyCanvas = document.getElementById("aladin-canvas");
-  if (!skyCanvas) return;
+function getDefaultSkyZoom() {
+  return state.infinitePlaneEnabled ? DEFAULT_SKY_ZOOM : 1.0;
+}
 
-  const btnZoomIn = document.getElementById("aladin-zoom-in");
-  const btnZoomOut = document.getElementById("aladin-zoom-out");
-
-  if (btnZoomIn) {
-    btnZoomIn.addEventListener("click", () => {
-      state.skyView.zoom = Math.min(5.0, +(state.skyView.zoom * 1.35).toFixed(2));
-      renderContextSkyMap();
-    });
+function getTileCanvasRect(gx, gy, canvasSize) {
+  const half = canvasSize / 2;
+  if (!state.infinitePlaneEnabled && gx === 0 && gy === 0) {
+    const fullSize = canvasSize * state.skyView.zoom;
+    return {
+      x: -half * state.skyView.zoom + half + state.skyView.panX,
+      y: -half * state.skyView.zoom + half + state.skyView.panY,
+      w: fullSize,
+      h: fullSize,
+      fullCutout: true,
+    };
   }
+  const scale = canvasSize / CUTOUT_NPIX;
+  const rawX = (gx * TILE_STEP_PIX + TILE_MARGIN_PIX) * scale;
+  const rawY = (-gy * TILE_STEP_PIX + TILE_MARGIN_PIX) * scale;
+  const coreSize = TILE_STEP_PIX * scale * state.skyView.zoom;
+  return {
+    x: (rawX - half) * state.skyView.zoom + half + state.skyView.panX,
+    y: (rawY - half) * state.skyView.zoom + half + state.skyView.panY,
+    w: coreSize + 0.75,
+    h: coreSize + 0.75,
+    fullCutout: false,
+  };
+}
 
-  if (btnZoomOut) {
-    btnZoomOut.addEventListener("click", () => {
-      state.skyView.zoom = Math.max(0.75, +(state.skyView.zoom / 1.35).toFixed(2));
-      if (state.skyView.zoom <= 1.05) {
-        state.skyView.panX = 0;
-        state.skyView.panY = 0;
+function drawSeamlessTileImage(ctx, img, rect) {
+  if (!img) return;
+  if (rect.fullCutout) {
+    ctx.drawImage(img, 0, 0, CUTOUT_NPIX, CUTOUT_NPIX, rect.x, rect.y, rect.w, rect.h);
+    return;
+  }
+  ctx.drawImage(
+    img,
+    TILE_MARGIN_PIX,
+    TILE_MARGIN_PIX,
+    TILE_STEP_PIX,
+    TILE_STEP_PIX,
+    rect.x,
+    rect.y,
+    rect.w,
+    rect.h
+  );
+}
+
+function getVisibleTileBounds(canvasSize = 384) {
+  const pTopLeft = skyCanvasToFITS(0, 0, canvasSize);
+  const pBotRight = skyCanvasToFITS(canvasSize, canvasSize, canvasSize);
+  const xMin = Math.min(pTopLeft.xPix, pBotRight.xPix);
+  const xMax = Math.max(pTopLeft.xPix, pBotRight.xPix);
+  const yMin = Math.min(pTopLeft.yPix, pBotRight.yPix);
+  const yMax = Math.max(pTopLeft.yPix, pBotRight.yPix);
+  return {
+    gxMin: Math.floor((xMin + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX),
+    gxMax: Math.floor((xMax + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX),
+    gyMin: Math.floor((yMin + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX),
+    gyMax: Math.floor((yMax + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX),
+    centerGx: ((xMin + xMax) / 2 - (CUTOUT_NPIX - 1) / 2) / TILE_STEP_PIX,
+    centerGy: ((yMin + yMax) / 2 - (CUTOUT_NPIX - 1) / 2) / TILE_STEP_PIX,
+  };
+}
+
+function updateInfinitePlaneBadge() {
+  const badge = document.getElementById("infinite-plane-badge");
+  const btn = document.getElementById("btn-toggle-infinite-plane");
+  if (btn) {
+    btn.setAttribute("aria-pressed", String(state.infinitePlaneEnabled));
+    btn.textContent = state.infinitePlaneEnabled
+      ? "Mapa Global Continuo: ACTIVO"
+      : "Activar Mapa Global Continuo";
+    btn.className = state.infinitePlaneEnabled
+      ? "px-3 py-1.5 rounded-lg text-xs bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 font-semibold hover:bg-emerald-900/80 transition"
+      : "px-3 py-1.5 rounded-lg text-xs bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition";
+  }
+  if (!badge) return;
+  if (!state.infinitePlaneEnabled) {
+    badge.textContent = "Sección única · Mapa global inactivo";
+    badge.className =
+      "absolute top-2.5 right-2.5 bg-slate-950/85 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-mono text-slate-300 pointer-events-none";
+    return;
+  }
+  badge.className =
+    "absolute top-2.5 right-2.5 bg-slate-950/85 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-mono text-sky-300 pointer-events-none";
+  let readyCount = 0;
+  let loadingCount = 0;
+  state.tileGrid.forEach((t) => {
+    if (t.status === "ready") readyCount++;
+    else if (t.status === "loading" || t.status === "queued") loadingCount++;
+  });
+  if (loadingCount > 0) {
+    badge.textContent = `Precargando ${loadingCount} sector${loadingCount === 1 ? "" : "es"} · ${readyCount} activo${readyCount === 1 ? "" : "s"}`;
+  } else {
+    badge.textContent = `Mapa global activo · ${readyCount} sector${readyCount === 1 ? "" : "es"}`;
+  }
+}
+
+function extractNormalizedSnrGrid(rgbaData, w = 128, h = 128) {
+  const vals = [];
+  for (let y = TILE_MARGIN_PIX; y < h - TILE_MARGIN_PIX; y++) {
+    for (let x = TILE_MARGIN_PIX; x < w - TILE_MARGIN_PIX; x++) {
+      const i = (y * w + x) * 4;
+      if (rgbaData[i + 3] > 16) vals.push(rgbaData[i]);
+    }
+  }
+  if (vals.length === 0) {
+    for (let i = 0; i < rgbaData.length; i += 4) {
+      if (rgbaData[i + 3] > 16) vals.push(rgbaData[i]);
+    }
+  }
+  vals.sort((a, b) => a - b);
+  const p12 = vals.length ? vals[Math.floor(vals.length * 0.12)] : 14;
+  const p25 = vals.length ? vals[Math.floor(vals.length * 0.25)] : 20;
+  const p50 = vals.length ? vals[Math.floor(vals.length * 0.50)] : 26;
+  const absDevs = vals.map((v) => Math.abs(v - p50)).sort((a, b) => a - b);
+  const mad = absDevs.length ? absDevs[Math.floor(absDevs.length * 0.5)] : 6;
+  const lowerSigma = Math.max((p50 - p12) * 1.35, 6.0);
+  const sigma = Math.max(lowerSigma, Math.min(1.4826 * mad, lowerSigma * 2.2));
+  const sky = p25;
+
+  const grid = new Float32Array(w * h);
+  grid.fill(NaN);
+  for (let idx = 0; idx < w * h; idx++) {
+    const i = idx * 4;
+    if (rgbaData[i + 3] > 16) {
+      grid[idx] = (rgbaData[i] - sky) / sigma;
+    }
+  }
+  return grid;
+}
+
+function inpaintMissingPixels(grid, w = 128, h = 128, passes = 14) {
+  let current = Float32Array.from(grid);
+  for (let p = 0; p < passes; p++) {
+    const next = Float32Array.from(current);
+    let remaining = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = y * w + x;
+        if (Number.isFinite(current[idx])) continue;
+        let sum = 0;
+        let cnt = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= h) continue;
+          for (let dx = -2; dx <= 2; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= w) continue;
+            const v = current[ny * w + nx];
+            if (Number.isFinite(v)) {
+              sum += v;
+              cnt++;
+            }
+          }
+        }
+        if (cnt > 0) next[idx] = sum / cnt;
+        else remaining++;
       }
-      renderContextSkyMap();
-    });
+    }
+    current = next;
+    if (remaining === 0) break;
+  }
+  for (let i = 0; i < current.length; i++) {
+    if (!Number.isFinite(current[i])) current[i] = 0.0;
+  }
+  return current;
+}
+
+function snrToGrayscaleByte(snr) {
+  const z = Math.max(0.0, snr + 0.55);
+  const norm = Math.min(1.0, Math.asinh(z / 2.2) / Math.asinh(14.0));
+  return Math.min(255, Math.max(0, Math.round(norm * 255)));
+}
+
+function overlapTaper1D(u) {
+  const overlap = TILE_MARGIN_PIX * 2; // 32 px
+  if (u < overlap) {
+    return 0.5 * (1.0 - Math.cos((Math.PI * (u + 0.5)) / overlap));
+  }
+  if (u >= CUTOUT_NPIX - overlap) {
+    return 0.5 * (1.0 - Math.cos((Math.PI * (CUTOUT_NPIX - 0.5 - u)) / overlap));
+  }
+  return 1.0;
+}
+
+function calibrateTileGridsToNeighbors(gx, gy, visualGrids) {
+  if ((gx === 0 && gy === 0) || !state.tileGrid) return;
+  const selfPairs = [];
+  const refPairs = [];
+
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = gx + dx;
+      const ny = gy + dy;
+      const neighbor = state.tileGrid.get(`${nx},${ny}`);
+      const nGrids = neighbor?.visualGrids;
+      if (!neighbor || neighbor.status !== "ready" || !nGrids) continue;
+
+      const shiftX = (gx - nx) * TILE_STEP_PIX;
+      const shiftY = -(gy - ny) * TILE_STEP_PIX;
+      const xStart = Math.max(0, -shiftX);
+      const xEnd = Math.min(CUTOUT_NPIX, CUTOUT_NPIX - shiftX);
+      const yStart = Math.max(0, -shiftY);
+      const yEnd = Math.min(CUTOUT_NPIX, CUTOUT_NPIX - shiftY);
+
+      for (let py = yStart; py < yEnd; py += 2) {
+        const npy = py + shiftY;
+        for (let px = xStart; px < xEnd; px += 2) {
+          const npx = px + shiftX;
+          const vSelf = visualGrids.mid[py * CUTOUT_NPIX + px];
+          const vRef = nGrids.mid[npy * CUTOUT_NPIX + npx];
+          if (Number.isFinite(vSelf) && Number.isFinite(vRef)) {
+            selfPairs.push(vSelf);
+            refPairs.push(vRef);
+          }
+        }
+      }
+    }
   }
 
-  skyCanvas.addEventListener(
+  if (selfPairs.length < 24) return;
+  const sortedSelf = [...selfPairs].sort((a, b) => a - b);
+  const sortedRef = [...refPairs].sort((a, b) => a - b);
+  const q25Idx = Math.floor(sortedSelf.length * 0.25);
+  const q50Idx = Math.floor(sortedSelf.length * 0.50);
+  const q75Idx = Math.floor(sortedSelf.length * 0.75);
+
+  const medSelf = sortedSelf[q50Idx];
+  const medRef = sortedRef[q50Idx];
+  const iqrSelf = Math.max(sortedSelf[q75Idx] - sortedSelf[q25Idx], 0.45);
+  const iqrRef = Math.max(sortedRef[q75Idx] - sortedRef[q25Idx], 0.45);
+
+  const scale = Math.min(1.85, Math.max(0.42, iqrRef / iqrSelf));
+  const offset = Math.min(3.2, Math.max(-3.2, medRef - medSelf * scale));
+
+  const applyTransform = (arr) => {
+    for (let i = 0; i < arr.length; i++) {
+      arr[i] = arr[i] * scale + offset;
+    }
+  };
+  applyTransform(visualGrids.mid);
+  applyTransform(visualGrids.early);
+  applyTransform(visualGrids.late);
+  visualGrids.epochs.forEach(applyTransform);
+}
+
+function renderTileCanvasesFromGrids(gx, gy, visualGrids) {
+  const w = CUTOUT_NPIX;
+  const h = CUTOUT_NPIX;
+  const overlap = TILE_MARGIN_PIX * 2; // 32 px
+
+  const neighbors = [];
+  if (state.tileGrid) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = gx + dx;
+        const ny = gy + dy;
+        const nTile = state.tileGrid.get(`${nx},${ny}`);
+        if (nTile && nTile.status === "ready" && nTile.visualGrids) {
+          neighbors.push({
+            shiftX: (gx - nx) * TILE_STEP_PIX,
+            shiftY: -(gy - ny) * TILE_STEP_PIX,
+            grids: nTile.visualGrids,
+          });
+        }
+      }
+    }
+  }
+
+  const blendMid = new Float32Array(w * h);
+  const blendEarly = new Float32Array(w * h);
+  const blendLate = new Float32Array(w * h);
+  const nEp = visualGrids.epochs.length;
+  const blendEpochs = visualGrids.epochs.map(() => new Float32Array(w * h));
+
+  for (let py = 0; py < h; py++) {
+    const wy = overlapTaper1D(py);
+    const inBorderY = py < overlap || py >= h - overlap;
+    for (let px = 0; px < w; px++) {
+      const idx = py * w + px;
+      const inBorderX = px < overlap || px >= w - overlap;
+      if (!inBorderX && !inBorderY || neighbors.length === 0) {
+        blendMid[idx] = visualGrids.mid[idx];
+        blendEarly[idx] = visualGrids.early[idx];
+        blendLate[idx] = visualGrids.late[idx];
+        for (let k = 0; k < nEp; k++) {
+          blendEpochs[k][idx] = visualGrids.epochs[k][idx];
+        }
+        continue;
+      }
+
+      const wSelf = Math.max(1e-4, overlapTaper1D(px) * wy);
+      let wSum = wSelf;
+      let mSum = wSelf * visualGrids.mid[idx];
+      let eSum = wSelf * visualGrids.early[idx];
+      let lSum = wSelf * visualGrids.late[idx];
+
+      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
+        const nb = neighbors[nIdx];
+        const npx = px + nb.shiftX;
+        const npy = py + nb.shiftY;
+        if (npx < 0 || npx >= w || npy < 0 || npy >= h) continue;
+        const nWeight = overlapTaper1D(npx) * overlapTaper1D(npy);
+        if (nWeight <= 0) continue;
+        const nFlat = npy * w + npx;
+        wSum += nWeight;
+        mSum += nWeight * nb.grids.mid[nFlat];
+        eSum += nWeight * nb.grids.early[nFlat];
+        lSum += nWeight * nb.grids.late[nFlat];
+      }
+
+      const mVal = mSum / wSum;
+      blendMid[idx] = mVal;
+      blendEarly[idx] = eSum / wSum;
+      blendLate[idx] = lSum / wSum;
+
+      const deltaMid = mVal - visualGrids.mid[idx];
+      for (let k = 0; k < nEp; k++) {
+        blendEpochs[k][idx] = visualGrids.epochs[k][idx] + deltaMid;
+      }
+    }
+  }
+
+  // 1. Canvas de Mediana en escala de grises continua sin costuras entre bordes
+  const healedCoaddCanvas = document.createElement("canvas");
+  healedCoaddCanvas.width = w;
+  healedCoaddCanvas.height = h;
+  const hcCtx = healedCoaddCanvas.getContext("2d");
+  const hcImg = hcCtx.createImageData(w, h);
+  for (let idx = 0; idx < w * h; idx++) {
+    const g = snrToGrayscaleByte(blendMid[idx]);
+    const i = idx * 4;
+    hcImg.data[i] = g;
+    hcImg.data[i + 1] = g;
+    hcImg.data[i + 2] = g;
+    hcImg.data[i + 3] = 255;
+  }
+  hcCtx.putImageData(hcImg, 0, 0);
+
+  // 2. Épocas individuales alineadas radiométricamente al mosaico continuo
+  const normalizedEpochs = blendEpochs.map((epGrid) => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const cctx = c.getContext("2d");
+    const cImg = cctx.createImageData(w, h);
+    for (let idx = 0; idx < w * h; idx++) {
+      const g = snrToGrayscaleByte(epGrid[idx]);
+      const i = idx * 4;
+      cImg.data[i] = g;
+      cImg.data[i + 1] = g;
+      cImg.data[i + 2] = g;
+      cImg.data[i + 3] = 255;
+    }
+    cctx.putImageData(cImg, 0, 0);
+    return c;
+  });
+
+  // 3. Compuesto infrarrojo continuo sin saltos de brillo ni color entre sectores
+  const colorCanvas = document.createElement("canvas");
+  colorCanvas.width = w;
+  colorCanvas.height = h;
+  const colorCtx = colorCanvas.getContext("2d");
+  const colorImg = colorCtx.createImageData(w, h);
+  for (let idx = 0; idx < w * h; idx++) {
+    const sMid = blendMid[idx];
+    const sEarly = blendEarly[idx];
+    const sLate = blendLate[idx];
+    const sLum = Math.max(0.0, 0.25 * sEarly + 0.50 * sMid + 0.25 * sLate + 0.55);
+    const lum = Math.min(1.0, Math.asinh(sLum / 2.0) / Math.asinh(13.5));
+
+    const sourceWeight = Math.min(1.0, Math.max(0.0, (sLum - 1.1) / 2.6));
+    const colorIndex = Math.max(-1.0, Math.min(1.0, (sLate - sEarly) * 0.22)) * sourceWeight;
+
+    const baseR = 7 + lum * 242;
+    const baseG = 11 + lum * 236;
+    const baseB = 22 + lum * 233;
+
+    const i = idx * 4;
+    colorImg.data[i] = Math.min(255, Math.max(0, Math.round(baseR + colorIndex * 46)));
+    colorImg.data[i + 1] = Math.min(255, Math.max(0, Math.round(baseG - Math.abs(colorIndex) * 10)));
+    colorImg.data[i + 2] = Math.min(255, Math.max(0, Math.round(baseB - colorIndex * 46)));
+    colorImg.data[i + 3] = 255;
+  }
+  colorCtx.putImageData(colorImg, 0, 0);
+
+  return { colorCanvas, healedCoaddCanvas, normalizedEpochs };
+}
+
+function rebakeTileNeighborhood(centerGx, centerGy) {
+  if (!state.tileGrid) return;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const tx = centerGx + dx;
+      const ty = centerGy + dy;
+      const tile = state.tileGrid.get(`${tx},${ty}`);
+      if (!tile || tile.status !== "ready" || !tile.visualGrids) continue;
+      const baked = renderTileCanvasesFromGrids(tx, ty, tile.visualGrids);
+      tile.coaddImage = baked.healedCoaddCanvas;
+      tile.epochImages = baked.normalizedEpochs;
+      tile.colorSkyCanvas = baked.colorCanvas;
+      if (tx === 0 && ty === 0) {
+        state.coaddImage = baked.healedCoaddCanvas;
+        state.epochImages = baked.normalizedEpochs;
+        state.skyView.colorSkyCanvas = baked.colorCanvas;
+      }
+    }
+  }
+  snapNamedObjectsToTilePeaks();
+}
+
+function createTileVisualCanvases(coaddImage, epochImages, gx = 0, gy = 0) {
+  if (!coaddImage) {
+    return {
+      colorCanvas: null,
+      healedCoaddCanvas: null,
+      normalizedEpochs: epochImages || [],
+      visualGrids: null,
+    };
+  }
+  const w = 128;
+  const h = 128;
+  const off = document.createElement("canvas");
+  off.width = w;
+  off.height = h;
+  const ctx = off.getContext("2d");
+  ctx.drawImage(coaddImage, 0, 0, w, h);
+  const coaddGrid = extractNormalizedSnrGrid(ctx.getImageData(0, 0, w, h).data, w, h);
+
+  const epochGrids = (epochImages || []).map((img) => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const cctx = c.getContext("2d");
+    cctx.drawImage(img, 0, 0, w, h);
+    return extractNormalizedSnrGrid(cctx.getImageData(0, 0, w, h).data, w, h);
+  });
+
+  const nEp = epochGrids.length;
+  const third = Math.max(1, Math.floor(nEp / 3));
+  const sampleEpochRange = (startIdx, endIdx, idx) => {
+    let sum = 0;
+    let cnt = 0;
+    for (let k = startIdx; k < endIdx; k++) {
+      const v = epochGrids[k][idx];
+      if (Number.isFinite(v)) {
+        sum += v;
+        cnt++;
+      }
+    }
+    return cnt > 0 ? sum / cnt : NaN;
+  };
+
+  const midRaw = new Float32Array(w * h);
+  const earlyRaw = new Float32Array(w * h);
+  const lateRaw = new Float32Array(w * h);
+  for (let idx = 0; idx < w * h; idx++) {
+    const vAll = nEp > 0 ? sampleEpochRange(0, nEp, idx) : NaN;
+    const vCoadd = coaddGrid[idx];
+    const m = Number.isFinite(vCoadd) && Number.isFinite(vAll)
+      ? 0.55 * vCoadd + 0.45 * vAll
+      : Number.isFinite(vCoadd)
+      ? vCoadd
+      : vAll;
+    midRaw[idx] = m;
+    const e = nEp >= 2 ? sampleEpochRange(0, third, idx) : m;
+    const l = nEp >= 2 ? sampleEpochRange(Math.max(1, nEp - third), nEp, idx) : m;
+    earlyRaw[idx] = Number.isFinite(e) ? e : m;
+    lateRaw[idx] = Number.isFinite(l) ? l : m;
+  }
+
+  const midHealed = inpaintMissingPixels(midRaw, w, h, 14);
+  const earlyHealed = inpaintMissingPixels(earlyRaw, w, h, 14);
+  const lateHealed = inpaintMissingPixels(lateRaw, w, h, 14);
+  const healedEpochs = epochGrids.map((epGrid) => {
+    const out = new Float32Array(w * h);
+    for (let idx = 0; idx < w * h; idx++) {
+      out[idx] = Number.isFinite(epGrid[idx]) ? epGrid[idx] : midHealed[idx];
+    }
+    return out;
+  });
+
+  const visualGrids = {
+    mid: midHealed,
+    early: earlyHealed,
+    late: lateHealed,
+    epochs: healedEpochs,
+  };
+
+  calibrateTileGridsToNeighbors(gx, gy, visualGrids);
+  const baked = renderTileCanvasesFromGrids(gx, gy, visualGrids);
+  return { ...baked, visualGrids };
+}
+
+function createColorCompositeCanvas(coaddImage, epochImages) {
+  return createTileVisualCanvases(coaddImage, epochImages, 0, 0).colorCanvas;
+}
+
+function abortBackgroundTiles() {
+  if (state.prefetchTimerId) {
+    clearTimeout(state.prefetchTimerId);
+    state.prefetchTimerId = null;
+  }
+  state.tileControllers.forEach((ctrl) => ctrl.abort());
+  state.tileControllers.clear();
+  state.tileQueue = [];
+  state.activeTileFetches = 0;
+}
+
+function mapDetectionsToGlobalPlane(detections, isOriginTile = false) {
+  return (detections || []).map((det) => {
+    const globalPos = raDecToPixel(det.ra, det.dec);
+    const dx = det.neg_x_pix !== null && det.neg_x_pix !== undefined ? det.neg_x_pix - det.x_pix : 0;
+    const dy = det.neg_y_pix !== null && det.neg_y_pix !== undefined ? det.neg_y_pix - det.y_pix : 0;
+    return {
+      ...det,
+      id: isOriginTile ? det.id : state.nextDetectionId++,
+      x_pix: globalPos.x,
+      y_pix: globalPos.y,
+      neg_x_pix: det.neg_x_pix !== null && det.neg_x_pix !== undefined ? globalPos.x + dx : null,
+      neg_y_pix: det.neg_y_pix !== null && det.neg_y_pix !== undefined ? globalPos.y + dy : null,
+    };
+  });
+}
+
+function mergeTileDetections(newDetections) {
+  const existing = state.allAiDetections || [];
+  let added = false;
+  newDetections.forEach((det) => {
+    const duplicate = existing.some((ex) => Math.hypot(ex.x_pix - det.x_pix, ex.y_pix - det.y_pix) < 3.5);
+    if (!duplicate) {
+      existing.push(det);
+      added = true;
+    }
+  });
+  if (added) {
+    state.allAiDetections = existing;
+    renderAIDetectionsList(existing);
+  }
+}
+
+async function fetchSingleBackgroundTile(gx, gy, sequence) {
+  const key = `${gx},${gy}`;
+  const entry = state.tileGrid.get(key);
+  if (!entry || entry.status === "ready" || entry.status === "loading") return;
+
+  entry.status = "loading";
+  state.activeTileFetches++;
+  updateInfinitePlaneBadge();
+  renderCanvas();
+  renderContextSkyMap();
+
+  const controller = new AbortController();
+  state.tileControllers.add(controller);
+
+  try {
+    const res = await fetch(
+      `/api/explore?ra=${entry.ra.toFixed(6)}&dec=${entry.dec.toFixed(6)}&fov=${state.fov}&max_epochs=6&temporal_search=false&refresh=false`,
+      { signal: controller.signal }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (sequence !== state.exploreSequence) return;
+
+    const [images, flags, coadd, diff] = await Promise.all([
+      Promise.all((data.epochs || []).map((ep) => loadImagePromise(ep.image_base64))),
+      Promise.all((data.epochs || []).map((ep) => loadImagePromise(ep.flags_base64))),
+      loadImagePromise(data.coadd_image_base64),
+      loadImagePromise(data.diff_image_base64),
+    ]);
+    if (sequence !== state.exploreSequence) return;
+
+    const mappedDetections = mapDetectionsToGlobalPlane(data.ai_detections || [], false);
+    const visuals = createTileVisualCanvases(coadd, images, gx, gy);
+    entry.status = "ready";
+    entry.exploreData = data;
+    entry.epochImages = visuals.normalizedEpochs;
+    entry.flagImages = flags;
+    entry.coaddImage = visuals.healedCoaddCanvas || coadd;
+    entry.diffImage = diff;
+    entry.colorSkyCanvas = visuals.colorCanvas;
+    entry.visualGrids = visuals.visualGrids;
+    entry.aiDetections = mappedDetections;
+
+    rebakeTileNeighborhood(gx, gy);
+    mergeTileDetections(mappedDetections);
+    updateInfinitePlaneBadge();
+    renderCanvas();
+    renderContextSkyMap();
+  } catch (err) {
+    if (err.name === "AbortError" || sequence !== state.exploreSequence) return;
+    entry.status = "error";
+    updateInfinitePlaneBadge();
+    renderCanvas();
+    renderContextSkyMap();
+  } finally {
+    state.tileControllers.delete(controller);
+    if (sequence === state.exploreSequence) {
+      state.activeTileFetches = Math.max(0, state.activeTileFetches - 1);
+      processTilePrefetchQueue(sequence);
+    }
+  }
+}
+
+function processTilePrefetchQueue(sequence) {
+  if (sequence !== state.exploreSequence) return;
+  state.tileQueue.sort((a, b) => a.priority - b.priority);
+  while (state.activeTileFetches < MAX_CONCURRENT_TILE_FETCHES && state.tileQueue.length > 0) {
+    const next = state.tileQueue.shift();
+    const key = `${next.gx},${next.gy}`;
+    const existing = state.tileGrid.get(key);
+    if (existing && existing.status === "queued") {
+      void fetchSingleBackgroundTile(next.gx, next.gy, sequence);
+    }
+  }
+}
+
+function enqueueTileForPrefetch(gx, gy, priority) {
+  if (Math.abs(gx) > 12 || Math.abs(gy) > 12) return;
+  const key = `${gx},${gy}`;
+  const coords = getTileCenterCoords(gx, gy);
+  if (!Number.isFinite(coords.ra) || !Number.isFinite(coords.dec) || Math.abs(coords.dec) > 89.8) return;
+
+  const existing = state.tileGrid.get(key);
+  if (existing) {
+    if (existing.status === "queued") {
+      const qItem = state.tileQueue.find((q) => q.gx === gx && q.gy === gy);
+      if (qItem && priority < qItem.priority) qItem.priority = priority;
+    }
+    return;
+  }
+
+  state.tileGrid.set(key, {
+    key,
+    gx,
+    gy,
+    ra: coords.ra,
+    dec: coords.dec,
+    status: "queued",
+    exploreData: null,
+    epochImages: [],
+    flagImages: [],
+    coaddImage: null,
+    diffImage: null,
+    colorSkyCanvas: null,
+    aiDetections: [],
+  });
+  state.tileQueue.push({ gx, gy, priority });
+}
+
+function scheduleInfinitePrefetch() {
+  if (!state.infinitePlaneEnabled || !state.exploreData) {
+    updateInfinitePlaneBadge();
+    return;
+  }
+  const sequence = state.exploreSequence;
+
+  // 1. Precargar de inmediato el paquete ligero de estrellas y catálogos en un radio 3x mayor
+  void prefetchWideCatalogsAndStars(state.skyView.centerRa, state.skyView.centerDec, sequence);
+
+  // 2. Encolar sectores FITS visibles + sectores vecinos predictivos en la dirección del movimiento
+  if (state.prefetchTimerId) clearTimeout(state.prefetchTimerId);
+  state.prefetchTimerId = setTimeout(() => {
+    if (sequence !== state.exploreSequence) return;
+    const bounds = getVisibleTileBounds(384);
+    const { gxMin, gxMax, gyMin, gyMax, centerGx, centerGy } = bounds;
+
+    // Sectores actualmente en pantalla (prioridad máxima)
+    for (let gy = gyMin; gy <= gyMax; gy++) {
+      for (let gx = gxMin; gx <= gxMax; gx++) {
+        const dist = Math.hypot(gx - centerGx, gy - centerGy);
+        enqueueTileForPrefetch(gx, gy, dist);
+      }
+    }
+
+    // Sectores vecinos anticipados según el vector de arrastre o desplazamiento desde el centro
+    const pannedDistance = Math.hypot(state.skyView.panX, state.skyView.panY);
+    if (pannedDistance > 8 || state.skyView.isDragging) {
+      const roundGx = Math.round(centerGx);
+      const roundGy = Math.round(centerGy);
+      const stepX = state.skyView.velX < -1 ? 1 : state.skyView.velX > 1 ? -1 : 0;
+      const stepY = state.skyView.velY > 1 ? 1 : state.skyView.velY < -1 ? -1 : 0;
+
+      if (stepX !== 0 || stepY !== 0) {
+        enqueueTileForPrefetch(roundGx + stepX, roundGy + stepY, 2.0);
+        if (stepX !== 0) enqueueTileForPrefetch(roundGx + stepX, roundGy, 2.2);
+        if (stepY !== 0) enqueueTileForPrefetch(roundGx, roundGy + stepY, 2.2);
+      }
+
+      const neighbors = [
+        [roundGx + 1, roundGy],
+        [roundGx - 1, roundGy],
+        [roundGx, roundGy + 1],
+        [roundGx, roundGy - 1],
+      ];
+      neighbors.forEach(([nx, ny]) => {
+        const dist = Math.hypot(nx - centerGx, ny - centerGy);
+        enqueueTileForPrefetch(nx, ny, 3.0 + dist);
+      });
+    }
+
+    updateInfinitePlaneBadge();
+    processTilePrefetchQueue(sequence);
+  }, 90);
+}
+
+function bindSynchronizedPlaneEvents(canvas) {
+  if (!canvas || canvas.dataset.infiniteBound === "1") return;
+  canvas.dataset.infiniteBound = "1";
+
+  canvas.addEventListener(
     "wheel",
     (e) => {
       e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const cx = ((e.clientX - rect.left) / rect.width) * canvas.width;
+      const cy = ((e.clientY - rect.top) / rect.height) * canvas.height;
+      const half = canvas.width / 2;
+      const prevZoom = state.skyView.zoom;
       const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
-      state.skyView.zoom = Math.min(5.0, Math.max(0.75, +(state.skyView.zoom * factor).toFixed(2)));
+      const nextZoom = Math.min(6.0, Math.max(0.5, +(prevZoom * factor).toFixed(2)));
+      if (nextZoom === prevZoom) return;
+
+      const scaleRatio = nextZoom / prevZoom;
+      state.skyView.panX = cx - half - (cx - half - state.skyView.panX) * scaleRatio;
+      state.skyView.panY = cy - half - (cy - half - state.skyView.panY) * scaleRatio;
+      state.skyView.zoom = nextZoom;
+
+      const centerFits = skyCanvasToFITS(half, half, canvas.width);
+      const centerCoords = pixelToRaDec(centerFits.xPix, centerFits.yPix);
+      state.skyView.centerRa = centerCoords.ra;
+      state.skyView.centerDec = centerCoords.dec;
+
+      scheduleInfinitePrefetch();
       renderContextSkyMap();
+      renderCanvas();
     },
     { passive: false }
   );
 
-  skyCanvas.addEventListener("mousedown", (e) => {
+  canvas.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
     state.skyView.isDragging = true;
     state.skyView.moved = false;
     state.skyView.dragStartX = e.clientX - state.skyView.panX;
     state.skyView.dragStartY = e.clientY - state.skyView.panY;
+    state.skyView.lastMoveX = e.clientX;
+    state.skyView.lastMoveY = e.clientY;
+    state.skyView.velX = 0;
+    state.skyView.velY = 0;
   });
 
-  window.addEventListener("mouseup", () => {
-    state.skyView.isDragging = false;
-  });
-
-  skyCanvas.addEventListener("mousemove", (e) => {
-    const rect = skyCanvas.getBoundingClientRect();
-    const cx = ((e.clientX - rect.left) / rect.width) * skyCanvas.width;
-    const cy = ((e.clientY - rect.top) / rect.height) * skyCanvas.height;
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const cx = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const cy = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
     if (state.skyView.isDragging) {
       const nx = e.clientX - state.skyView.dragStartX;
       const ny = e.clientY - state.skyView.dragStartY;
+      state.skyView.velX = e.clientX - state.skyView.lastMoveX;
+      state.skyView.velY = e.clientY - state.skyView.lastMoveY;
+      state.skyView.lastMoveX = e.clientX;
+      state.skyView.lastMoveY = e.clientY;
+
       if (Math.hypot(nx - state.skyView.panX, ny - state.skyView.panY) > 3) {
         state.skyView.moved = true;
       }
-      state.skyView.panX = Math.max(-160, Math.min(160, nx));
-      state.skyView.panY = Math.max(-160, Math.min(160, ny));
+      state.skyView.panX = nx;
+      state.skyView.panY = ny;
+
+      const half = canvas.width / 2;
+      const centerFits = skyCanvasToFITS(half, half, canvas.width);
+      const centerCoords = pixelToRaDec(centerFits.xPix, centerFits.yPix);
+      state.skyView.centerRa = centerCoords.ra;
+      state.skyView.centerDec = centerCoords.dec;
+
+      const coordsEl = document.getElementById("aladin-hud-coords");
+      if (coordsEl) {
+        coordsEl.textContent = `Centro RA: ${centerCoords.ra.toFixed(5)}° | Dec: ${centerCoords.dec.toFixed(5)}°`;
+      }
+
+      scheduleInfinitePrefetch();
       renderContextSkyMap();
+      renderCanvas();
       return;
     }
 
-    const { xPix, yPix } = skyCanvasToFITS(cx, cy, skyCanvas.width);
+    const { xPix, yPix } = skyCanvasToFITS(cx, cy, canvas.width);
     const coords = pixelToRaDec(xPix, yPix);
     state.skyView.hoverRa = coords.ra;
     state.skyView.hoverDec = coords.dec;
@@ -193,7 +949,7 @@ function initAladinLite(ra, dec, fov) {
     const hoveredObj = findHoveredNamedObject(xPix, yPix, 5.5 / state.skyView.zoom);
     const prevHoverId = state.hoveredNamedObjectId;
     state.hoveredNamedObjectId = hoveredObj ? hoveredObj.id : null;
-    skyCanvas.style.cursor = hoveredObj ? "pointer" : "grab";
+    canvas.style.cursor = hoveredObj ? "pointer" : "grab";
     if (state.hoveredNamedObjectId !== prevHoverId) {
       if (hoveredObj) {
         showNamedObjectDetail(hoveredObj);
@@ -206,13 +962,14 @@ function initAladinLite(ra, dec, fov) {
     }
   });
 
-  skyCanvas.addEventListener("mouseleave", () => {
+  canvas.addEventListener("mouseleave", () => {
     const coordsEl = document.getElementById("aladin-hud-coords");
     if (coordsEl) {
       coordsEl.textContent = `Centro RA: ${state.skyView.centerRa.toFixed(5)}° | Dec: ${state.skyView.centerDec.toFixed(5)}°`;
     }
     if (state.hoveredNamedObjectId !== null) {
       state.hoveredNamedObjectId = null;
+      canvas.style.cursor = "grab";
       const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
       if (activeObj) showNamedObjectDetail(activeObj);
       renderContextSkyMap();
@@ -220,24 +977,80 @@ function initAladinLite(ra, dec, fov) {
     }
   });
 
-  skyCanvas.addEventListener("click", (e) => {
+  canvas.addEventListener("click", (e) => {
     if (state.skyView.moved || state.isLoading || !state.exploreData) return;
-    const rect = skyCanvas.getBoundingClientRect();
-    const cx = ((e.clientX - rect.left) / rect.width) * skyCanvas.width;
-    const cy = ((e.clientY - rect.top) / rect.height) * skyCanvas.height;
-    const { xPix, yPix } = skyCanvasToFITS(cx, cy, skyCanvas.width);
-    if (xPix < 0 || xPix >= CUTOUT_NPIX || yPix < 0 || yPix >= CUTOUT_NPIX) return;
+    const rect = canvas.getBoundingClientRect();
+    const cx = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const cy = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const { xPix, yPix } = skyCanvasToFITS(cx, cy, canvas.width);
 
-    state.selectedDetectionId = null;
-    state.selectedPixel = { x: xPix, y: yPix };
-    updateAIDetectionCardsSelection();
+    const hitDet = findNearestAIDetection(xPix, yPix, 5.0 / state.skyView.zoom);
+    if (hitDet) {
+      state.selectedDetectionId = hitDet.id;
+      state.selectedPixel = { x: hitDet.x_pix, y: hitDet.y_pix };
+    } else {
+      state.selectedDetectionId = null;
+      state.selectedPixel = { x: xPix, y: yPix };
+    }
+    updateAIDetectionCardsSelection(true);
     renderCanvas();
     updateCatalogSelectionSummary();
     renderContextSkyMap();
 
     const coords = pixelToRaDec(xPix, yPix);
-    fetchAndRenderSpectrum(coords.ra, coords.dec, true);
+    const tileGx = Math.floor((xPix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+    const tileGy = Math.floor((yPix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+    const tileCenter = getTileCenterCoords(tileGx, tileGy);
+    fetchAndRenderSpectrum(coords.ra, coords.dec, true, tileCenter.ra, tileCenter.dec);
   });
+}
+
+function initAladinLite(ra, dec, fov) {
+  state.skyView.centerRa = ra;
+  state.skyView.centerDec = dec;
+  state.skyView.zoom = getDefaultSkyZoom();
+  state.skyView.panX = 0;
+  state.skyView.panY = 0;
+
+  const skyCanvas = document.getElementById("aladin-canvas");
+  const spherexCanvas = document.getElementById("spherex-canvas");
+  if (skyCanvas) bindSynchronizedPlaneEvents(skyCanvas);
+  if (spherexCanvas) bindSynchronizedPlaneEvents(spherexCanvas);
+
+  window.addEventListener("mouseup", () => {
+    state.skyView.isDragging = false;
+  });
+
+  const btnZoomIn = document.getElementById("aladin-zoom-in");
+  const btnZoomOut = document.getElementById("aladin-zoom-out");
+
+  if (btnZoomIn) {
+    btnZoomIn.addEventListener("click", () => {
+      const prevZoom = state.skyView.zoom;
+      const nextZoom = Math.min(6.0, +(prevZoom * 1.35).toFixed(2));
+      const ratio = nextZoom / prevZoom;
+      state.skyView.panX *= ratio;
+      state.skyView.panY *= ratio;
+      state.skyView.zoom = nextZoom;
+      scheduleInfinitePrefetch();
+      renderContextSkyMap();
+      renderCanvas();
+    });
+  }
+
+  if (btnZoomOut) {
+    btnZoomOut.addEventListener("click", () => {
+      const prevZoom = state.skyView.zoom;
+      const nextZoom = Math.max(0.5, +(prevZoom / 1.35).toFixed(2));
+      const ratio = nextZoom / prevZoom;
+      state.skyView.panX *= ratio;
+      state.skyView.panY *= ratio;
+      state.skyView.zoom = nextZoom;
+      scheduleInfinitePrefetch();
+      renderContextSkyMap();
+      renderCanvas();
+    });
+  }
 
   renderContextSkyMap();
 }
@@ -264,60 +1077,11 @@ function fitsToSkyCanvas(xPix, yPix, canvasSize) {
 }
 
 function buildCatalogSourcesFromField() {
-  if (!state.coaddImage) return;
-  const w = 128;
-  const h = 128;
-  const off = document.createElement("canvas");
-  off.width = w;
-  off.height = h;
-  const ctx = off.getContext("2d");
-  ctx.drawImage(state.coaddImage, 0, 0, w, h);
-  const coaddData = ctx.getImageData(0, 0, w, h).data;
-
-  let earlyData = coaddData;
-  let lateData = coaddData;
-  if (state.epochImages.length >= 2) {
-    const cEarly = document.createElement("canvas");
-    cEarly.width = w;
-    cEarly.height = h;
-    cEarly.getContext("2d").drawImage(state.epochImages[0], 0, 0, w, h);
-    earlyData = cEarly.getContext("2d").getImageData(0, 0, w, h).data;
-
-    const cLate = document.createElement("canvas");
-    cLate.width = w;
-    cLate.height = h;
-    cLate.getContext("2d").drawImage(state.epochImages[state.epochImages.length - 1], 0, 0, w, h);
-    lateData = cLate.getContext("2d").getImageData(0, 0, w, h).data;
-  }
-
-  // Calcular mediana del canal rojo para estirar el contraste del mapa multi-catálogo
-  const redVals = [];
-  for (let i = 0; i < coaddData.length; i += 4) {
-    if (coaddData[i] > 0) redVals.push(coaddData[i]);
-  }
-  redVals.sort((a, b) => a - b);
-  const med = redVals.length ? redVals[Math.floor(redVals.length * 0.5)] : 45;
-  const p85 = redVals.length ? redVals[Math.floor(redVals.length * 0.85)] : 90;
-  const threshold = Math.max(med + 8, Math.min(85, p85));
-
-  const colorCanvas = document.createElement("canvas");
-  colorCanvas.width = w;
-  colorCanvas.height = h;
-  const colorCtx = colorCanvas.getContext("2d");
-  const colorImg = colorCtx.createImageData(w, h);
-  for (let i = 0; i < coaddData.length; i += 4) {
-    const vEarly = earlyData[i];
-    const vMid = coaddData[i];
-    const vLate = lateData[i];
-    const boost = Math.max(0, vMid - med * 0.65) * 1.35;
-    colorImg.data[i] = Math.min(255, Math.round(vLate * 0.7 + boost * 0.75 + 8));
-    colorImg.data[i + 1] = Math.min(255, Math.round(vMid * 0.65 + boost * 0.65 + 14));
-    colorImg.data[i + 2] = Math.min(255, Math.round(vEarly * 0.75 + boost * 0.8 + 28));
-    colorImg.data[i + 3] = 255;
-  }
-  colorCtx.putImageData(colorImg, 0, 0);
-  state.skyView.colorSkyCanvas = colorCanvas;
-
+  const visuals = createTileVisualCanvases(state.coaddImage, state.epochImages, 0, 0);
+  state.originVisualGrids = visuals.visualGrids || null;
+  state.skyView.colorSkyCanvas = visuals.colorCanvas;
+  if (visuals.healedCoaddCanvas) state.coaddImage = visuals.healedCoaddCanvas;
+  if (visuals.normalizedEpochs?.length) state.epochImages = visuals.normalizedEpochs;
   state.skyView.gaiaSources = [];
   state.skyView.wiseSources = [];
   state.skyView.namedObjects = [];
@@ -330,7 +1094,6 @@ function findHoveredNamedObject(xPix, yPix, maxDistFitsPx = 5.5) {
   let best = null;
   let bestDist = maxDistFitsPx;
   objects.forEach((obj) => {
-    if (!obj.in_fov) return;
     const d = Math.hypot(obj.x - xPix, obj.y - yPix);
     if (d <= bestDist) {
       bestDist = d;
@@ -463,19 +1226,15 @@ function renderNamedObjectsPanel() {
       state.selectedNamedObjectId = obj.id;
       showNamedObjectDetail(obj);
       renderNamedObjectsPanel();
-      if (obj.in_fov) {
-        state.selectedDetectionId = null;
-        state.selectedPixel = {
-          x: Math.max(0, Math.min(127, obj.x)),
-          y: Math.max(0, Math.min(127, obj.y)),
-        };
-        updateAIDetectionCardsSelection();
-        updateAladinView(obj.ra, obj.dec, state.fov);
-        renderCanvas();
-        fetchAndRenderSpectrum(obj.ra, obj.dec, true);
-      } else {
-        renderContextSkyMap();
-      }
+      state.selectedDetectionId = null;
+      state.selectedPixel = { x: obj.x, y: obj.y };
+      updateAIDetectionCardsSelection();
+      updateAladinView(obj.ra, obj.dec, state.fov);
+      renderCanvas();
+      const tileGx = Math.floor((obj.x + 0.5) / CUTOUT_NPIX);
+      const tileGy = Math.floor((obj.y + 0.5) / CUTOUT_NPIX);
+      const tileCenter = getTileCenterCoords(tileGx, tileGy);
+      fetchAndRenderSpectrum(obj.ra, obj.dec, true, tileCenter.ra, tileCenter.dec);
     });
     listEl.appendChild(btn);
   });
@@ -487,8 +1246,259 @@ function renderNamedObjectsPanel() {
   }
 }
 
+function findBestTileForGlobalPixel(rawX, rawY) {
+  if (!state.tileGrid) return null;
+  const prefGx = Math.floor((rawX + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const prefGy = Math.floor((rawY + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const prefTile = state.tileGrid.get(`${prefGx},${prefGy}`);
+  if (prefTile && prefTile.status === "ready" && prefTile.visualGrids) {
+    return prefTile;
+  }
+
+  let bestTile = null;
+  let bestDist = Infinity;
+  state.tileGrid.forEach((tile) => {
+    if (tile.status !== "ready" || !tile.visualGrids) return;
+    const lx = rawX - tile.gx * TILE_STEP_PIX;
+    const ly = rawY - tile.gy * TILE_STEP_PIX;
+    if (lx >= 2 && lx < CUTOUT_NPIX - 2 && ly >= 2 && ly < CUTOUT_NPIX - 2) {
+      const d = Math.hypot(lx - 63.5, ly - 63.5);
+      if (d < bestDist) {
+        bestDist = d;
+        bestTile = tile;
+      }
+    }
+  });
+  return bestTile;
+}
+
+function snapGlobalPixelToTilePeak(rawX, rawY, maxRadius = 22, minExcess = 0.65) {
+  const tile = findBestTileForGlobalPixel(rawX, rawY);
+  if (!tile || !tile.visualGrids) return null;
+
+  const w = CUTOUT_NPIX;
+  const h = CUTOUT_NPIX;
+  const px0 = rawX - tile.gx * TILE_STEP_PIX;
+  const py0 = h - 1 - (rawY - tile.gy * TILE_STEP_PIX);
+  const ix = Math.round(px0);
+  const iy = Math.round(py0);
+  if (ix < 2 || ix >= w - 2 || iy < 2 || iy >= h - 2) return null;
+
+  const { mid, early, late } = tile.visualGrids;
+  const x0 = Math.max(1, ix - maxRadius);
+  const x1 = Math.min(w - 2, ix + maxRadius);
+  const y0 = Math.max(1, iy - maxRadius);
+  const y1 = Math.min(h - 2, iy + maxRadius);
+
+  const sampleSmooth = (cx, cy) => {
+    let sum = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      const row = (cy + dy) * w;
+      for (let dx = -1; dx <= 1; dx++) {
+        const idx = row + (cx + dx);
+        sum += Math.max(mid[idx], early[idx], late[idx]);
+      }
+    }
+    return sum / 9.0;
+  };
+
+  const centerVal = sampleSmooth(ix, iy);
+  // Si ya está en la cúpula de una estrella saturada gigante (como R Draconis), mantener el centro
+  if (centerVal > 6.5) {
+    return { x: rawX, y: rawY, snapped: false };
+  }
+
+  const samples = [];
+  for (let y = y0; y <= y1; y += 2) {
+    for (let x = x0; x <= x1; x += 2) {
+      samples.push(sampleSmooth(x, y));
+    }
+  }
+  samples.sort((a, b) => a - b);
+  const bgFloor = Math.min(0.20, samples.length ? samples[Math.floor(samples.length * 0.2)] : 0.0);
+
+  let bestScore = -1.0;
+  let peakX = ix;
+  let peakY = iy;
+
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const d = Math.hypot(x - px0, y - py0);
+      if (d > maxRadius) continue;
+      const valC = sampleSmooth(x, y);
+      const exc = valC - bgFloor;
+      if (exc < minExcess) continue;
+
+      let isLocalMax = true;
+      for (let ny = y - 1; ny <= y + 1 && isLocalMax; ny++) {
+        for (let nx = x - 1; nx <= x + 1; nx++) {
+          if (nx === x && ny === y) continue;
+          if (sampleSmooth(nx, ny) > valC + 1e-5) {
+            isLocalMax = false;
+            break;
+          }
+        }
+      }
+      if (!isLocalMax) continue;
+
+      const score = Math.pow(exc, 2.2) / (1.0 + 0.06 * d);
+      if (score > bestScore) {
+        bestScore = score;
+        peakX = x;
+        peakY = y;
+      }
+    }
+  }
+
+  if (bestScore < 0) return null;
+
+  let wSum = 0;
+  let wxSum = 0;
+  let wySum = 0;
+  for (let y = Math.max(0, peakY - 2); y <= Math.min(h - 1, peakY + 2); y++) {
+    for (let x = Math.max(0, peakX - 2); x <= Math.min(w - 1, peakX + 2); x++) {
+      const idx = y * w + x;
+      const rawV = Math.max(mid[idx], early[idx], late[idx]);
+      const exc = Math.max(0.0, rawV - bgFloor);
+      const wt = exc * exc;
+      wSum += wt;
+      wxSum += x * wt;
+      wySum += y * wt;
+    }
+  }
+
+  const cenPx = wSum > 1e-6 ? wxSum / wSum : peakX;
+  const cenPy = wSum > 1e-6 ? wySum / wSum : peakY;
+  const snappedX = tile.gx * TILE_STEP_PIX + cenPx;
+  const snappedY = tile.gy * TILE_STEP_PIX + (h - 1 - cenPy);
+  return { x: snappedX, y: snappedY, snapped: true };
+}
+
+function snapNamedObjectsToTilePeaks() {
+  const objects = state.skyView.namedObjects || [];
+  objects.forEach((obj) => {
+    const baseRa = obj.catalogRa ?? obj.ra;
+    const baseDec = obj.catalogDec ?? obj.dec;
+    const rawPos = raDecToPixel(baseRa, baseDec);
+    const snapped = snapGlobalPixelToTilePeak(rawPos.x, rawPos.y, 22, 0.65);
+    if (snapped && snapped.snapped) {
+      obj.x = snapped.x;
+      obj.y = snapped.y;
+      const coords = pixelToRaDec(snapped.x, snapped.y);
+      obj.ra = coords.ra;
+      obj.dec = coords.dec;
+    } else {
+      obj.x = rawPos.x;
+      obj.y = rawPos.y;
+    }
+  });
+}
+
+function mergeNamedObjects(newObjects) {
+  const map = new Map();
+  (state.skyView.namedObjects || []).forEach((obj) => map.set(obj.id, obj));
+  (newObjects || []).forEach((obj) => {
+    const existing = map.get(obj.id);
+    const catalogRa = existing?.catalogRa ?? obj.ra;
+    const catalogDec = existing?.catalogDec ?? obj.dec;
+    const pos = raDecToPixel(catalogRa, catalogDec);
+    map.set(obj.id, {
+      ...obj,
+      catalogRa,
+      catalogDec,
+      ...pos,
+      in_fov: true,
+    });
+  });
+  state.skyView.namedObjects = Array.from(map.values());
+  snapNamedObjectsToTilePeaks();
+}
+
+function mergeCatalogSources(key, newSources) {
+  const map = new Map();
+  (state.skyView[key] || []).forEach((src) => map.set(src.id, src));
+  (newSources || []).forEach((src) => {
+    const rawPos = raDecToPixel(src.ra, src.dec);
+    const snapped = snapGlobalPixelToTilePeak(rawPos.x, rawPos.y, 3, 1.15);
+    map.set(src.id, {
+      ...src,
+      x: snapped?.snapped ? snapped.x : rawPos.x,
+      y: snapped?.snapped ? snapped.y : rawPos.y,
+      w1: src.mag,
+    });
+  });
+  state.skyView[key] = Array.from(map.values());
+}
+
+async function prefetchWideCatalogsAndStars(centerRa, centerDec, sequence) {
+  if (!Number.isFinite(centerRa) || !Number.isFinite(centerDec)) return;
+  const cosDec = Math.max(0.05, Math.cos((centerDec * Math.PI) / 180));
+  const minStep = state.fov * 0.55;
+  const alreadyQueried = state.catalogCentersQueried.some((q) => {
+    const dra = (((centerRa - q.ra + 180) % 360 + 360) % 360 - 180) * cosDec;
+    const ddec = centerDec - q.dec;
+    return Math.hypot(dra, ddec) < minStep;
+  });
+  if (alreadyQueried) return;
+
+  state.catalogCentersQueried.push({ ra: centerRa, dec: centerDec });
+  const wideFov = Number(Math.min(0.45, Math.max(state.fov * 3.0, 0.12)).toFixed(4));
+  const controller = new AbortController();
+  state.tileControllers.add(controller);
+
+  const refreshBadge = () => {
+    const badgeEl = document.getElementById("aladin-catalog-badge");
+    if (badgeEl) {
+      badgeEl.textContent = `Gaia: ${state.skyView.gaiaSources.length} · WISE: ${state.skyView.wiseSources.length}`;
+    }
+  };
+
+  try {
+    await Promise.all([
+      (async () => {
+        try {
+          const res = await fetch(`/api/objects?ra=${centerRa.toFixed(6)}&dec=${centerDec.toFixed(6)}&fov=${wideFov}`, {
+            signal: controller.signal,
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (sequence !== state.exploreSequence) return;
+          mergeNamedObjects(data.objects || []);
+          renderNamedObjectsPanel();
+          renderContextSkyMap();
+          renderCanvas();
+        } catch {
+          // Ignorar errores de precarga en segundo plano
+        }
+      })(),
+      ...["gaia", "allwise"].map(async (catalog) => {
+        try {
+          const res = await fetch(
+            `/api/catalog?catalog=${catalog}&ra=${centerRa.toFixed(6)}&dec=${centerDec.toFixed(6)}&fov=${wideFov}`,
+            { signal: controller.signal }
+          );
+          if (!res.ok) return;
+          const data = await res.json();
+          if (sequence !== state.exploreSequence) return;
+          const key = catalog === "gaia" ? "gaiaSources" : "wiseSources";
+          mergeCatalogSources(key, data.sources || []);
+          state.catalogStatus[catalog] = `${state.skyView[key].length} · ${data.service || "catálogo"}`;
+          refreshBadge();
+          updateCatalogSelectionSummary();
+          renderContextSkyMap();
+        } catch {
+          // Ignorar errores de precarga en segundo plano
+        }
+      }),
+    ]);
+  } finally {
+    state.tileControllers.delete(controller);
+  }
+}
+
 async function loadFieldCatalogs(sequence) {
   state.catalogStatus = { gaia: "consultando", allwise: "consultando" };
+  state.catalogCentersQueried = [{ ra: state.ra, dec: state.dec }];
   const refreshBadge = () => {
     document.getElementById("aladin-catalog-badge").textContent =
       `Gaia: ${state.catalogStatus.gaia} · WISE: ${state.catalogStatus.allwise}`;
@@ -502,11 +1512,9 @@ async function loadFieldCatalogs(sequence) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (sequence !== state.exploreSequence) return;
-      state.skyView.namedObjects = (data.objects || []).map((obj) => ({
-        ...obj,
-        ...raDecToPixel(obj.ra, obj.dec),
-      }));
+      mergeNamedObjects(data.objects || []);
       renderNamedObjectsPanel();
+      refreshAIDetectionCatalogLabels();
       renderContextSkyMap();
       renderCanvas();
     } catch (error) {
@@ -525,9 +1533,9 @@ async function loadFieldCatalogs(sequence) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (sequence !== state.exploreSequence) return;
-        const sources = data.sources.map((src) => ({ ...src, ...raDecToPixel(src.ra, src.dec), w1: src.mag }));
-        state.skyView[catalog === "gaia" ? "gaiaSources" : "wiseSources"] = sources;
-        state.catalogStatus[catalog] = `${sources.length}${data.truncated ? "+" : ""} · ${data.service || "catálogo"}`;
+        const key = catalog === "gaia" ? "gaiaSources" : "wiseSources";
+        mergeCatalogSources(key, data.sources || []);
+        state.catalogStatus[catalog] = `${state.skyView[key].length}${data.truncated ? "+" : ""} · ${data.service || "catálogo"}`;
       } catch (error) {
         if (sequence !== state.exploreSequence || error.name === "AbortError") return;
         state.catalogStatus[catalog] = "no disponible";
@@ -537,6 +1545,12 @@ async function loadFieldCatalogs(sequence) {
       renderContextSkyMap();
     }),
   ]);
+
+  // Expandir el paquete de estrellas y catálogos a sectores vecinos (3x FoV) solo si el Mapa Global está activo
+  if (sequence === state.exploreSequence && state.infinitePlaneEnabled) {
+    state.catalogCentersQueried = [];
+    void prefetchWideCatalogsAndStars(state.ra, state.dec, sequence);
+  }
 }
 
 function updateCatalogSelectionSummary() {
@@ -566,7 +1580,7 @@ function updateAladinView(ra, dec, fov) {
   state.skyView.centerDec = Number(dec);
 
   const targetPix = raDecToPixel(state.skyView.centerRa, state.skyView.centerDec);
-  const canvas = document.getElementById("aladin-canvas");
+  const canvas = document.getElementById("aladin-canvas") || document.getElementById("spherex-canvas");
   if (canvas) {
     const scale = canvas.width / CUTOUT_NPIX;
     const half = canvas.width / 2;
@@ -583,8 +1597,35 @@ function updateAladinView(ra, dec, fov) {
   if (coordsEl) {
     coordsEl.textContent = `Centro RA: ${state.skyView.centerRa.toFixed(5)}° | Dec: ${state.skyView.centerDec.toFixed(5)}°`;
   }
+  scheduleInfinitePrefetch();
   updateCatalogSelectionSummary();
   renderContextSkyMap();
+  renderCanvas();
+}
+
+function drawInfiniteTilePlaceholder(ctx, rect, gx, gy, status) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.16)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.setLineDash([]);
+
+  if (rect.w >= 90) {
+    const center = getTileCenterCoords(gx, gy);
+    ctx.fillStyle = "rgba(148, 163, 184, 0.55)";
+    ctx.font = "10px ui-monospace, monospace";
+    const statusLabel =
+      status === "error"
+        ? "Sector sin cobertura FITS"
+        : status === "loading"
+        ? "Descargando paquete FITS..."
+        : "Sector en cola de precarga...";
+    ctx.fillText(statusLabel, rect.x + 10, rect.y + 18);
+    ctx.fillStyle = "rgba(56, 189, 248, 0.45)";
+    ctx.fillText(`RA ${center.ra.toFixed(3)}° · Dec ${center.dec.toFixed(3)}°`, rect.x + 10, rect.y + 32);
+  }
+  ctx.restore();
 }
 
 function renderContextSkyMap() {
@@ -597,38 +1638,62 @@ function renderContextSkyMap() {
   ctx.fillStyle = "#050914";
   ctx.fillRect(0, 0, W, H);
 
-  // 1. Dibujar mapa de cielo infrarrojo con el zoom y paneo actuales
-  if (state.skyView.colorSkyCanvas) {
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
-    const half = W / 2;
-    ctx.translate(half + state.skyView.panX, half + state.skyView.panY);
-    ctx.scale(state.skyView.zoom, state.skyView.zoom);
-    ctx.translate(-half, -half);
-    ctx.drawImage(state.skyView.colorSkyCanvas, 0, 0, W, H);
-    ctx.restore();
-  }
+  const bounds = state.infinitePlaneEnabled
+    ? getVisibleTileBounds(W)
+    : { gxMin: 0, gxMax: 0, gyMin: 0, gyMax: 0 };
+  const { gxMin, gxMax, gyMin, gyMax } = bounds;
 
-  // 2. Grilla astrométrica ICRS sutil (sin números internos que saturen el mapa)
+  // 1. Dibujar todos los sectores del mosaico continuo infrarrojo visibles en pantalla
   ctx.save();
-  ctx.strokeStyle = "rgba(56, 189, 248, 0.12)";
-  ctx.lineWidth = 1;
-  const gridSteps = [32, 64, 96];
-  gridSteps.forEach((gp) => {
-    const p1 = fitsToSkyCanvas(gp, 0, W);
-    const p2 = fitsToSkyCanvas(gp, CUTOUT_NPIX - 1, W);
-    ctx.beginPath();
-    ctx.moveTo(p1.cx, 0);
-    ctx.lineTo(p2.cx, H);
-    ctx.stroke();
+  ctx.imageSmoothingEnabled = false;
+  for (let gy = gyMin; gy <= gyMax; gy++) {
+    for (let gx = gxMin; gx <= gxMax; gx++) {
+      const rect = getTileCanvasRect(gx, gy, W);
+      const tile = state.tileGrid.get(`${gx},${gy}`);
+      const isOrigin = gx === 0 && gy === 0;
+      const colorImg = (tile && tile.status === "ready")
+        ? tile.colorSkyCanvas
+        : isOrigin
+        ? state.skyView.colorSkyCanvas
+        : null;
+      if (colorImg) {
+        drawSeamlessTileImage(ctx, colorImg, rect);
+      } else {
+        drawInfiniteTilePlaceholder(ctx, rect, gx, gy, tile?.status || "queued");
+      }
+    }
+  }
+  ctx.restore();
 
-    const q1 = fitsToSkyCanvas(0, gp, W);
-    const q2 = fitsToSkyCanvas(CUTOUT_NPIX - 1, gp, W);
-    ctx.beginPath();
-    ctx.moveTo(0, q1.cy);
-    ctx.lineTo(W, q2.cy);
-    ctx.stroke();
-  });
+  // 2. Grilla astrométrica ICRS continua a lo largo de todos los sectores visibles
+  ctx.save();
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.11)";
+  ctx.lineWidth = 1;
+  const subSteps = [0, 24, 48, 72];
+  for (let gx = gxMin; gx <= gxMax + 1; gx++) {
+    subSteps.forEach((step) => {
+      const xPix = gx * TILE_STEP_PIX + TILE_MARGIN_PIX + step;
+      const p = fitsToSkyCanvas(xPix, 0, W);
+      if (p.cx >= -2 && p.cx <= W + 2) {
+        ctx.beginPath();
+        ctx.moveTo(p.cx, 0);
+        ctx.lineTo(p.cx, H);
+        ctx.stroke();
+      }
+    });
+  }
+  for (let gy = gyMin; gy <= gyMax + 1; gy++) {
+    subSteps.forEach((step) => {
+      const yPix = gy * TILE_STEP_PIX + TILE_MARGIN_PIX + step;
+      const q = fitsToSkyCanvas(0, yPix, W);
+      if (q.cy >= -2 && q.cy <= H + 2) {
+        ctx.beginPath();
+        ctx.moveTo(0, q.cy);
+        ctx.lineTo(W, q.cy);
+        ctx.stroke();
+      }
+    });
+  }
   ctx.restore();
 
   // 3. Superponer fuentes del catálogo AllWISE (rombos ámbar discretos)
@@ -685,12 +1750,11 @@ function renderContextSkyMap() {
     ctx.restore();
   }
 
-  // 6. Astros identificados: anillo discreto siempre, etiqueta arriba SOLO al pasar el cursor (o si "Fijar nombres" está activo)
+  // 6. Astros identificados en el plano continuo: anillo discreto siempre, etiqueta arriba al pasar el cursor (o con "Fijar nombres")
   if (state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
     state.skyView.namedObjects.forEach((obj) => {
-      if (!obj.in_fov) return;
       const { cx, cy } = fitsToSkyCanvas(obj.x, obj.y, W);
-      if (cx < -20 || cx > W + 20 || cy < -20 || cy > H + 20) return;
+      if (cx < -24 || cx > W + 24 || cy < -24 || cy > H + 24) return;
       const isHovered = state.hoveredNamedObjectId === obj.id;
       const isSelected = state.selectedNamedObjectId === obj.id;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
@@ -758,39 +1822,72 @@ function renderCanvas() {
   const canvas = document.getElementById("spherex-canvas");
   if (!canvas || !state.exploreData) return;
   const ctx = canvas.getContext("2d");
+  const W = canvas.width;
+  const H = canvas.height;
   ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#030712";
+  ctx.fillRect(0, 0, W, H);
 
   const epochs = state.exploreData.epochs || [];
   const epIdx = getSelectedBandIndex(epochs);
-  let baseImg = null;
+  const bounds = state.infinitePlaneEnabled
+    ? getVisibleTileBounds(W)
+    : { gxMin: 0, gxMax: 0, gyMin: 0, gyMax: 0 };
+  const { gxMin, gxMax, gyMin, gyMax } = bounds;
 
-  if (state.viewMode === "diff") {
-    baseImg = state.diffImage;
-  } else if (state.viewMode === "coadd") {
-    baseImg = state.coaddImage;
-  } else if (state.epochImages.length > 0) {
-    baseImg = state.epochImages[epIdx];
-  }
+  // 1. Dibujar todos los sectores FITS visibles en la cuadrícula sincronizada
+  for (let gy = gyMin; gy <= gyMax; gy++) {
+    for (let gx = gxMin; gx <= gxMax; gx++) {
+      const rect = getTileCanvasRect(gx, gy, W);
+      const tile = state.tileGrid.get(`${gx},${gy}`);
+      const isOrigin = gx === 0 && gy === 0;
 
-  if (baseImg) {
-    ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
-  }
+      if ((tile && tile.status === "ready") || isOrigin) {
+        const tEpochs = tile?.epochImages || state.epochImages;
+        const tFlags = tile?.flagImages || state.flagImages;
+        const tCoadd = tile?.coaddImage || state.coaddImage;
+        const tDiff = tile?.diffImage || state.diffImage;
 
-  if (state.showFlags && state.flagImages.length > 0) {
-    const flgImg = state.flagImages[epIdx % state.flagImages.length];
-    if (flgImg) {
-      ctx.drawImage(flgImg, 0, 0, canvas.width, canvas.height);
+        const hasDiff = isOrigin
+          ? Boolean(state.exploreData?.target_info?.difference_available)
+          : Boolean(tile?.exploreData?.target_info?.difference_available);
+        let baseImg = null;
+        if (state.viewMode === "diff") {
+          baseImg = hasDiff && tDiff ? tDiff : tCoadd;
+        } else if (state.viewMode === "coadd") {
+          baseImg = tCoadd;
+        } else if (tEpochs && tEpochs.length > 0) {
+          const tileEpIdx = isOrigin ? epIdx : state.currentEpochIdx % tEpochs.length;
+          baseImg = tEpochs[tileEpIdx];
+        }
+
+        if (state.viewMode === "blink" && tCoadd && baseImg !== tCoadd) {
+          drawSeamlessTileImage(ctx, tCoadd, rect);
+        }
+        if (baseImg) {
+          drawSeamlessTileImage(ctx, baseImg, rect);
+        }
+
+        if (state.showFlags && tFlags && tFlags.length > 0) {
+          const flgImg = tFlags[(isOrigin ? epIdx : state.currentEpochIdx) % tFlags.length];
+          if (flgImg) {
+            drawSeamlessTileImage(ctx, flgImg, rect);
+          }
+        }
+      } else {
+        drawInfiniteTilePlaceholder(ctx, rect, gx, gy, tile?.status || "queued");
+      }
     }
   }
 
-  const scale = canvas.width / CUTOUT_NPIX;
-
-  if (state.showAIMarkers && state.exploreData.ai_detections
-      && (state.viewMode !== "blink" || state.exploreData.target_info.analysis_frame_indices.includes(epIdx))) {
-    state.exploreData.ai_detections.forEach((det) => {
-      const cx = (det.x_pix + 0.5) * scale;
-      const cy = (CUTOUT_NPIX - 1.0 - det.y_pix + 0.5) * scale;
+  // 2. Superponer detecciones IA (Dipolos y Variables) proyectadas en el plano continuo
+  const detectionsToDraw = state.allAiDetections?.length
+    ? state.allAiDetections
+    : state.exploreData.ai_detections || [];
+  if (state.showAIMarkers && detectionsToDraw.length > 0) {
+    detectionsToDraw.forEach((det) => {
+      const { cx, cy } = fitsToSkyCanvas(det.x_pix, det.y_pix, W);
+      if (cx < -40 || cx > W + 40 || cy < -40 || cy > H + 40) return;
       const isSelected = state.selectedDetectionId === det.id;
 
       ctx.save();
@@ -806,8 +1903,9 @@ function renderCanvas() {
 
       if (det.type === "MOVING_DIPOLE") {
         if (det.neg_x_pix !== null && det.neg_y_pix !== null) {
-          const nx = (det.neg_x_pix + 0.5) * scale;
-          const ny = (CUTOUT_NPIX - 1.0 - det.neg_y_pix + 0.5) * scale;
+          const negPt = fitsToSkyCanvas(det.neg_x_pix, det.neg_y_pix, W);
+          const nx = negPt.cx;
+          const ny = negPt.cy;
 
           ctx.strokeStyle = "#38bdf8";
           ctx.lineWidth = 1.8;
@@ -857,9 +1955,9 @@ function renderCanvas() {
     });
   }
 
+  // 3. Retícula del píxel seleccionado en el plano continuo
   if (state.selectedPixel) {
-    const sx = (state.selectedPixel.x + 0.5) * scale;
-    const sy = (CUTOUT_NPIX - 1.0 - state.selectedPixel.y + 0.5) * scale;
+    const { cx: sx, cy: sy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
     ctx.save();
     ctx.strokeStyle = "#10b981";
     ctx.lineWidth = 2.0;
@@ -876,14 +1974,13 @@ function renderCanvas() {
     ctx.restore();
   }
 
+  // 4. Etiquetas de astros nombrados al pasar el cursor (o con "Fijar nombres" activo)
   if ((state.showNamedObjects || state.hoveredNamedObjectId) && state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
     state.skyView.namedObjects.forEach((obj) => {
-      if (!obj.in_fov) return;
       const isHovered = state.hoveredNamedObjectId === obj.id;
       if (!isHovered && !state.showNamedObjects) return;
-      const ox = (obj.x + 0.5) * scale;
-      const oy = (CUTOUT_NPIX - 1.0 - obj.y + 0.5) * scale;
-      if (ox < 0 || ox > canvas.width || oy < 0 || oy > canvas.height) return;
+      const { cx: ox, cy: oy } = fitsToSkyCanvas(obj.x, obj.y, W);
+      if (ox < -20 || ox > W + 20 || oy < -20 || oy > H + 20) return;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
       const labelText = hasPlanets
         ? `${obj.name} · ${obj.planets.length} planeta${obj.planets.length === 1 ? "" : "s"}`
@@ -895,7 +1992,7 @@ function renderCanvas() {
         labelText,
         hasPlanets ? "#a78bfa" : "#34d399",
         hasPlanets ? "#ddd6fe" : "#a7f3d0",
-        canvas.width
+        W
       );
     });
   }
@@ -943,7 +2040,93 @@ function startBlinkTimer() {
   }, intervalMs);
 }
 
-function updateAIDetectionCardsSelection() {
+function findNearestAIDetection(xPix, yPix, maxDistFitsPx = 5.0) {
+  const detections = state.allAiDetections?.length
+    ? state.allAiDetections
+    : state.exploreData?.ai_detections || [];
+  let best = null;
+  let bestDist = maxDistFitsPx;
+  detections.forEach((det) => {
+    const dPos = Math.hypot(det.x_pix - xPix, det.y_pix - yPix);
+    const dNeg =
+      det.neg_x_pix !== null && det.neg_x_pix !== undefined
+        ? Math.hypot(det.neg_x_pix - xPix, det.neg_y_pix - yPix)
+        : Infinity;
+    const d = Math.min(dPos, dNeg);
+    if (d <= bestDist) {
+      bestDist = d;
+      best = det;
+    }
+  });
+  return best;
+}
+
+function resolveLocalNamedMatchForDetection(det) {
+  const named = state.skyView.namedObjects || [];
+  let bestObj = null;
+  let bestArcsec = 16.0;
+  named.forEach((obj) => {
+    const distArcsec = angularDistanceDeg(det.ra, det.dec, obj.ra, obj.dec) * 3600.0;
+    if (distArcsec <= bestArcsec) {
+      bestArcsec = distArcsec;
+      bestObj = obj;
+    }
+  });
+  if (bestObj) {
+    return `Identificado como: ${bestObj.name} (${bestObj.category}) a ${bestArcsec.toFixed(1)}″`;
+  }
+  return null;
+}
+
+function refreshAIDetectionCatalogLabels() {
+  const detections = state.allAiDetections?.length
+    ? state.allAiDetections
+    : state.exploreData?.ai_detections || [];
+  detections.forEach((det) => {
+    const localMatch = resolveLocalNamedMatchForDetection(det);
+    if (!localMatch) return;
+    if (!state.crossmatchByDetId[det.id] || state.crossmatchByDetId[det.id].startsWith("Sin coincidencia")) {
+      state.crossmatchByDetId[det.id] = localMatch;
+    }
+    const card = document.querySelector(`[data-detection-id="${det.id}"]`);
+    const line = card?.querySelector(".detection-crossmatch-line");
+    if (line && (line.dataset.pending === "1" || line.textContent.startsWith("Sin coincidencia"))) {
+      line.textContent = localMatch;
+      line.className = "detection-crossmatch-line text-[11px] text-emerald-300 leading-snug mt-1 font-medium";
+      line.dataset.pending = "0";
+    }
+  });
+  updateCatalogSelectionSummary();
+}
+
+function selectAndFocusAIDetection(det, preferredViewMode = null) {
+  state.selectedDetectionId = det.id;
+  state.selectedPixel = { x: det.x_pix, y: det.y_pix };
+  if (!state.showAIMarkers) {
+    state.showAIMarkers = true;
+    const chk = document.getElementById("chk-ai-markers");
+    if (chk) chk.checked = true;
+  }
+  if (preferredViewMode === "diff" && state.exploreData?.target_info?.difference_available) {
+    setViewMode("diff");
+  } else if (preferredViewMode === "blink") {
+    setViewMode("blink");
+    const indices = state.exploreData?.target_info?.analysis_frame_indices || [];
+    if (indices.length > 0 && !indices.includes(state.currentEpochIdx)) {
+      state.currentEpochIdx = indices[0];
+      const slider = document.getElementById("slider-epoch");
+      if (slider) slider.value = state.currentEpochIdx;
+    }
+  }
+  updateAIDetectionCardsSelection(false);
+  updateAladinView(det.ra, det.dec, state.fov);
+  const tileGx = Math.floor((det.x_pix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const tileGy = Math.floor((det.y_pix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const tileCenter = getTileCenterCoords(tileGx, tileGy);
+  fetchAndRenderSpectrum(det.ra, det.dec, true, tileCenter.ra, tileCenter.dec);
+}
+
+function updateAIDetectionCardsSelection(scrollIntoView = false) {
   document.querySelectorAll("[data-detection-id]").forEach((card) => {
     const detId = parseInt(card.dataset.detectionId, 10);
     const isSelected = detId === state.selectedDetectionId;
@@ -951,6 +2134,9 @@ function updateAIDetectionCardsSelection() {
     if (isSelected) {
       card.classList.add("ring-2", "ring-emerald-400", "bg-slate-800/90");
       if (badgeEl) badgeEl.classList.remove("hidden");
+      if (scrollIntoView) {
+        card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
     } else {
       card.classList.remove("ring-2", "ring-emerald-400", "bg-slate-800/90");
       if (badgeEl) badgeEl.classList.add("hidden");
@@ -963,13 +2149,31 @@ function renderAIDetectionsList(detections) {
   const badge = document.getElementById("ai-count-badge");
   container.innerHTML = "";
   badge.textContent = `${detections.length} anomalía${detections.length === 1 ? "" : "s"}`;
+  badge.className =
+    detections.length > 0
+      ? "text-xs font-mono px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300"
+      : "text-xs font-mono px-2 py-0.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300";
 
   if (detections.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "text-xs text-slate-400 p-3 bg-slate-900/60 rounded-lg border border-slate-800";
-    empty.textContent = state.exploreData?.target_info?.difference_available
-      ? "No se detectaron anomalías > 4σ en la resta preliminar calibrada."
-      : state.exploreData?.target_info?.analysis_note || "Resta temporal no disponible.";
+    empty.className = "text-xs text-slate-300 p-3 bg-slate-900/60 rounded-lg border border-slate-800 space-y-2";
+    const msg = document.createElement("p");
+    msg.textContent = state.exploreData?.target_info?.difference_available
+      ? "No se detectaron anomalías > 4σ en la resta temporal calibrada de este sector."
+      : state.exploreData?.target_info?.analysis_note || "Resta temporal no disponible con los recortes iniciales.";
+    empty.appendChild(msg);
+
+    if (!state.exploreData?.target_info?.difference_available) {
+      const btnTemporal = document.createElement("button");
+      btnTemporal.type = "button";
+      btnTemporal.className =
+        "w-full text-xs bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 px-2.5 py-1.5 rounded font-semibold transition";
+      btnTemporal.textContent = "Buscar pares temporales en IRSA";
+      btnTemporal.addEventListener("click", () => {
+        exploreCoordinates(state.ra, state.dec, state.fov, 24, true, true);
+      });
+      empty.appendChild(btnTemporal);
+    }
     container.appendChild(empty);
     return;
   }
@@ -983,8 +2187,8 @@ function renderAIDetectionsList(detections) {
         ? "bg-rose-950/25 border-rose-500/40 hover:bg-rose-900/30"
         : "bg-amber-950/25 border-amber-500/40 hover:bg-amber-900/30"
     }`;
-    const friendlyTitle = det.object_category
-      || (isDipole ? "Astro en Movimiento (Dipolo)" : "Estrella Variable (Monopolo)");
+    const friendlyTitle =
+      det.object_category || (isDipole ? "Astro en Movimiento (Dipolo)" : "Estrella Variable (Monopolo)");
     const iauName = det.iau_designation || `SPHEREx (${det.ra.toFixed(4)}°, ${det.dec.toFixed(4)}°)`;
     card.innerHTML = `
       <div class="flex items-center justify-between text-xs font-bold mb-1 gap-1">
@@ -1007,53 +2211,96 @@ function renderAIDetectionsList(detections) {
         RA: ${det.ra.toFixed(5)}° | Dec: ${det.dec.toFixed(5)}° · Píxel (${det.x_pix.toFixed(1)}, ${det.y_pix.toFixed(1)})
       </div>
       <p class="detection-description text-[10px] text-slate-400 leading-snug"></p>
+      <div class="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-slate-800/80">
+        <button type="button" class="btn-det-diff text-[10px] px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 border border-sky-400/35 font-semibold transition">
+          Ver en Resta (ΔI)
+        </button>
+        <button type="button" class="btn-det-blink text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
+          Comparar en Flipbook
+        </button>
+      </div>
     `;
     card.querySelector(".detection-iau").textContent = `Designación IA: ${iauName}`;
     card.querySelector(".detection-category").textContent = friendlyTitle;
-    card.querySelector(".detection-user-explanation").textContent =
-      det.user_explanation || det.description;
+    card.querySelector(".detection-user-explanation").textContent = det.user_explanation || det.description;
     card.querySelector(".detection-description").textContent = det.description;
+
     const sequence = state.exploreSequence;
     card.setAttribute("role", "button");
     card.tabIndex = 0;
     card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); card.click(); }
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectAndFocusAIDetection(det);
+      }
     });
-    if (idx < 3) {
+
+    card.querySelector(".btn-det-diff").addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectAndFocusAIDetection(det, "diff");
+    });
+    card.querySelector(".btn-det-blink").addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectAndFocusAIDetection(det, "blink");
+    });
+
+    const cachedMatch = state.crossmatchByDetId[det.id] || resolveLocalNamedMatchForDetection(det);
+    if (cachedMatch || idx < 4) {
       const line = document.createElement("p");
-      line.className = "text-[11px] text-slate-500 leading-snug mt-1 font-medium";
-      line.textContent = "Identificando en SIMBAD / Gaia DR3 / AllWISE...";
+      line.className = "detection-crossmatch-line text-[11px] text-slate-400 leading-snug mt-1.5 font-medium";
       card.appendChild(line);
-      fetch(`/api/crossmatch?ra=${det.ra}&dec=${det.dec}&radius=14`, { signal: state.exploreController.signal })
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((res) => {
-          if (sequence !== state.exploreSequence) return;
-          if (res.catalog_match) {
-            const matchText = `Identificado como: ${res.catalog_match}`;
-            line.textContent = matchText;
-            line.className = "text-[11px] text-emerald-300 leading-snug mt-1 font-medium";
-            state.crossmatchByDetId[det.id] = matchText;
-          } else {
-            const noMatchText = "Sin coincidencia en catálogos (posible objeto no catalogado o alto mov. propio)";
-            line.textContent = noMatchText;
-            line.className = "text-[11px] text-amber-300 leading-snug mt-1 font-medium";
-            state.crossmatchByDetId[det.id] = noMatchText;
-          }
-          if (state.selectedDetectionId === det.id) {
-            updateCatalogSelectionSummary();
-          }
-        })
-        .catch(() => {
-          line.textContent = "No se pudo completar el cruce con catálogos.";
-        });
+
+      if (cachedMatch) {
+        state.crossmatchByDetId[det.id] = cachedMatch;
+        line.textContent = cachedMatch;
+        line.dataset.pending = "0";
+        line.className = cachedMatch.startsWith("Identificado")
+          ? "detection-crossmatch-line text-[11px] text-emerald-300 leading-snug mt-1.5 font-medium"
+          : "detection-crossmatch-line text-[11px] text-amber-300 leading-snug mt-1.5 font-medium";
+      } else {
+        line.textContent = "Identificando en SIMBAD / Gaia DR3 / AllWISE...";
+        line.dataset.pending = "1";
+        fetch(`/api/crossmatch?ra=${det.ra}&dec=${det.dec}&radius=14`, { signal: state.exploreController.signal })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+          .then((res) => {
+            if (sequence !== state.exploreSequence) return;
+            line.dataset.pending = "0";
+            const localNow = resolveLocalNamedMatchForDetection(det);
+            if (res.catalog_match) {
+              const matchText = `Identificado como: ${res.catalog_match}`;
+              line.textContent = matchText;
+              line.className = "detection-crossmatch-line text-[11px] text-emerald-300 leading-snug mt-1.5 font-medium";
+              state.crossmatchByDetId[det.id] = matchText;
+            } else if (localNow) {
+              line.textContent = localNow;
+              line.className = "detection-crossmatch-line text-[11px] text-emerald-300 leading-snug mt-1.5 font-medium";
+              state.crossmatchByDetId[det.id] = localNow;
+            } else {
+              const noMatchText = "Sin coincidencia en catálogos (posible objeto no catalogado o alto mov. propio)";
+              line.textContent = noMatchText;
+              line.className = "detection-crossmatch-line text-[11px] text-amber-300 leading-snug mt-1.5 font-medium";
+              state.crossmatchByDetId[det.id] = noMatchText;
+            }
+            if (state.selectedDetectionId === det.id) {
+              updateCatalogSelectionSummary();
+            }
+          })
+          .catch(() => {
+            line.dataset.pending = "0";
+            const localNow = resolveLocalNamedMatchForDetection(det);
+            if (localNow) {
+              line.textContent = localNow;
+              line.className = "detection-crossmatch-line text-[11px] text-emerald-300 leading-snug mt-1.5 font-medium";
+              state.crossmatchByDetId[det.id] = localNow;
+            } else {
+              line.textContent = "Cruce remoto pendiente; usá los catálogos locales del visor.";
+            }
+          });
+      }
     }
+
     card.addEventListener("click", () => {
-      state.selectedDetectionId = det.id;
-      state.selectedPixel = { x: det.x_pix, y: det.y_pix };
-      updateAIDetectionCardsSelection();
-      renderCanvas();
-      updateAladinView(det.ra, det.dec, state.fov);
-      fetchAndRenderSpectrum(det.ra, det.dec, true);
+      selectAndFocusAIDetection(det);
     });
     container.appendChild(card);
   });
@@ -1061,14 +2308,16 @@ function renderAIDetectionsList(detections) {
   updateAIDetectionCardsSelection();
 }
 
-async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = false) {
+async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = false, centerRaOverride = null, centerDecOverride = null) {
   if (state.isLoading) return;
   const sequence = ++state.spectrumSequence;
   state.spectrumController?.abort();
   state.spectrumController = new AbortController();
   document.getElementById("spectrum-coord-label").textContent = "Midiendo espectro de la posición seleccionada…";
+  const refCenterRa = Number.isFinite(centerRaOverride) ? centerRaOverride : state.ra;
+  const refCenterDec = Number.isFinite(centerDecOverride) ? centerDecOverride : state.dec;
   try {
-    const url = `/api/spectrum?ra=${pointRa}&dec=${pointDec}&center_ra=${state.ra}&center_dec=${state.dec}&fov=${state.fov}&max_epochs=${state.exploreData?.epochs?.length || 10}&temporal_search=${state.temporalSearch}`;
+    const url = `/api/spectrum?ra=${pointRa}&dec=${pointDec}&center_ra=${refCenterRa}&center_dec=${refCenterDec}&fov=${state.fov}&max_epochs=${state.exploreData?.epochs?.length || 10}&temporal_search=${state.temporalSearch}`;
     const res = await fetch(url, { signal: state.spectrumController.signal });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
@@ -1261,6 +2510,7 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     return;
   }
   const sequence = ++state.exploreSequence;
+  abortBackgroundTiles();
   state.exploreController?.abort();
   state.spectrumController?.abort();
   state.spectrumSequence++;
@@ -1298,18 +2548,39 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     document.getElementById("mode-diff").disabled = !data.target_info.difference_available;
     if (state.viewMode === "diff" && !data.target_info.difference_available) setViewMode("blink");
     buildCatalogSourcesFromField();
-    const top = data.ai_detections?.[0];
+    state.tileGrid = new Map();
+    state.nextDetectionId = 100;
+    const originDetections = mapDetectionsToGlobalPlane(data.ai_detections || [], true);
+    state.allAiDetections = [...originDetections];
+    state.tileGrid.set("0,0", {
+      key: "0,0",
+      gx: 0,
+      gy: 0,
+      ra,
+      dec,
+      status: "ready",
+      exploreData: data,
+      epochImages: state.epochImages,
+      flagImages: flags,
+      coaddImage: state.coaddImage,
+      diffImage: diff,
+      colorSkyCanvas: state.skyView.colorSkyCanvas,
+      visualGrids: state.originVisualGrids || null,
+      aiDetections: originDetections,
+    });
+    updateInfinitePlaneBadge();
+    const top = originDetections[0];
     state.selectedDetectionId = top?.id || null;
     state.selectedPixel = top ? { x: top.x_pix, y: top.y_pix } : { x: 63.5, y: 63.5 };
-    renderAIDetectionsList(data.ai_detections || []);
-    state.skyView.zoom = 1;
+    renderAIDetectionsList(state.allAiDetections);
+    state.skyView.zoom = getDefaultSkyZoom();
     updateAladinView(ra, dec, fov);
     renderCanvas();
     stopLoading();
     setExploreBusy(false);
     setExploreProgress(data.target_info.matched_description || `Región RA=${ra.toFixed(4)}°, Dec=${dec.toFixed(4)}° lista.`);
     void loadFieldCatalogs(sequence);
-    void fetchAndRenderSpectrum(top?.ra ?? ra, top?.dec ?? dec, Boolean(top));
+    void fetchAndRenderSpectrum(top?.ra ?? ra, top?.dec ?? dec, Boolean(top), ra, dec);
   } catch (err) {
     if (sequence !== state.exploreSequence) return;
     setExploreProgress(err.name === "AbortError" ? "La consulta agotó el tiempo de espera. Reintentá." : `No se pudo cargar la región: ${err.message}`);
@@ -1471,8 +2742,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderContextSkyMap();
   });
 
+  const btnToggleInfinite = document.getElementById("btn-toggle-infinite-plane");
+  if (btnToggleInfinite) {
+    btnToggleInfinite.addEventListener("click", () => {
+      state.infinitePlaneEnabled = !state.infinitePlaneEnabled;
+      if (state.infinitePlaneEnabled) {
+        if (state.skyView.zoom < DEFAULT_SKY_ZOOM) {
+          state.skyView.zoom = DEFAULT_SKY_ZOOM;
+        }
+        updateInfinitePlaneBadge();
+        scheduleInfinitePrefetch();
+        renderContextSkyMap();
+        renderCanvas();
+      } else {
+        abortBackgroundTiles();
+        const originTile = state.tileGrid.get("0,0");
+        state.tileGrid = new Map();
+        if (originTile) {
+          state.tileGrid.set("0,0", originTile);
+          state.allAiDetections = [...(originTile.aiDetections || [])];
+          renderAIDetectionsList(state.allAiDetections);
+        }
+        state.skyView.zoom = 1.0;
+        state.skyView.panX = 0;
+        state.skyView.panY = 0;
+        updateInfinitePlaneBadge();
+        updateAladinView(state.ra, state.dec, state.fov);
+      }
+    });
+  }
+
   document.getElementById("btn-recenter-aladin").addEventListener("click", (e) => {
-    state.skyView.zoom = 1.0;
+    state.skyView.zoom = getDefaultSkyZoom();
     state.skyView.panX = 0;
     state.skyView.panY = 0;
     updateAladinView(state.ra, state.dec, state.fov);
@@ -1482,59 +2783,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     setTimeout(() => {
       btn.textContent = origText;
     }, 1200);
-  });
-
-  const canvas = document.getElementById("spherex-canvas");
-  canvas.addEventListener("mousemove", (e) => {
-    if (state.isLoading || !state.exploreData) return;
-    const rect = canvas.getBoundingClientRect();
-    const xPix = ((e.clientX - rect.left) / rect.width) * CUTOUT_NPIX - 0.5;
-    const yPix = CUTOUT_NPIX - 0.5 - ((e.clientY - rect.top) / rect.height) * CUTOUT_NPIX;
-    const hoveredObj = findHoveredNamedObject(xPix, yPix, 5.5);
-    const prevHoverId = state.hoveredNamedObjectId;
-    state.hoveredNamedObjectId = hoveredObj ? hoveredObj.id : null;
-    canvas.style.cursor = hoveredObj ? "pointer" : "crosshair";
-    if (state.hoveredNamedObjectId !== prevHoverId) {
-      if (hoveredObj) {
-        showNamedObjectDetail(hoveredObj);
-      } else {
-        const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
-        if (activeObj) showNamedObjectDetail(activeObj);
-      }
-      renderCanvas();
-      renderContextSkyMap();
-    }
-  });
-
-  canvas.addEventListener("mouseleave", () => {
-    if (state.hoveredNamedObjectId !== null) {
-      state.hoveredNamedObjectId = null;
-      canvas.style.cursor = "crosshair";
-      const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
-      if (activeObj) showNamedObjectDetail(activeObj);
-      renderCanvas();
-      renderContextSkyMap();
-    }
-  });
-
-  canvas.addEventListener("click", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-
-    if (state.isLoading || !state.exploreData) return;
-    const x_pix = Math.max(0, Math.min(127, (clickX / rect.width) * CUTOUT_NPIX - 0.5));
-    const y_pix = Math.max(0, Math.min(127, CUTOUT_NPIX - 0.5 - (clickY / rect.height) * CUTOUT_NPIX));
-
-    state.selectedDetectionId = null;
-    state.selectedPixel = { x: x_pix, y: y_pix };
-    updateAIDetectionCardsSelection();
-    renderCanvas();
-    updateCatalogSelectionSummary();
-    renderContextSkyMap();
-
-    const coords = pixelToRaDec(x_pix, y_pix);
-    fetchAndRenderSpectrum(coords.ra, coords.dec, true);
   });
 
   await exploreCoordinates(state.ra, state.dec, state.fov, initial.temporalSearch ? 24 : 10, initial.temporalSearch);
