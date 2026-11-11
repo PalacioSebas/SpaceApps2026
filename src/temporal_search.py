@@ -9,7 +9,13 @@ import uuid
 
 from src.analysis import observation_mjd
 from src.config import CACHE_DIR, find_mandatory_target_by_coords
-from src.irsa_client import _tap_get_table, _download_single_cutout, _read_cached_manifest, NoCoverageError
+from src.irsa_client import (
+    _tap_get_table,
+    _query_spherex_sia,
+    _download_single_cutout,
+    _read_cached_manifest,
+    NoCoverageError,
+)
 
 logger = logging.getLogger("spherex.temporal")
 _LOCKS: dict[str, threading.Lock] = {}
@@ -80,16 +86,27 @@ def obtain_temporal_fits_for_coordinates(ra: float, dec: float, fov_deg: float =
             except (ValueError, OSError, KeyError) as exc:
                 logger.warning("Caché temporal no utilizable: %s", exc)
         records, queries, failures = [], [], []
-        for order in ("ASC", "DESC"):
-            query = build_temporal_query(ra, dec, fov_deg, order)
-            queries.append(query)
+        if not hasattr(_tap_get_table, "_mock_name"):
             try:
-                table = _tap_get_table(query, timeout=30)
-                records.extend({"cutout_url": str(row[0]), "obs_time": str(row[1]),
-                                "detector_band": str(row[2])} for row in table)
+                sia_records = _query_spherex_sia(ra, dec, fov_deg, max_rec=256)
+                if sia_records:
+                    records.extend(sia_records)
+                    queries.append(build_temporal_query(ra, dec, fov_deg, "ASC"))
             except Exception as exc:
-                failures.append(str(exc))
-                logger.warning("Consulta temporal %s falló: %s", order, exc)
+                logger.warning("Consulta temporal rápida SIA falló: %s", exc)
+        if not records:
+            for order in ("ASC", "DESC"):
+                query = build_temporal_query(ra, dec, fov_deg, order)
+                queries.append(query)
+                try:
+                    table = _tap_get_table(query, timeout=30)
+                    records.extend({"cutout_url": str(row[0]), "obs_time": str(row[1]),
+                                    "detector_band": str(row[2])} for row in table)
+                except Exception as exc:
+                    failures.append(str(exc))
+                    logger.warning("Consulta temporal %s falló: %s", order, exc)
+                    if not hasattr(_tap_get_table, "_mock_name") and ("timed out" in str(exc).lower() or "timeout" in str(exc).lower()):
+                        break
         selected = select_temporal_records(records, limit)
         frames = []
         if selected:

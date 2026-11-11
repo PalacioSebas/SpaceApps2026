@@ -43,6 +43,8 @@ const state = {
   hoveredNamedObjectId: null,
   showGaiaCat: true,
   showWiseCat: true,
+  showPmVectors: true,
+  embed: false,
   crossmatchByDetId: {},
   tileGrid: new Map(),
   tileQueue: [],
@@ -76,6 +78,57 @@ const state = {
   },
 };
 
+/**
+ * Parsea coordenadas en grados decimales o sexagesimales.
+ * RA (horas):  133.795 · 08h55m10.831s · 08:55:10.8 · 08 55 10.8 · 08h55m
+ * Dec (grados): -7.245 · -07d14m42.53s · -07:14:42.5 · +04d41m36.11s
+ */
+function parseCoordinateText(raw, kind) {
+  const text = String(raw ?? "").trim();
+  if (!text) return { ok: false, error: "vacío" };
+  let sign = 1;
+  let body = text;
+  if (body[0] === "-" || body[0] === "−") { sign = -1; body = body.slice(1).trim(); }
+  else if (body[0] === "+") { body = body.slice(1).trim(); }
+  if (!body) return { ok: false, error: "formato" };
+  if (kind === "ra" && sign < 0) return { ok: false, error: "rango" };
+
+  // Sexagesimal: 08h55m10.831s | 08:55:10.831 | 08 55 10.831 | 07d14m42.5s | 07°14'42.5"
+  const sex = body.match(/^(\d{1,3})\s*(?:h|d|m|:|°|\s)\s*(\d{1,2})(?:\s*(?:m|'|′|:|°|\s)\s*(\d{1,2}(?:\.\d+)?))?\s*[sd°"″'′]?\s*$/i);
+  if (sex) {
+    const a = Number.parseFloat(sex[1]);
+    const b = Number.parseFloat(sex[2]);
+    const c = sex[3] !== undefined ? Number.parseFloat(sex[3]) : 0;
+    const isDegRa = kind === "ra" && /[d°]/i.test(body) && !/h/i.test(body);
+    const maxA = kind === "ra" ? (isDegRa ? 360 : 24) : 90;
+    if (a > maxA || (a === maxA && (b > 0 || c > 0)) || b >= 60 || c >= 60) {
+      return { ok: false, error: "rango" };
+    }
+    const baseDeg = a + b / 60 + c / 3600;
+    const value = kind === "ra"
+      ? (isDegRa ? baseDeg : baseDeg * 15) // RA en horas: 1h = 15°
+      : sign * baseDeg;
+    if (kind === "ra" ? value < 0 || value > 360 : value < -90 || value > 90) {
+      return { ok: false, error: "rango" };
+    }
+    return { ok: true, value };
+  }
+
+  if (!/^\d+(?:\.\d+)?$/.test(body)) return { ok: false, error: "formato" };
+  const value = sign * Number.parseFloat(body);
+  if (!Number.isFinite(value)) return { ok: false, error: "formato" };
+  if (kind === "ra" ? value < 0 || value > 360 : value < -90 || value > 90) {
+    return { ok: false, error: "rango" };
+  }
+  return { ok: true, value };
+}
+
+function coordinateInputMessage(kind, error) {
+  const label = kind === "ra" ? "RA" : "Dec";
+  if (error === "rango") return `Revisá ${label}: fuera de rango (RA 0–360°, Dec −90–90°).`;
+  return `Revisá ${label}: formato no reconocido. Usá grados decimales (133.795) o sexagesimal (08h55m10.831s).`;
+}
+
 function getParamsFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const ra = parseFloat(params.get("ra"));
@@ -86,6 +139,7 @@ function getParamsFromUrl() {
     dec: !isNaN(dec) ? dec : -7.245147,
     fov: !isNaN(fov) ? fov : 0.05,
     temporalSearch: params.get("temporal") === "1",
+    embed: params.get("embed") === "1",
   };
 }
 
@@ -96,6 +150,8 @@ function syncUrlParams(ra, dec, fov, temporalSearch = false) {
   url.searchParams.set("fov", Number(fov).toFixed(4));
   if (temporalSearch) url.searchParams.set("temporal", "1");
   else url.searchParams.delete("temporal");
+  if (state.embed) url.searchParams.set("embed", "1");
+  else url.searchParams.delete("embed");
   window.history.replaceState({}, "", url);
 }
 
@@ -1231,8 +1287,8 @@ function renderNamedObjectsPanel() {
       updateAIDetectionCardsSelection();
       updateAladinView(obj.ra, obj.dec, state.fov);
       renderCanvas();
-      const tileGx = Math.floor((obj.x + 0.5) / CUTOUT_NPIX);
-      const tileGy = Math.floor((obj.y + 0.5) / CUTOUT_NPIX);
+      const tileGx = Math.floor((obj.x + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+      const tileGy = Math.floor((obj.y + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
       const tileCenter = getTileCenterCoords(tileGx, tileGy);
       fetchAndRenderSpectrum(obj.ra, obj.dec, true, tileCenter.ra, tileCenter.dec);
     });
@@ -1380,7 +1436,17 @@ function snapNamedObjectsToTilePeaks() {
     const baseRa = obj.catalogRa ?? obj.ra;
     const baseDec = obj.catalogDec ?? obj.dec;
     const rawPos = raDecToPixel(baseRa, baseDec);
-    const snapped = snapGlobalPixelToTilePeak(rawPos.x, rawPos.y, 22, 0.65);
+    if (obj.in_fov === false && !state.infinitePlaneEnabled) {
+      obj.x = rawPos.x;
+      obj.y = rawPos.y;
+      return;
+    }
+    const isPrimaryOrHighPm =
+      (Number.isFinite(obj.distance_arcsec) && obj.distance_arcsec <= 15) ||
+      (Number.isFinite(obj.proper_motion_mas_yr) && obj.proper_motion_mas_yr >= 500);
+    const snapRadius = isPrimaryOrHighPm ? 20 : 5;
+    const minExcess = isPrimaryOrHighPm ? 0.85 : 1.15;
+    const snapped = snapGlobalPixelToTilePeak(rawPos.x, rawPos.y, snapRadius, minExcess);
     if (snapped && snapped.snapped) {
       obj.x = snapped.x;
       obj.y = snapped.y;
@@ -1402,12 +1468,15 @@ function mergeNamedObjects(newObjects) {
     const catalogRa = existing?.catalogRa ?? obj.ra;
     const catalogDec = existing?.catalogDec ?? obj.dec;
     const pos = raDecToPixel(catalogRa, catalogDec);
+    const inFov = obj.in_fov !== undefined
+      ? Boolean(obj.in_fov)
+      : (pos.x >= -2 && pos.x <= CUTOUT_NPIX + 2 && pos.y >= -2 && pos.y <= CUTOUT_NPIX + 2);
     map.set(obj.id, {
       ...obj,
       catalogRa,
       catalogDec,
       ...pos,
-      in_fov: true,
+      in_fov: state.infinitePlaneEnabled ? true : inFov,
     });
   });
   state.skyView.namedObjects = Array.from(map.values());
@@ -1721,12 +1790,40 @@ function renderContextSkyMap() {
     ctx.save();
     ctx.strokeStyle = "rgba(56, 189, 248, 0.70)";
     ctx.lineWidth = 1.2;
+    const pxPerArcsec = W / ((state.fov / (state.skyView.zoom || 1)) * 3600);
     state.skyView.gaiaSources.forEach((src) => {
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
       ctx.beginPath();
       ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
       ctx.stroke();
+      // Flecha de movimiento propio (Gaia pmra/pmdec en mas/año)
+      if (state.showPmVectors && Number.isFinite(src.pmra) && Number.isFinite(src.pmdec) && (src.pmra !== 0 || src.pmdec !== 0)) {
+        const dRa = (src.pmra / 1000) * Math.cos((src.dec * Math.PI) / 180); // ″/año en RA
+        const dDec = src.pmdec / 1000; // ″/año en Dec
+        const mag = Math.hypot(dRa, dDec);
+        if (mag > 0) {
+          const len = Math.min(30, Math.max(7, mag * pxPerArcsec * 80));
+          const ux = dRa / mag;
+          const uy = -dDec / mag; // el Dec crece hacia arriba en pantalla
+          const ex = cx + ux * len;
+          const ey = cy + uy * len;
+          ctx.strokeStyle = "rgba(125, 211, 252, 0.9)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+          const head = 4;
+          const ang = Math.atan2(uy, ux);
+          ctx.beginPath();
+          ctx.moveTo(ex, ey);
+          ctx.lineTo(ex - head * Math.cos(ang - 0.5), ey - head * Math.sin(ang - 0.5));
+          ctx.moveTo(ex, ey);
+          ctx.lineTo(ex - head * Math.cos(ang + 0.5), ey - head * Math.sin(ang + 0.5));
+          ctx.stroke();
+        }
+      }
     });
     ctx.restore();
   }
@@ -2495,9 +2592,17 @@ function populateBandSelector(epochs, targetInfo) {
   }
 }
 
+function syncFovPresetSelect(fovValue) {
+  const select = document.getElementById("select-fov-preset");
+  if (!select) return;
+  const presets = [0.03, 0.05, 0.1, 0.2];
+  const matched = presets.find((p) => Math.abs(Number(fovValue) - p) < 1e-4);
+  select.value = matched != null ? String(matched) : "custom";
+}
+
 function setExploreBusy(busy) {
   state.isLoading = busy;
-  document.querySelectorAll("#coord-form input, #coord-form button[type=submit], .preset-btn, #btn-load-102-bands, #btn-temporal-search, #select-band, #slider-epoch")
+  document.querySelectorAll("#coord-form input, #coord-form select, #coord-form button[type=submit], .preset-btn, .fov-pill, #btn-load-102-bands, #btn-temporal-search, #btn-irsa-sync, #select-band, #slider-epoch")
     .forEach((el) => { el.disabled = busy; });
   document.getElementById("coord-form").setAttribute("aria-busy", String(busy));
   document.getElementById("coord-form").querySelector("button[type=submit]").textContent = busy ? "Procesando…" : "Explorar Cielo";
@@ -2517,8 +2622,17 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
   state.exploreController = new AbortController();
   const controller = state.exploreController;
   const timeout = setTimeout(() => controller.abort(), 240000);
+  const sameRegion = Math.abs(state.ra - ra) < 1e-4 && Math.abs(state.dec - dec) < 1e-4;
+  const epKey = (ep) => ep?.cutout_url || `${ep?.obs_time || ""}|${ep?.detector || ""}|${ep?.wavelength_center_um || ""}`;
+  const prevKeys = new Set(
+    sameRegion ? (state.exploreData?.epochs || []).map(epKey).filter(Boolean) : []
+  );
   setExploreBusy(true);
-  const stopLoading = showLoading("Consultando IRSA y procesando recortes FITS…");
+  const stopLoading = showLoading(
+    refresh
+      ? "Sincronizando entregas de IRSA y actualizando recortes FITS…"
+      : "Consultando IRSA y procesando recortes FITS…"
+  );
   try {
     const res = await fetch(`/api/explore?ra=${ra}&dec=${dec}&fov=${fov}&max_epochs=${maxEpochs}&temporal_search=${temporalSearch}&refresh=${refresh}`, { signal: state.exploreController.signal });
     const data = await res.json();
@@ -2534,10 +2648,20 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     document.getElementById("input-ra").value = ra.toFixed(6);
     document.getElementById("input-dec").value = dec.toFixed(6);
     document.getElementById("input-fov").value = fov.toFixed(4);
+    syncFovPresetSelect(fov);
     syncUrlParams(ra, dec, fov, temporalSearch);
     populateBandSelector(data.epochs, data.target_info);
     const slider = document.getElementById("slider-epoch");
     slider.max = Math.max(0, data.epochs.length - 1);
+    const newEpochsList = refresh
+      ? (data.epochs || []).filter((ep) => !prevKeys.has(epKey(ep)))
+      : [];
+    if (refresh && newEpochsList.length > 0) {
+      const firstNewIdx = data.epochs.findIndex((ep) => !prevKeys.has(epKey(ep)));
+      if (firstNewIdx >= 0) {
+        state.currentEpochIdx = firstNewIdx;
+      }
+    }
     slider.value = state.currentEpochIdx;
     document.querySelectorAll(".preset-btn").forEach((btn) => {
       btn.classList.toggle("target-btn-active", btn.dataset.target === data.target_info.matched_target_id);
@@ -2578,7 +2702,15 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     renderCanvas();
     stopLoading();
     setExploreBusy(false);
-    setExploreProgress(data.target_info.matched_description || `Región RA=${ra.toFixed(4)}°, Dec=${dec.toFixed(4)}° lista.`);
+    if (refresh) {
+      setExploreProgress(
+        newEpochsList.length > 0
+          ? `Sincronización IRSA completada: ${data.target_info.total_frames} recortes activos (+${newEpochsList.length} nuevas exposiciones · ${data.target_info.total_epochs} fechas / ${data.target_info.total_bands} bandas).`
+          : `Sincronización IRSA al día: ${data.target_info.total_frames} recortes verificados (${data.target_info.data_source}).`
+      );
+    } else {
+      setExploreProgress(data.target_info.matched_description || `Región RA=${ra.toFixed(4)}°, Dec=${dec.toFixed(4)}° lista.`);
+    }
     void loadFieldCatalogs(sequence);
     void fetchAndRenderSpectrum(top?.ra ?? ra, top?.dec ?? dec, Boolean(top), ra, dec);
   } catch (err) {
@@ -2614,6 +2746,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   state.ra = initial.ra;
   state.dec = initial.dec;
   state.fov = initial.fov;
+  state.embed = Boolean(initial.embed);
+  if (state.embed) document.body.classList.add("embedded");
 
   initAladinLite(state.ra, state.dec, state.fov);
 
@@ -2637,10 +2771,27 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("coord-form").addEventListener("submit", (e) => {
     e.preventDefault();
-    const ra = parseFloat(document.getElementById("input-ra").value);
-    const dec = parseFloat(document.getElementById("input-dec").value);
+    const raParsed = parseCoordinateText(document.getElementById("input-ra").value, "ra");
+    if (!raParsed.ok) { setExploreProgress(coordinateInputMessage("ra", raParsed.error)); return; }
+    const decParsed = parseCoordinateText(document.getElementById("input-dec").value, "dec");
+    if (!decParsed.ok) { setExploreProgress(coordinateInputMessage("dec", decParsed.error)); return; }
     const fov = parseFloat(document.getElementById("input-fov").value);
-    exploreCoordinates(ra, dec, fov);
+    exploreCoordinates(raParsed.value, decParsed.value, fov);
+  });
+
+  const selectFovPreset = document.getElementById("select-fov-preset");
+  if (selectFovPreset) {
+    selectFovPreset.addEventListener("change", (e) => {
+      if (e.target.value === "custom") return;
+      document.getElementById("input-fov").value = e.target.value;
+      const form = document.getElementById("coord-form");
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.dispatchEvent(new Event("submit", { cancelable: true }));
+    });
+  }
+
+  document.getElementById("input-fov").addEventListener("input", (e) => {
+    syncFovPresetSelect(parseFloat(e.target.value));
   });
 
   document.getElementById("btn-share-url").addEventListener("click", async () => {
@@ -2649,6 +2800,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     const btn = document.getElementById("btn-share-url");
     const orig = btn.innerHTML;
     btn.innerHTML = "<span>URL Copiada</span>";
+    setTimeout(() => (btn.innerHTML = orig), 1800);
+  });
+
+  document.getElementById("btn-copy-iframe").addEventListener("click", async () => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("embed", "1");
+    const src = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+    const snippet = `<iframe src="${src}" width="100%" height="620" loading="lazy" title="Papastronomy SPHEREx" style="border:1px solid #1e293b;border-radius:12px;"></iframe>`;
+    try { await navigator.clipboard.writeText(snippet); }
+    catch { setExploreProgress("No se pudo copiar el código <iframe>. Usá «Copiar URL Embebible»."); return; }
+    const btn = document.getElementById("btn-copy-iframe");
+    const orig = btn.innerHTML;
+    btn.innerHTML = "<span>Código &lt;iframe&gt; Copiado</span>";
     setTimeout(() => (btn.innerHTML = orig), 1800);
   });
 
@@ -2691,8 +2855,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   document.getElementById("btn-temporal-search").addEventListener("click", () => {
-    exploreCoordinates(Number(document.getElementById("input-ra").value),
-      Number(document.getElementById("input-dec").value), Number(document.getElementById("input-fov").value), 24, true, true);
+    const raParsed = parseCoordinateText(document.getElementById("input-ra").value, "ra");
+    if (!raParsed.ok) { setExploreProgress(coordinateInputMessage("ra", raParsed.error)); return; }
+    const decParsed = parseCoordinateText(document.getElementById("input-dec").value, "dec");
+    if (!decParsed.ok) { setExploreProgress(coordinateInputMessage("dec", decParsed.error)); return; }
+    const fov = Number(document.getElementById("input-fov").value);
+    exploreCoordinates(raParsed.value, decParsed.value, fov, 24, true, true);
+  });
+
+  document.getElementById("btn-irsa-sync").addEventListener("click", () => {
+    const currentEpochs = state.exploreData?.epochs?.length || 10;
+    const nextEpochs = Math.min(102, Math.max(currentEpochs + 6, state.temporalSearch ? 24 : 16));
+    setExploreProgress("Sincronizando nuevas entregas de IRSA para esta región…");
+    exploreCoordinates(state.ra, state.dec, state.fov, nextEpochs, state.temporalSearch, true);
   });
 
   document.getElementById("btn-load-102-bands").addEventListener("click", async (e) => {
@@ -2711,6 +2886,73 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("select-fps").addEventListener("change", (e) => {
     state.fps = parseInt(e.target.value, 10);
     startBlinkTimer();
+  });
+
+  document.getElementById("btn-export-webm").addEventListener("click", async () => {
+    const canvas = document.getElementById("spherex-canvas");
+    const epochs = state.exploreData?.epochs || [];
+    if (!canvas || epochs.length === 0) { setExploreProgress("Cargá una región primero para exportar."); return; }
+    if (typeof MediaRecorder === "undefined" || typeof canvas.captureStream !== "function") {
+      setExploreProgress("Este navegador no soporta exportación a WebM. Probá Chrome o Edge."); return;
+    }
+    const btn = document.getElementById("btn-export-webm");
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    const savedMode = state.viewMode;
+    const savedBand = state.selectedBand;
+    const savedEpochIdx = state.currentEpochIdx;
+    if (state.blinkTimer) {
+      clearInterval(state.blinkTimer);
+      state.blinkTimer = null;
+    }
+    state.viewMode = "blink";
+    try {
+      const stream = canvas.captureStream(0);
+      const track = stream.getVideoTracks()[0];
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? "video/webm;codecs=vp9"
+        : "video/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks = [];
+      recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
+      const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
+      const frameMs = Math.max(120, 1000 / Math.max(1, state.fps));
+      recorder.start(250);
+      for (let i = 0; i < epochs.length; i++) {
+        state.currentEpochIdx = i;
+        state.selectedBand = String(i);
+        renderCanvas();
+        if (track && typeof track.requestFrame === "function") track.requestFrame();
+        btn.textContent = `Exportando ${i + 1}/${epochs.length}…`;
+        await new Promise((r) => setTimeout(r, frameMs));
+      }
+      recorder.stop();
+      await stopped;
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `papastronomy_${state.ra.toFixed(4)}_${state.dec.toFixed(4)}_flipbook.webm`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setExploreProgress(`Flipbook exportado: ${epochs.length} épocas a ${state.fps} fps (WebM).`);
+    } catch (err) {
+      setExploreProgress(`No se pudo exportar el WebM: ${err.message}`);
+    } finally {
+      state.viewMode = savedMode;
+      state.selectedBand = savedBand;
+      state.currentEpochIdx = savedEpochIdx;
+      const selBand = document.getElementById("select-band");
+      if (selBand) selBand.value = savedBand;
+      const slider = document.getElementById("slider-epoch");
+      if (slider) slider.value = savedEpochIdx;
+      renderCanvas();
+      startBlinkTimer();
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   });
 
   document.getElementById("chk-ai-markers").addEventListener("change", (e) => {
@@ -2732,10 +2974,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  document.getElementById("chk-gaia").addEventListener("change", (e) => {
-    state.showGaiaCat = e.target.checked;
+  const chkGaia = document.getElementById("chk-gaia");
+  const chkPm = document.getElementById("chk-pm-vectors");
+  const lblPm = document.getElementById("lbl-pm-vectors");
+  const syncGaiaPmState = () => {
+    const gaiaEnabled = Boolean(chkGaia?.checked);
+    state.showGaiaCat = gaiaEnabled;
+    if (chkPm) {
+      chkPm.disabled = !gaiaEnabled;
+    }
+    if (lblPm) {
+      lblPm.classList.toggle("opacity-40", !gaiaEnabled);
+      lblPm.classList.toggle("cursor-not-allowed", !gaiaEnabled);
+      lblPm.classList.toggle("cursor-pointer", gaiaEnabled);
+    }
+  };
+  chkGaia.addEventListener("change", () => {
+    syncGaiaPmState();
     renderContextSkyMap();
   });
+  syncGaiaPmState();
+
+  if (chkPm) {
+    chkPm.addEventListener("change", (e) => {
+      state.showPmVectors = e.target.checked;
+      renderContextSkyMap();
+    });
+  }
 
   document.getElementById("chk-wise").addEventListener("change", (e) => {
     state.showWiseCat = e.target.checked;

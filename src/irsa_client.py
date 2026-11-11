@@ -85,10 +85,35 @@ def _irsa_scs_table(table_name: str, ra: float, dec: float, radius: float,
         vt = votable.parse(io.BytesIO(resp.content)).get_first_table()
         full_tbl = vt.to_table()
         field_names = [f.name for f in vt.fields]
-        col_indices = [field_names.index(col) for col in columns]
         if len(full_tbl) == 0:
+            for col in columns[:4]:
+                if col not in field_names:
+                    raise ValueError(f"Columna {col} no encontrada en SCS {table_name}")
             return Table(names=columns, dtype=[str] + [float] * (len(columns) - 1))
-        return Table([full_tbl.columns[i] for i in col_indices], names=columns)[:2000]
+
+        if "ra" in field_names and "dec" in field_names and len(full_tbl) > 1:
+            try:
+                ra_vals = np.asarray(full_tbl["ra"], dtype=float)
+                dec_vals = np.asarray(full_tbl["dec"], dtype=float)
+                cos_dec = np.cos(np.radians(dec))
+                dra = ((ra_vals - ra + 180.0) % 360.0 - 180.0) * cos_dec
+                ddec = dec_vals - dec
+                dist2 = np.nan_to_num(dra * dra + ddec * ddec, nan=np.inf)
+                full_tbl = full_tbl[np.argsort(dist2)]
+            except Exception:
+                pass
+
+        n_rows = min(len(full_tbl), 2000)
+        full_tbl = full_tbl[:n_rows]
+        out_cols = []
+        for idx, col in enumerate(columns):
+            if col in field_names:
+                out_cols.append(full_tbl.columns[field_names.index(col)])
+            elif idx >= 4 and col.lower() in ("pmra", "pmdec", "pmde"):
+                out_cols.append(np.full(n_rows, np.nan, dtype=float))
+            else:
+                raise ValueError(f"Columna {col} no encontrada en SCS {table_name}")
+        return Table(out_cols, names=columns)
 
 
 def _ari_gaia_tap_table(query: str, timeout: float = 6.0) -> Table:
@@ -147,9 +172,14 @@ class _CDSFallbackTAPService:
                     circle = _extract_circle_params(query)
                     if circle is not None:
                         ra, dec, radius = circle
-                        cols = ["source_id", "phot_g_mean_mag", "pmra", "pmdec"] if "pmRA" in query else ["source_id", "ra", "dec", "phot_g_mean_mag"]
-                        tbl = _irsa_scs_table("gaia_dr3_source", ra, dec, radius, cols, timeout=6.0)
-                        if "pmRA" in query:
+                        if "DE_ICRS, Gmag" in query:
+                            # Consulta de catálogo: id, ra, dec, mag, pmra, pmdec en ese orden.
+                            tbl = _irsa_scs_table("gaia_dr3_source", ra, dec, radius,
+                                ["source_id", "ra", "dec", "phot_g_mean_mag", "pmra", "pmdec"], timeout=6.0)
+                        else:
+                            # Consulta de crossmatch: solo id, mag, pmRA, pmDE.
+                            tbl = _irsa_scs_table("gaia_dr3_source", ra, dec, radius,
+                                ["source_id", "phot_g_mean_mag", "pmra", "pmdec"], timeout=6.0)
                             for old_c, new_c in (("source_id", "Source"), ("phot_g_mean_mag", "Gmag"), ("pmra", "pmRA"), ("pmdec", "pmDE")):
                                 if old_c in tbl.colnames:
                                     tbl.rename_column(old_c, new_c)
@@ -161,7 +191,7 @@ class _CDSFallbackTAPService:
             if circle is not None:
                 try:
                     ra, dec, radius = circle
-                    tbl = _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, ["designation", "ra", "dec", "w1mpro"], timeout=6.0)
+                    tbl = _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, ["designation", "ra", "dec", "w1mpro", "pmra", "pmdec"], timeout=6.0)
                     return _TableResultWrapper(tbl)
                 except Exception:
                     pass
@@ -193,14 +223,14 @@ def _tap_get_table(query: str, timeout=12):
             return _ari_gaia_tap_table(query, timeout=min(timeout, 5.5))
         except Exception:
             try:
-                return _irsa_scs_table("gaia_dr3_source", ra, dec, radius, ["source_id", "ra", "dec", "phot_g_mean_mag"], timeout=min(timeout, 6.0))
+                return _irsa_scs_table("gaia_dr3_source", ra, dec, radius, ["source_id", "ra", "dec", "phot_g_mean_mag", "pmra", "pmdec"], timeout=min(timeout, 6.0))
             except Exception:
                 pass
     elif "allwise_p3as_psd" in query and circle is not None:
         ra, dec, radius = circle
         # 1) Índice espacial directo SCS de IRSA (~1.9s) antes del planificador ADQL general
         try:
-            return _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, ["designation", "ra", "dec", "w1mpro"], timeout=min(timeout, 6.0))
+            return _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, ["designation", "ra", "dec", "w1mpro", "pmra", "pmdec"], timeout=min(timeout, 6.0))
         except Exception:
             pass
 
@@ -230,21 +260,24 @@ def _catalog_field_cached(catalog: str, ra: float, dec: float, fov: float, time_
     is_mocked = hasattr(_tap_get_table, "_mock_name") or hasattr(_tap_service, "_mock_name")
     region_dir = _region_cache_folder(ra, dec, fov)
     disk_cache = region_dir / f"catalog_{catalog}.json"
+    stale_cache = None
     if not is_mocked and disk_cache.is_file():
         try:
             data = json.loads(disk_cache.read_text(encoding="utf-8"))
             if isinstance(data, dict) and "sources" in data:
-                return data
+                if catalog == "allwise" or data.get("version") == 2:
+                    return data
+                stale_cache = data
         except Exception as exc:
             logger.debug("No se pudo leer caché de catálogo %s: %s", disk_cache, exc)
 
     irsa_spec = (
-        ("gaia_dr3_source", "source_id, ra, dec, phot_g_mean_mag", "ra", "dec") if catalog == "gaia"
-        else ("allwise_p3as_psd", "designation, ra, dec, w1mpro", "ra", "dec")
+        ("gaia_dr3_source", "source_id, ra, dec, phot_g_mean_mag, pmra, pmdec", "ra", "dec") if catalog == "gaia"
+        else ("allwise_p3as_psd", "designation, ra, dec, w1mpro, pmra, pmdec", "ra", "dec")
     )
     cds_spec = (
-        ('"I/355/gaiadr3"', "Source, RA_ICRS, DE_ICRS, Gmag", "RA_ICRS", "DE_ICRS") if catalog == "gaia"
-        else ('"II/328/allwise"', "AllWISE, RAJ2000, DEJ2000, W1mag", "RAJ2000", "DEJ2000")
+        ('"I/355/gaiadr3"', "Source, RA_ICRS, DE_ICRS, Gmag, pmRA, pmDE", "RA_ICRS", "DE_ICRS") if catalog == "gaia"
+        else ('"II/328/allwise"', "AllWISE, RAJ2000, DEJ2000, W1mag, pmRA, pmDE", "RAJ2000", "DEJ2000")
     )
     radius = fov / np.sqrt(2)
     errors = []
@@ -256,24 +289,33 @@ def _catalog_field_cached(catalog: str, ra: float, dec: float, fov: float, time_
         try:
             rows = (_tap_get_table(query) if service == "IRSA TAP"
                     else _tap_service(CDS_TAP_URL).search(query).to_table())
-            if len(rows.colnames) != 4:
-                raise ValueError("El catálogo no devolvió las cuatro columnas solicitadas")
+            if len(rows.colnames) not in (4, 6):
+                raise ValueError("El catálogo no devolvió las seis columnas solicitadas")
+            has_pm = len(rows.colnames) == 6
             sources = []
             # IRSA puede publicar nombres genéricos col_0... en el VOTable.
-            # El orden de las cuatro columnas lo fija el SELECT anterior.
+            # El orden de las columnas lo fija el SELECT anterior.
             for row in rows:
-                source_id, ra_value, dec_value, mag_value = row
+                if has_pm:
+                    source_id, ra_value, dec_value, mag_value, pmra_value, pmdec_value = row
+                else:
+                    source_id, ra_value, dec_value, mag_value = row
+                    pmra_value, pmdec_value = None, None
                 if np.ma.is_masked(ra_value) or np.ma.is_masked(dec_value):
                     continue
                 source_ra, source_dec = float(ra_value), float(dec_value)
                 if not np.isfinite(source_ra) or not np.isfinite(source_dec):
                     continue
-                mag = None if np.ma.is_masked(mag_value) else float(mag_value)
+                mag = None if (mag_value is None or np.ma.is_masked(mag_value)) else float(mag_value)
+                pmra = None if (pmra_value is None or np.ma.is_masked(pmra_value)) else float(pmra_value)
+                pmdec = None if (pmdec_value is None or np.ma.is_masked(pmdec_value)) else float(pmdec_value)
                 sources.append({
                     "id": str(source_id), "ra": source_ra, "dec": source_dec,
                     "mag": mag if mag is not None and np.isfinite(mag) else None,
+                    "pmra": pmra if pmra is not None and np.isfinite(pmra) else None,
+                    "pmdec": pmdec if pmdec is not None and np.isfinite(pmdec) else None,
                 })
-            result = {"catalog": catalog, "sources": sources, "truncated": len(rows) >= 2000, "service": service}
+            result = {"catalog": catalog, "sources": sources, "truncated": len(rows) >= 2000, "service": service, "version": 2}
             if not is_mocked and region_dir.is_dir():
                 try:
                     tmp_path = region_dir / f"catalog_{catalog}_{uuid.uuid4().hex[:8]}.tmp"
@@ -285,11 +327,14 @@ def _catalog_field_cached(catalog: str, ra: float, dec: float, fov: float, time_
         except Exception as exc:
             logger.warning("Consulta %s en %s falló: %s", catalog, service, exc)
             errors.append(f"{service}: {exc}")
+    if stale_cache is not None:
+        return stale_cache
     raise RuntimeError("Catálogo no disponible en IRSA ni CDS: " + "; ".join(errors))
 
 
 def query_catalog_field(catalog: str, ra: float, dec: float, fov: float) -> Dict[str, Any]:
     return _catalog_field_cached(catalog, ra, dec, fov, int(time.time() // 600))
+
 
 # Mapeo de longitudes de onda centrales reales por banda/detector infrarrojo (en micrones)
 BAND_WAVELENGTH_UM: Dict[str, Tuple[float, float]] = {
@@ -351,21 +396,21 @@ def _query_spherex_sia(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max
     params = urllib.parse.urlencode({
         "COLLECTION": "spherex_qr2",
         "POS": f"circle {ra_deg} {dec_deg} {max(fov_deg * 0.5, 0.01)}",
-        "MAXREC": str(max_rec * 2),
+        "MAXREC": str(max(max_rec * 4, 240)),
     })
     sia_url = f"https://irsa.ipac.caltech.edu/SIA?{params}"
     req = urllib.request.Request(sia_url, headers={"User-Agent": "Papastronomy-SPHEREx/2.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw_bytes = resp.read()
     from astropy.io.votable import parse_single_table
-    tbl = parse_single_table(io.BytesIO(raw_bytes), use_names_over_ids=True).to_table()
+    tbl = parse_single_table(io.BytesIO(raw_bytes)).to_table(use_names_over_ids=True)
     if len(tbl) == 0:
         return []
 
     records: List[Dict[str, Any]] = []
     seen_urls: set[str] = set()
     for row in tbl:
-        access_url = str(row["access_url"]) if "access_url" in tbl.colnames else ""
+        access_url = str(row["access_url"]) if "access_url" in tbl.colnames and not np.ma.is_masked(row["access_url"]) else ""
         if not access_url or "spherex" not in access_url:
             continue
         base_url = access_url.split("?")[0]
@@ -373,25 +418,36 @@ def _query_spherex_sia(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max
         if cutout_url in seen_urls:
             continue
         seen_urls.add(cutout_url)
-        obs_t = str(row["t_min"]) if "t_min" in tbl.colnames and row["t_min"] is not None else ""
-        band_name = str(row["energy_bandpassname"]) if "energy_bandpassname" in tbl.colnames and row["energy_bandpassname"] is not None else "SPHEREx"
+        obs_t = str(row["t_min"]) if "t_min" in tbl.colnames and row["t_min"] is not None and not np.ma.is_masked(row["t_min"]) else ""
+        band_name = str(row["energy_bandpassname"]) if "energy_bandpassname" in tbl.colnames and row["energy_bandpassname"] is not None and not np.ma.is_masked(row["energy_bandpassname"]) else "SPHEREx"
         records.append({
             "cutout_url": cutout_url,
             "obs_time": obs_t,
             "detector_band": band_name,
         })
-        if len(records) >= max_rec:
-            break
-    return records
+    prioritized = _prioritize_records_with_temporal_pairs(records)
+    return prioritized[:max_rec]
 
 
 def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max_rec: int = 24) -> Tuple[List[Dict[str, Any]], str, str]:
     """
-    Consulta spherex.artifact + spherex.plane con serialización y circuit-breaker ante HTTP 503 o WinError 10054,
-    y utiliza IRSA SIA (`spherex_qr2`, ~1.6 s) como vía rápida/respaldo cuando TAP falla o agota timeout.
+    Consulta el archivo en vivo de SPHEREx en IRSA priorizando el servicio espacial indexado SIA
+    (`spherex_qr2`, ~1.5 s) y utilizando TAP (`spherex.artifact + spherex.plane`) como respaldo
+    con circuit-breaker ante HTTP 503 o timeouts.
     """
     global _IRSA_503_UNTIL
     primary_adql = build_spherex_adql_query(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
+
+    # Vía rápida indexada vía IRSA SIA (spherex_qr2, ~1.5 s) cuando _tap_service no está mockeado en tests
+    if not hasattr(_tap_service, "_mock_name"):
+        try:
+            t_sia = time.perf_counter()
+            sia_records = _query_spherex_sia(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
+            if sia_records:
+                logger.info("SIA spherex_qr2: %.1f s, %d filas", time.perf_counter() - t_sia, len(sia_records))
+                return sia_records, primary_adql, "IRSA_SPHEREX_SIA"
+        except Exception as exc:
+            logger.warning("Consulta SPHEREx SIA falló: %s", exc)
 
     if time.time() >= _IRSA_503_UNTIL:
         for attempt in range(1, 3):
@@ -417,24 +473,11 @@ def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05,
             except Exception as exc:
                 err_str = str(exc)
                 logger.warning("Intento %d/2 en spherex.artifact falló (%s).", attempt, exc)
-                if "503" in err_str or "Service Unavailable" in err_str:
+                if "503" in err_str or "Service Unavailable" in err_str or "timed out" in err_str.lower() or "timeout" in err_str.lower():
                     _IRSA_503_UNTIL = time.time() + 30.0
-                    break
-                if "timed out" in err_str.lower() or "timeout" in err_str.lower():
                     break
                 if attempt < 2:
                     time.sleep(1.5)
-
-    # Respaldo rápido indexado vía IRSA SIA (spherex_qr2, ~1.6 s) cuando _tap_service no está mockeado en tests
-    if not hasattr(_tap_service, "_mock_name"):
-        try:
-            t_sia = time.perf_counter()
-            sia_records = _query_spherex_sia(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
-            if sia_records:
-                logger.info("SIA spherex_qr2: %.1f s, %d filas", time.perf_counter() - t_sia, len(sia_records))
-                return sia_records, primary_adql, "IRSA_SPHEREX_SIA"
-        except Exception as exc:
-            logger.warning("Consulta SPHEREx SIA falló: %s", exc)
 
     # Si SPHEREx no tiene cobertura o IRSA TAP/SIA falló, intentar IRSA IBE (WISE/2MASS)
     records = query_irsa_real_infrared_cutouts(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
@@ -725,6 +768,101 @@ def _prioritize_records_with_temporal_pairs(records: List[Dict[str, Any]]) -> Li
     return prioritized
 
 
+def prioritize_local_frames(
+    frames: List[Dict[str, Any]],
+    target_dir: Path,
+    ra_deg: float,
+    dec_deg: float,
+    fov_deg: float = 0.05,
+    prefer_names: set[str] | None = None,
+) -> List[Dict[str, Any]]:
+    """
+    Ordena recortes locales priorizando en las primeras posiciones un grupo con
+    longitudes de onda comparables en (ra_deg, dec_deg) y resta fotométrica válida,
+    seguido de cobertura en todos los detectores D1..D6 y recortes recién sincronizados.
+    """
+    ordered = _prioritize_records_with_temporal_pairs(frames)
+    if len(ordered) <= 2:
+        return ordered
+
+    try:
+        from src.analysis import rank_analysis_groups
+        from src.pipeline import build_common_target_wcs, load_and_clean_real_fits, align_coadd_and_diff
+
+        def _norm_det(val: Any) -> str:
+            s = str(val or "").strip()
+            if s.isdigit():
+                return f"D{s}"
+            return s.replace("SPHEREx-", "")
+
+        cleaned = []
+        valid_items = []
+        for item in ordered:
+            p = resolve_cached_path(item.get("local_path", ""), target_dir)
+            if not p.is_file():
+                continue
+            ep = load_and_clean_real_fits([p], ra_deg, dec_deg)
+            ep["detector"] = _norm_det(ep.get("detector") or item.get("detector_band"))
+            if not ep.get("obs_time"):
+                ep["obs_time"] = str(item.get("obs_time", ""))
+            cleaned.append(ep)
+            valid_items.append(item)
+
+        if len(cleaned) <= 2:
+            return ordered
+
+        groups = rank_analysis_groups(cleaned)
+        if not groups:
+            return ordered
+
+        best_group = groups[0]
+        try:
+            wcs, shape = build_common_target_wcs(ra_deg, dec_deg, fov_deg)
+            diag: Dict[str, Any] = {}
+            align_coadd_and_diff(cleaned, wcs, shape, groups[0], diag, groups[:25])
+            if diag.get("available") and diag.get("analysis_frame_indices"):
+                best_group = list(diag["analysis_frame_indices"])
+                if len(best_group) > 4:
+                    compact_group = [best_group[0], best_group[1], best_group[-2], best_group[-1]]
+                    compact_diag: Dict[str, Any] = {}
+                    align_coadd_and_diff(cleaned, wcs, shape, compact_group, compact_diag)
+                    if compact_diag.get("available"):
+                        best_group = compact_group
+        except Exception:
+            pass
+
+        chosen_indices: List[int] = []
+        seen_idx: set[int] = set()
+        for idx in best_group[:5]:
+            if 0 <= idx < len(valid_items) and idx not in seen_idx:
+                seen_idx.add(idx)
+                chosen_indices.append(idx)
+
+        seen_detectors = {str(cleaned[i].get("detector", "")) for i in chosen_indices}
+        for idx, ep in enumerate(cleaned):
+            det = str(ep.get("detector", ""))
+            if idx not in seen_idx and det and det not in seen_detectors:
+                seen_detectors.add(det)
+                seen_idx.add(idx)
+                chosen_indices.append(idx)
+
+        if prefer_names:
+            for idx, item in enumerate(valid_items):
+                if idx not in seen_idx and Path(item.get("local_path", "")).name in prefer_names:
+                    seen_idx.add(idx)
+                    chosen_indices.append(idx)
+
+        for idx in range(len(valid_items)):
+            if idx not in seen_idx:
+                seen_idx.add(idx)
+                chosen_indices.append(idx)
+
+        return [valid_items[i] for i in chosen_indices]
+    except Exception as exc:
+        logger.debug("No se pudo priorizar por WCS espectral local: %s", exc)
+        return ordered
+
+
 def _obtain_real_fits_impl(
     ra_deg: float,
     dec_deg: float,
@@ -735,19 +873,12 @@ def _obtain_real_fits_impl(
     """
     Obtiene los recortes .FITS reales para (ra_deg, dec_deg, fov_deg):
     1. Revisa si ya fueron descargados desde IRSA en `data/cache/{folder}/manifest.json`.
-    2. Si no están en caché (o `force_refresh=True`), ejecuta la consulta TAP en vivo contra IRSA
-       y descarga los recortes .FITS en paralelo con `ThreadPoolExecutor`.
+    2. Si no están en caché (o `force_refresh=True`), ejecuta la consulta en vivo contra IRSA
+       y descarga los recortes .FITS nuevos en paralelo con `ThreadPoolExecutor`.
     3. Si el servidor de IRSA responde 503 Service Unavailable o corta la conexión (WinError 10054),
        utiliza únicamente observaciones originales de la misma región ya presentes en caché.
     """
     matched = find_mandatory_target_by_coords(ra_deg, dec_deg)
-    if (matched is not None and abs(ra_deg - matched["ra_deg"]) < 1e-6
-            and abs(dec_deg - matched["dec_deg"]) < 1e-6
-            and abs(fov_deg - matched["default_fov"]) < 1e-6):
-        folder_name = matched["id"]
-    else:
-        folder_name = f"sky_{ra_deg:.4f}_{dec_deg:.4f}_{fov_deg:.3f}".replace("-", "m").replace(".", "p")
-
     target_dir = _region_cache_folder(ra_deg, dec_deg, fov_deg)
     manifest_path = target_dir / "manifest.json"
     existing_frames: List[Dict[str, Any]] = []
@@ -772,7 +903,7 @@ def _obtain_real_fits_impl(
 
     # Consultar IRSA en vivo y descargar recortes reales en paralelo reutilizando los ya descargados
     records, tap_query, data_source = query_spherex_tap_live(
-        ra_deg, dec_deg, fov_deg=fov_deg, max_rec=max(max_epochs * 3, 36)
+        ra_deg, dec_deg, fov_deg=fov_deg, max_rec=max(max_epochs * 3, 48)
     )
     if not records:
         logger.warning(
@@ -794,20 +925,27 @@ def _obtain_real_fits_impl(
     }
     reused_frames: List[Dict[str, Any]] = list(existing_frames)
     seen_urls = set(cached_by_url.keys())
+    seen_base_urls = {u.split("?")[0] for u in seen_urls if u}
     for rec in records:
         url = rec.get("cutout_url", "")
         if url in cached_by_url and all(f.get("cutout_url") != url for f in reused_frames):
             reused_frames.append(cached_by_url[url])
 
-    missing_records = [rec for rec in records if rec.get("cutout_url") not in seen_urls]
+    missing_records = [
+        rec for rec in records
+        if rec.get("cutout_url") not in seen_urls
+        and rec.get("cutout_url", "").split("?")[0] not in seen_base_urls
+    ]
     needed_new = max(0, max_epochs - len(reused_frames))
-    candidates_to_download = missing_records[: needed_new + 6] if needed_new > 0 else []
+    if force_refresh and missing_records:
+        needed_new = max(needed_new, min(4, len(missing_records)))
+    candidates_to_download = missing_records[: needed_new + 4] if needed_new > 0 else []
 
-    downloaded_frames: List[Dict[str, Any]] = []
+    downloaded_frames: List[Tuple[int, Dict[str, Any]]] = []
     download_id = uuid.uuid4().hex[:12]
 
     if candidates_to_download:
-        DOWNLOAD_BUDGET_S = 45.0
+        DOWNLOAD_BUDGET_S = 30.0
         n_total = len(candidates_to_download)
         executor = ThreadPoolExecutor(max_workers=8)
         try:
@@ -829,7 +967,7 @@ def _obtain_real_fits_impl(
                         "Descarga IRSA incremental: %d/%d nuevos procesados, %d acumulados",
                         done_count, n_total, len(reused_frames) + len(downloaded_frames),
                     )
-                    if len(reused_frames) + len(downloaded_frames) >= max_epochs:
+                    if len(downloaded_frames) >= needed_new:
                         break
             except FuturesTimeout:
                 logger.warning(
@@ -842,9 +980,16 @@ def _obtain_real_fits_impl(
     downloaded_frames_ordered = [
         item for _, item in sorted(downloaded_frames, key=lambda pair: pair[0])
     ]
+    new_names = {Path(item.get("local_path", "")).name for item in downloaded_frames_ordered}
+    if len(reused_frames) >= 8:
+        anchor_count = min(8, len(reused_frames))
+        ordered_candidates = reused_frames[:anchor_count] + downloaded_frames_ordered + reused_frames[anchor_count:]
+    else:
+        ordered_candidates = reused_frames + downloaded_frames_ordered
+
     merged_frames: List[Dict[str, Any]] = []
     merged_seen: set[str] = set()
-    for item in reused_frames + downloaded_frames_ordered:
+    for item in ordered_candidates:
         key = item.get("cutout_url") or item.get("local_path") or ""
         if key and key not in merged_seen:
             merged_seen.add(key)
@@ -860,6 +1005,19 @@ def _obtain_real_fits_impl(
         )
         return fallback_frames, matched, fb_source, tap_query
 
+    if len(reused_frames) < 8:
+        merged_frames = prioritize_local_frames(
+            merged_frames, target_dir, ra_deg, dec_deg, fov_deg, prefer_names=new_names
+        )
+    resolved_frames = [
+        {**item, "local_path": str(resolve_cached_path(item.get("local_path", ""), target_dir))}
+        for item in merged_frames
+    ]
+    portable_frames = [
+        {**item, "local_path": Path(item.get("local_path", "")).name}
+        for item in merged_frames
+    ]
+
     all_records_downloaded = len(missing_records) == 0 or (
         len(downloaded_frames) >= len(missing_records) and len(records) < max_epochs * 2
     )
@@ -872,13 +1030,13 @@ def _obtain_real_fits_impl(
         # en IRSA ya están descargadas en caché.
         "complete": bool(all_records_downloaded and len(records) <= len(merged_frames)),
         "tap_query": tap_query,
-        "frames": merged_frames,
+        "frames": portable_frames,
     }
     temporary_manifest = target_dir / f"manifest_{download_id}.tmp"
     temporary_manifest.write_text(json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8")
     temporary_manifest.replace(manifest_path)
 
-    return merged_frames[:max_epochs], matched, data_source, tap_query
+    return resolved_frames[:max_epochs], matched, data_source, tap_query
 
 
 def obtain_real_fits_for_coordinates(
@@ -1130,7 +1288,11 @@ def _named_objects_cached(ra: float, dec: float, fov: float, time_bucket: int) -
     if disk_cache.is_file():
         try:
             cached = json.loads(disk_cache.read_text(encoding="utf-8"))
-            if isinstance(cached, dict) and "objects" in cached:
+            if (
+                isinstance(cached, dict)
+                and "objects" in cached
+                and abs(float(cached.get("fov", fov)) - fov) < 1e-3
+            ):
                 return cached
         except Exception:
             pass
