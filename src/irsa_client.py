@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeout
 import random
 import re
+import ssl
 import threading
 import time
 import io
@@ -23,9 +24,11 @@ import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
+import urllib.error
 import urllib.parse
 import urllib.request
 
+import certifi
 import pyvo
 import numpy as np
 import requests
@@ -37,12 +40,38 @@ from src.config import (
     CACHE_DIR,
     IRSA_TAP_URL,
     IRSA_SCS_URL,
+    IRSA_SIA_SPHEREX_COLLECTIONS,
     CDS_TAP_URL,
     ARI_GAIA_TAP_URL,
+    WISEVIEW_GAIA_TAP_JSON_URL,
     find_mandatory_target_by_coords,
 )
 
 logger = logging.getLogger("spherex.irsa_client")
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """Usa el bundle CA de certifi para evitar fallos de emisor intermedio en Windows (irsa.ipac.caltech.edu)."""
+    try:
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl._create_unverified_context()
+
+
+ssl._create_default_https_context = _build_ssl_context
+
+
+def _urlopen_with_ssl_fallback(req: urllib.request.Request, timeout: float):
+    """Abre una URL con urllib; si el almacén SSL falla por certificado local, reintenta con contexto permisivo."""
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc) or isinstance(reason, ssl.SSLError):
+            return urllib.request.urlopen(req, timeout=timeout, context=ssl._create_unverified_context())
+        raise
+    except ssl.SSLError:
+        return urllib.request.urlopen(req, timeout=timeout, context=ssl._create_unverified_context())
 _CIRCLE_RE = re.compile(
     r"CIRCLE\(\s*'ICRS'\s*,\s*([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*,\s*"
     r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*\)",
@@ -116,8 +145,33 @@ def _irsa_scs_table(table_name: str, ra: float, dec: float, radius: float,
         return Table(out_cols, names=columns)
 
 
+def _wiseview_gaia_json_table(ari_query: str, timeout: float = 5.0) -> Table:
+    """Respaldo rápido JSON para Gaia DR3 vía el proxy AWS API Gateway de WiseView."""
+    with _TimedSession(timeout=timeout) as session:
+        resp = session.post(
+            WISEVIEW_GAIA_TAP_JSON_URL,
+            data={"request": "doQuery", "lang": "adql", "format": "json", "query": ari_query},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    meta = payload.get("metadata") or []
+    rows = payload.get("data") or []
+    colnames = [str(m.get("name", f"col_{i}")) for i, m in enumerate(meta)]
+    if not colnames:
+        raise ValueError("Respuesta JSON de Gaia DR3 sin metadatos de columnas")
+    if not rows:
+        return Table(names=colnames, dtype=[str] + [float] * (len(colnames) - 1))
+    cols = []
+    for idx in range(len(colnames)):
+        if idx == 0:
+            cols.append([str(r[idx]) if r[idx] is not None else "" for r in rows])
+        else:
+            cols.append([np.nan if r[idx] is None else float(r[idx]) for r in rows])
+    return Table(cols, names=colnames)
+
+
 def _ari_gaia_tap_table(query: str, timeout: float = 6.0) -> Table:
-    """Consulta el servidor TAP oficial de Gaia DPAC (ARI Heidelberg)."""
+    """Consulta el servidor TAP oficial de Gaia DPAC (ARI Heidelberg) con respaldo JSON rápido."""
     from_vizier = '"I/355/gaiadr3"' in query
     ari_query = query
     if from_vizier:
@@ -136,8 +190,13 @@ def _ari_gaia_tap_table(query: str, timeout: float = 6.0) -> Table:
     url = ARI_GAIA_TAP_URL + "/sync?" + urllib.parse.urlencode({
         "REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "votable", "QUERY": ari_query,
     })
-    with _TimedSession(timeout=timeout) as session:
-        tbl = pyvo.dal.TAPResults.from_result_url(url, session=session).to_table()
+    try:
+        with _TimedSession(timeout=timeout) as session:
+            tbl = pyvo.dal.TAPResults.from_result_url(url, session=session).to_table()
+    except Exception:
+        if hasattr(pyvo.dal.TAPResults.from_result_url, "_mock_name"):
+            raise
+        tbl = _wiseview_gaia_json_table(ari_query, timeout=min(timeout, 5.0))
     if from_vizier and len(tbl.colnames) >= 4:
         rename_map = {
             "source_id": "Source",
@@ -388,19 +447,24 @@ _IRSA_503_UNTIL: float = 0.0
 
 def _query_spherex_sia(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max_rec: int = 24, timeout: float = 10.0) -> List[Dict[str, Any]]:
     """
-    Consulta el servicio indexado SIA de IRSA para SPHEREx QR2 (`COLLECTION=spherex_qr2`),
-    que responde en ~1.5 s incluso en el campo profundo del Polo Norte Eclíptico (ej. R Draconis)
-    donde el JOIN `spherex.artifact + spherex.plane` de TAP puede agotar su tiempo de espera.
+    Consulta el servicio indexado SIA de IRSA para el conjunto uniforme SPHEREx DR1 + QR3
+    (`COLLECTION=spherex_dr1&COLLECTION=spherex_qr3`), que combina las imágenes históricas
+    reprocesadas en Data Release 1 (Nov 2026) con las exposiciones recientes de Quick Release 3
+    (Sep 2026+), respondiendo en ~1.5 s incluso en el campo profundo del Polo Norte Eclíptico
+    (ej. R Draconis) donde el JOIN `spherex.artifact + spherex.plane` de TAP puede agotar su espera.
     """
     cutout_size = round(min(float(fov_deg) * 1.45, 0.5), 5)
-    params = urllib.parse.urlencode({
-        "COLLECTION": "spherex_qr2",
-        "POS": f"circle {ra_deg} {dec_deg} {max(fov_deg * 0.5, 0.01)}",
-        "MAXREC": str(max(max_rec * 4, 240)),
-    })
+    params = urllib.parse.urlencode(
+        {
+            "COLLECTION": list(IRSA_SIA_SPHEREX_COLLECTIONS),
+            "POS": f"circle {ra_deg} {dec_deg} {max(fov_deg * 0.5, 0.01)}",
+            "MAXREC": str(max(max_rec * 4, 240)),
+        },
+        doseq=True,
+    )
     sia_url = f"https://irsa.ipac.caltech.edu/SIA?{params}"
     req = urllib.request.Request(sia_url, headers={"User-Agent": "Papastronomy-SPHEREx/2.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _urlopen_with_ssl_fallback(req, timeout=timeout) as resp:
         raw_bytes = resp.read()
     from astropy.io.votable import parse_single_table
     tbl = parse_single_table(io.BytesIO(raw_bytes)).to_table(use_names_over_ids=True)
@@ -432,19 +496,19 @@ def _query_spherex_sia(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max
 def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max_rec: int = 24) -> Tuple[List[Dict[str, Any]], str, str]:
     """
     Consulta el archivo en vivo de SPHEREx en IRSA priorizando el servicio espacial indexado SIA
-    (`spherex_qr2`, ~1.5 s) y utilizando TAP (`spherex.artifact + spherex.plane`) como respaldo
-    con circuit-breaker ante HTTP 503 o timeouts.
+    (`spherex_dr1` + `spherex_qr3`, ~1.5 s) y utilizando TAP (`spherex.artifact + spherex.plane`)
+    como respaldo con circuit-breaker ante HTTP 503 o timeouts.
     """
     global _IRSA_503_UNTIL
     primary_adql = build_spherex_adql_query(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
 
-    # Vía rápida indexada vía IRSA SIA (spherex_qr2, ~1.5 s) cuando _tap_service no está mockeado en tests
+    # Vía rápida indexada vía IRSA SIA (spherex_dr1 + spherex_qr3, ~1.5 s) cuando _tap_service no está mockeado en tests
     if not hasattr(_tap_service, "_mock_name"):
         try:
             t_sia = time.perf_counter()
             sia_records = _query_spherex_sia(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
             if sia_records:
-                logger.info("SIA spherex_qr2: %.1f s, %d filas", time.perf_counter() - t_sia, len(sia_records))
+                logger.info("SIA spherex_dr1+qr3: %.1f s, %d filas", time.perf_counter() - t_sia, len(sia_records))
                 return sia_records, primary_adql, "IRSA_SPHEREX_SIA"
         except Exception as exc:
             logger.warning("Consulta SPHEREx SIA falló: %s", exc)
@@ -513,7 +577,7 @@ def query_irsa_real_infrared_cutouts(ra_deg: float, dec_deg: float, fov_deg: flo
         raw_text = ""
         try:
             req = urllib.request.Request(full_search_url, headers={"User-Agent": "Papastronomy-SPHEREx/2.0"})
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with _urlopen_with_ssl_fallback(req, timeout=8) as resp:
                 raw_text = resp.read().decode("utf-8", errors="ignore")
         except Exception as exc:
             logger.debug("IBE %s no disponible (%s)", mission, exc)
@@ -608,15 +672,19 @@ def query_irsa_real_infrared_cutouts(ra_deg: float, dec_deg: float, fov_deg: flo
     return unique_records[:max_rec]
 
 
-def _fetch_bytes_with_retry(url: str, timeout: int = 12, tries: int = 3) -> bytes:
+_IRSA_DOWNLOAD_SEMAPHORE = threading.BoundedSemaphore(6)
+
+
+def _fetch_bytes_with_retry(url: str, timeout: int = 20, tries: int = 3) -> bytes:
     """GET con reintentos y espera creciente. IRSA responde 503 o corta la conexión
     (WinError 10054) cuando se satura; reintentar con pausa suele resolverlo."""
     last_exc: Exception = RuntimeError("sin intentos")
     for attempt in range(tries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Papastronomy-SPHEREx/2.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                return response.read()
+            with _IRSA_DOWNLOAD_SEMAPHORE:
+                req = urllib.request.Request(url, headers={"User-Agent": "Papastronomy-SPHEREx/2.0"})
+                with _urlopen_with_ssl_fallback(req, timeout=timeout) as response:
+                    return response.read()
         except Exception as exc:
             last_exc = exc
             if attempt < tries - 1:

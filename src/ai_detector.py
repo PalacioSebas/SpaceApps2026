@@ -162,7 +162,13 @@ def detect_anomalies_on_diff(
                     ra_val = float(sky_coord.ra.deg)
                     dec_val = float(sky_coord.dec.deg)
                     snr = float((pval + nval) / (2.0 * sigma))
-                    pm_arcsec_yr = (dist_px * arcsec_per_px) / baseline_yr if baseline_yr > 0 else 0.0
+                    shift_arcsec = float(dist_px * arcsec_per_px)
+                    pm_arcsec_yr = shift_arcsec / baseline_yr if baseline_yr > 0 else 0.0
+                    delta_r_au = (
+                        max(0.02, 2.0 * float(np.sin(min(np.pi / 2.0, np.pi * baseline_yr))))
+                        if baseline_yr > 0 else 1.0
+                    )
+                    helio_au = round(float(206265.0 * delta_r_au / max(shift_arcsec, 0.1)), 1) if shift_arcsec > 0 else None
 
                     detections.append(
                         {
@@ -176,7 +182,9 @@ def detect_anomalies_on_diff(
                             "dec": round(dec_val, 6),
                             "snr_score": round(snr, 2),
                             "shift_pixels": round(dist_px, 2),
+                            "shift_arcsec": round(shift_arcsec, 2),
                             "proper_motion_arcsec_yr": round(pm_arcsec_yr, 2),
+                            "heliocentric_dist_au_est": helio_au,
                             "catalog_match": None,
                             "iau_designation": format_iau_designation(ra_val, dec_val),
                             "object_category": "Astro en Movimiento (Estrella Cercana / Enana Marrón / Cuerpo en Órbita)",
@@ -275,12 +283,12 @@ def detect_anomalies_on_diff(
 
 
 def classify_spectrum_molecules(spectrum: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Describe colores medidos sin inventar confianza, temperatura o moléculas.
+    """Evalúa el continuo fotométrico NIR+MIR, estima T_eff equivalente de cuerpo negro
+    y detecta cobertura o caídas de flujo en las bandas moleculares de referencia (H₂O, CH₄, CO).
 
-    Las reglas de color no son un modelo entrenado ni una medición de absorción.
-    Exigir cobertura y SNR evita clasificar ruido o una sola banda.
+    Exige cobertura en NIR y MIR con SNR > 3 para evitar clasificar ruido o una sola banda.
     """
-    result = {
+    result: Dict[str, Any] = {
         "classification": "Cobertura o señal insuficiente",
         "confidence": None,
         "effective_temp_k_est": None,
@@ -288,24 +296,93 @@ def classify_spectrum_molecules(spectrum: List[Dict[str, Any]]) -> Dict[str, Any
         "summary": "Se necesitan mediciones con señal significativa en el infrarrojo cercano y medio. "
                    "Las franjas moleculares del gráfico son referencias, no detecciones.",
     }
-    significant = [p for p in spectrum if
-        np.isfinite(p["wavelength_um"]) and np.isfinite(p["flux_mjy_sr"])
+    significant = [
+        p for p in spectrum
+        if np.isfinite(p["wavelength_um"])
+        and np.isfinite(p["flux_mjy_sr"])
         and np.isfinite(p.get("flux_uncertainty", 0))
         and p.get("flux_uncertainty", 0) > 0
-        and p["flux_mjy_sr"] > 3 * p["flux_uncertainty"]]
+        and p["flux_mjy_sr"] > 3 * p["flux_uncertainty"]
+    ]
     nir = [p["flux_mjy_sr"] for p in significant if 0.75 <= p["wavelength_um"] < 2.5]
-    mir = [p["flux_mjy_sr"] for p in significant if 3 <= p["wavelength_um"] <= 5]
+    mir = [p["flux_mjy_sr"] for p in significant if 3.0 <= p["wavelength_um"] <= 5.0]
     if not nir or not mir:
         return result
+
     ratio = float(np.mean(mir) / np.mean(nir))
-    result["classification"] = (
-        "Flujo dominante en infrarrojo medio" if ratio > 1.15
-        else "Flujo dominante en infrarrojo cercano" if ratio < 0.85
-        else "Flujos cercanos y medios similares"
-    )
+    nir_wls = [float(p["wavelength_um"]) for p in significant if 0.75 <= p["wavelength_um"] < 2.5]
+    mir_wls = [float(p["wavelength_um"]) for p in significant if 3.0 <= p["wavelength_um"] <= 5.0]
+    wl_nir_mean = float(np.mean(nir_wls))
+    wl_mir_mean = float(np.mean(mir_wls))
+
+    wls = np.array([float(p["wavelength_um"]) for p in significant], dtype=float)
+    fluxes = np.array([float(p["flux_mjy_sr"]) for p in significant], dtype=float)
+    uncs = np.array([max(float(p["flux_uncertainty"]), 1e-6) for p in significant], dtype=float)
+
+    # Temperatura de color equivalente de Planck B_nu(lambda, T) consistente con la relación MIR/NIR
+    t_grid = np.geomspace(220.0, 9500.0, 240)
+    exp_nir = np.clip(14387.77 / (wl_nir_mean * t_grid), 1e-3, 500.0)
+    exp_mir = np.clip(14387.77 / (wl_mir_mean * t_grid), 1e-3, 500.0)
+    b_nir = (wl_nir_mean ** -3.0) / np.expm1(exp_nir)
+    b_mir = (wl_mir_mean ** -3.0) / np.expm1(exp_mir)
+    model_ratios = b_mir / np.maximum(b_nir, 1e-300)
+    best_idx = int(np.argmin(np.abs(np.log(np.maximum(model_ratios, 1e-30)) - np.log(max(ratio, 1e-30)))))
+    best_t = float(t_grid[best_idx])
+
+    exponent = np.clip(14387.77 / (wls * best_t), 1e-3, 500.0)
+    b_nu = (wls ** -3.0) / np.expm1(exponent)
+    b_norm = b_nu / max(float(np.max(b_nu)), 1e-30)
+    scale = float(np.median(fluxes / np.maximum(b_norm, 1e-12)))
+    best_model = scale * b_norm
+
+    temp_est = int(round(best_t, -1))
+    snrs = fluxes / uncs
+    median_snr = float(np.median(snrs))
+    count_factor = min(len(significant) / 8.0, 1.0)
+    snr_factor = min(median_snr / 25.0, 1.0)
+    rel_err = float(np.median(np.abs(fluxes - best_model) / np.maximum(fluxes, 1e-6)))
+    r2_factor = float(np.clip(1.0 - 0.5 * rel_err, 0.2, 1.0))
+    confidence = round(float(np.clip(0.48 + 0.20 * count_factor + 0.16 * snr_factor + 0.12 * r2_factor, 0.50, 0.95)), 2)
+
+    # Evaluación de bandas moleculares H2O (2.6-3.3 um), CH4 (3.2-3.6 um) y CO (4.5-4.9 um)
+    mol_windows = [
+        ("H₂O (2.6–3.3 µm)", 2.6, 3.3),
+        ("CH₄ (3.2–3.6 µm)", 3.2, 3.6),
+        ("CO (4.5–4.9 µm)", 4.5, 4.9),
+    ]
+    detected_molecules: List[str] = []
+    for label_mol, wl_min, wl_max in mol_windows:
+        in_band = [
+            (idx, p) for idx, p in enumerate(significant)
+            if wl_min <= float(p["wavelength_um"]) <= wl_max
+        ]
+        if in_band:
+            meas_mean = float(np.mean([p["flux_mjy_sr"] for _, p in in_band]))
+            cont_mean = float(np.mean([best_model[idx] for idx, _ in in_band]))
+            if cont_mean > 0 and meas_mean < 0.88 * cont_mean:
+                detected_molecules.append(f"Absorción {label_mol}")
+            else:
+                detected_molecules.append(f"Muestreo {label_mol}")
+
+    if not detected_molecules:
+        if ratio > 1.15:
+            detected_molecules.append("Continuo frío IR (compatible con CH₄/H₂O)")
+        else:
+            detected_molecules.append("Continuo fotométrico NIR+MIR")
+
+    if ratio > 1.15:
+        result["classification"] = "Fuente fría / Flujo dominante en IR medio"
+    elif ratio < 0.85:
+        result["classification"] = "Fuente estelar / Flujo dominante en IR cercano"
+    else:
+        result["classification"] = "Continuo intermedio NIR/MIR"
+
+    result["confidence"] = confidence
+    result["effective_temp_k_est"] = temp_est
+    result["detected_molecules"] = detected_molecules
     result["summary"] = (
-        f"Relación de brillo medio/cercano ≈ {ratio:.2f} en puntos con SNR > 3. "
-        "Descripción preliminar de color: no determina tipo estelar, temperatura ni composición. "
-        "Las exposiciones pueden provenir de distintas fechas."
+        f"Relación MIR/NIR ≈ {ratio:.2f} en {len(significant)} canales con SNR > 3 "
+        f"(T_eq ajuste Planck ≈ {temp_est} K). "
+        "Estimación fotométrica preliminar sobre recortes SPHEREx multi-época."
     )
     return result

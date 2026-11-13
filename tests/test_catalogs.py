@@ -19,7 +19,10 @@ class CatalogTests(unittest.TestCase):
         with patch.object(irsa_client, "_tap_get_table", return_value=rows):
             result = irsa_client.query_catalog_field("gaia", 10, 20, 0.05)
         self.assertEqual(result["service"], "IRSA TAP")
-        self.assertEqual(result["sources"][0], {"id": "1234567890123456789", "ra": 10, "dec": 20, "mag": 13.2})
+        self.assertEqual(
+            result["sources"][0],
+            {"id": "1234567890123456789", "ra": 10, "dec": 20, "mag": 13.2, "pmra": None, "pmdec": None},
+        )
 
     def test_irsa_failure_uses_cds_without_inventing_sources(self):
         rows = Table({"AllWISE": ["J0000"], "RAJ2000": [10.0], "DEJ2000": [20.0], "W1mag": [12.5]})

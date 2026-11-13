@@ -2,7 +2,7 @@
 Esquemas Pydantic v2 para la Versión 2.0 (Datos Reales de IRSA + Cruce de Catálogos en Vivo).
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -71,7 +71,9 @@ class AIDetection(BaseModel):
     dec: float
     snr_score: float
     shift_pixels: float
+    shift_arcsec: Optional[float] = None
     proper_motion_arcsec_yr: float
+    heliocentric_dist_au_est: Optional[float] = None
     catalog_match: Optional[str] = Field(None, description="ID en Gaia DR3 o AllWISE si existe en catálogo")
     description: str
     positive_support_pixels: Optional[int] = None
@@ -82,11 +84,21 @@ class AIDetection(BaseModel):
     user_explanation: Optional[str] = Field(None, description="Explicación en lenguaje claro de qué detectó la IA")
 
 
+class DetectorCoadd(BaseModel):
+    detector: str
+    frame_count: int
+    wavelength_min_um: float
+    wavelength_max_um: float
+    clean_pixels_pct: float
+    image_base64: str
+
+
 class ExploreResponse(BaseModel):
     target_info: TargetInfo
     epochs: List[EpochFrame]
     coadd_image_base64: str
     diff_image_base64: str
+    detector_coadds: Dict[str, DetectorCoadd] = Field(default_factory=dict)
     ai_detections: List[AIDetection]
 
 

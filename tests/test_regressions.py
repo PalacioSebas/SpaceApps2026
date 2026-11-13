@@ -114,6 +114,23 @@ class ScienceTests(unittest.TestCase):
         self.assertIsNone(result["effective_temp_k_est"])
         self.assertEqual(result["detected_molecules"], [])
 
+    def test_high_snr_spectrum_estimates_temperature_confidence_and_molecules(self):
+        points = [
+            dict(wavelength_um=1.10, flux_mjy_sr=40.0, flux_uncertainty=1.0),
+            dict(wavelength_um=1.60, flux_mjy_sr=55.0, flux_uncertainty=1.0),
+            dict(wavelength_um=2.85, flux_mjy_sr=22.0, flux_uncertainty=1.0),  # absorción H2O
+            dict(wavelength_um=3.35, flux_mjy_sr=20.0, flux_uncertainty=1.0),  # absorción CH4
+            dict(wavelength_um=4.10, flux_mjy_sr=85.0, flux_uncertainty=1.5),
+            dict(wavelength_um=4.65, flux_mjy_sr=35.0, flux_uncertainty=1.2),  # absorción CO
+        ]
+        result = classify_spectrum_molecules(points)
+        self.assertIsNotNone(result["confidence"])
+        self.assertGreaterEqual(result["confidence"], 0.5)
+        self.assertIsNotNone(result["effective_temp_k_est"])
+        self.assertGreater(result["effective_temp_k_est"], 200)
+        self.assertGreater(len(result["detected_molecules"]), 0)
+        self.assertTrue(any("H₂O" in m or "CH₄" in m or "CO" in m for m in result["detected_molecules"]))
+
     def test_wavelength_is_evaluated_at_selected_native_pixel(self):
         wcs, _ = pipeline.build_common_target_wcs(10, 20, 0.05)
         coord = wcs.pixel_to_world(50, 55)
@@ -199,6 +216,13 @@ class ApiTests(unittest.TestCase):
                     data = response.json()
                     self.assertEqual(len(data["epochs"]), 10)
                     self.assertTrue(all(ep["bandwidth_um"] > 0 for ep in data["epochs"]))
+                    self.assertGreater(len(data["detector_coadds"]), 0)
+                    for det in data["ai_detections"]:
+                        if det["type"] == "MOVING_DIPOLE":
+                            self.assertIsNotNone(det["shift_arcsec"])
+                            self.assertGreater(det["shift_arcsec"], 0)
+                            self.assertIsNotNone(det["heliocentric_dist_au_est"])
+                            self.assertGreater(det["heliocentric_dist_au_est"], 0)
                     spectrum = self.client.get("/api/spectrum", params=params)
                     self.assertEqual(spectrum.status_code, 200, spectrum.text[:200])
                     result = spectrum.json()
@@ -207,6 +231,100 @@ class ApiTests(unittest.TestCase):
                         self.assertIsNone(result["ai_diagnosis"]["confidence"])
                     else:
                         self.assertGreater(len(result["spectrum"]), 0)
+
+    def test_frontend_cache_bust_replaces_any_app_js_version(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("/static/app.js?v=2.5", response.text)
+        self.assertRegex(response.text, r'/static/app\.js\?v=\d+')
+        for element_id in (
+            "mode-rgb",
+            "select-epoch-a",
+            "select-epoch-b",
+            "btn-manual-diff",
+            "btn-manual-sum",
+            "btn-plot-lightcurve",
+            "btn-export-csv",
+            "btn-export-png",
+            "select-context-survey",
+            "chk-invert",
+            "slider-stretch",
+            "slider-contrast",
+            "input-shift-pmra",
+            "input-shift-pmdec",
+            "btn-shift-stack",
+            "btn-autotrack-dipole",
+            "btn-open-wiseview",
+        ):
+            self.assertIn(element_id, response.text)
+
+    def test_sia_queries_both_dr1_and_qr3_collections(self):
+        from src.config import IRSA_SIA_SPHEREX_COLLECTIONS
+        self.assertEqual(IRSA_SIA_SPHEREX_COLLECTIONS, ("spherex_dr1", "spherex_qr3"))
+        captured_urls = []
+
+        def fake_urlopen(req, timeout=10.0):
+            captured_urls.append(req.full_url)
+            raise RuntimeError("stop before network")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            with self.assertRaises(RuntimeError):
+                irsa_client._query_spherex_sia(269.452, 4.693, 0.05)
+
+        self.assertEqual(len(captured_urls), 1)
+        self.assertIn("COLLECTION=spherex_dr1", captured_urls[0])
+        self.assertIn("COLLECTION=spherex_qr3", captured_urls[0])
+
+    def test_urlopen_with_ssl_fallback_retries_on_certificate_error(self):
+        import ssl
+        import urllib.error
+        import urllib.request
+
+        calls = []
+
+        def fake_urlopen(req, timeout=10.0, context=None):
+            calls.append(context)
+            if len(calls) == 1:
+                raise urllib.error.URLError(ssl.SSLError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"))
+            return "ok"
+
+        req = urllib.request.Request("https://irsa.ipac.caltech.edu/SIA")
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = irsa_client._urlopen_with_ssl_fallback(req, timeout=5.0)
+        self.assertEqual(res, "ok")
+        self.assertEqual(len(calls), 2)
+        self.assertIsNotNone(calls[1])
+
+    def test_wiseview_gaia_json_table_parses_payload(self):
+        from unittest.mock import MagicMock
+
+        fake_payload = {
+            "metadata": [
+                {"name": "source_id"},
+                {"name": "ra"},
+                {"name": "dec"},
+                {"name": "phot_g_mean_mag"},
+                {"name": "pmra"},
+                {"name": "pmdec"},
+            ],
+            "data": [
+                [30987654321, 133.795129, -7.245147, 14.25, -8118.0, -680.0],
+            ],
+        }
+        fake_resp = MagicMock()
+        fake_resp.raise_for_status.return_value = None
+        fake_resp.json.return_value = fake_payload
+        fake_session = MagicMock()
+        fake_session.__enter__.return_value = fake_session
+        fake_session.__exit__.return_value = False
+        fake_session.post.return_value = fake_resp
+
+        with patch("src.irsa_client._TimedSession", return_value=fake_session):
+            tbl = irsa_client._wiseview_gaia_json_table("SELECT source_id, ra, dec FROM gaiadr3.gaia_source")
+
+        self.assertEqual(len(tbl), 1)
+        self.assertEqual(str(tbl["source_id"][0]), "30987654321")
+        self.assertAlmostEqual(float(tbl["pmra"][0]), -8118.0)
 
 
 if __name__ == "__main__":

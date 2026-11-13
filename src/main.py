@@ -3,11 +3,14 @@ Servidor FastAPI v2.0 conectado 100% a NASA/IPAC IRSA TAP/IBE y CDS Gaia/AllWISE
 """
 
 import logging
+import re
 import time
 import threading
+import warnings
 from pathlib import Path
 from typing import Dict, Any, List
 
+import numpy as np
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
@@ -23,6 +26,7 @@ from src.schemas import (
     ExploreResponse,
     TargetInfo,
     EpochFrame,
+    DetectorCoadd,
     AIDetection,
     SpectrumResponse,
     SpectrumPoint,
@@ -186,6 +190,36 @@ def explore_sky_region(
         coadd_b64 = matrix_to_base64_png(coadd_img, mode="science")
         diff_b64 = matrix_to_base64_png(diff_img, mode="diff")
 
+        # Coadds separados por detector (D1..D6) para mejorar la relación señal-ruido (SNR) por arreglo
+        det_groups: Dict[str, List[int]] = {}
+        for idx, ep_meta in enumerate(cleaned_epochs):
+            raw_det = str(ep_meta.get("detector") or "D1").strip()
+            match_det = re.search(r"(D[1-6])", raw_det, re.IGNORECASE)
+            det_code = match_det.group(1).upper() if match_det else (raw_det.split("-")[-1] if "-" in raw_det else raw_det)
+            det_groups.setdefault(det_code, []).append(idx)
+
+        detector_coadds: Dict[str, DetectorCoadd] = {}
+        for det_code in sorted(det_groups.keys()):
+            idxs = det_groups[det_code]
+            det_stack = np.array([aligned_imgs[i] for i in idxs], dtype=float)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                det_coadd_img = np.nanmedian(det_stack, axis=0) if len(idxs) > 1 else det_stack[0]
+            wls = [
+                float(cleaned_epochs[i].get("wavelength_center_um", 0.0))
+                for i in idxs
+                if float(cleaned_epochs[i].get("wavelength_center_um", 0.0)) > 0
+            ]
+            clean_pct = round(float(np.isfinite(det_coadd_img).mean() * 100.0), 2)
+            detector_coadds[det_code] = DetectorCoadd(
+                detector=det_code,
+                frame_count=len(idxs),
+                wavelength_min_um=round(min(wls), 4) if wls else 0.0,
+                wavelength_max_um=round(max(wls), 4) if wls else 0.0,
+                clean_pixels_pct=clean_pct,
+                image_base64=matrix_to_base64_png(det_coadd_img, mode="science"),
+            )
+
         t_png = time.perf_counter()
         raw_detections = detect_anomalies_on_diff(
             diff_img, target_wcs, fov_deg=fov, epochs_meta=analysis_epochs, threshold_sigma=4.0,
@@ -235,6 +269,7 @@ def explore_sky_region(
             epochs=epoch_frames,
             coadd_image_base64=coadd_b64,
             diff_image_base64=diff_b64,
+            detector_coadds=detector_coadds,
             ai_detections=ai_detections,
         )
 
@@ -373,7 +408,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 def serve_frontend() -> HTMLResponse:
     html_content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     bust = (STATIC_DIR / "app.js").stat().st_mtime_ns
-    html_content = html_content.replace("/static/app.js?v=2.4", f"/static/app.js?v={bust}")
+    html_content = re.sub(r'/static/app\.js\?v=[^"]+', f"/static/app.js?v={bust}", html_content)
     return HTMLResponse(
         content=html_content,
         headers={

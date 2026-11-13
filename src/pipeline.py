@@ -100,6 +100,7 @@ def _infer_wavelength(hdul: fits.HDUList, img_hdu, header, x: float, y: float) -
         for k in [k for k in spec_header if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", k)]:
             del spec_header[k]
         spectral_wcs = WCS(spec_header, hdul, key="W", fix=False)
+        spectral_wcs.sip = None
         wl, bw = spectral_wcs.pixel_to_world(x, y)
         wl_value = float(getattr(wl, "value", wl))
         bw_value = float(getattr(bw, "value", bw))
@@ -129,7 +130,9 @@ def _spectral_wcs(hdul: fits.HDUList, header) -> Optional[WCS]:
         header = header.copy()
         for key in [k for k in header if re.fullmatch(r"(A|B|AP|BP)_(ORDER|\d+_\d+)", k)]:
             del header[key]
-        return WCS(header, hdul, key="W", fix=False)
+        swcs = WCS(header, hdul, key="W", fix=False)
+        swcs.sip = None
+        return swcs
     except (ValueError, KeyError):
         return None
 
@@ -190,6 +193,7 @@ def _read_frame(path: Path) -> Dict[str, Any]:
             if obs_time:
                 break
         detector = str(img_hdu.header.get("DETECTOR", hdul[0].header.get("DETECTOR", "")) or "")
+        version = str(hdul[0].header.get("VERSION", img_hdu.header.get("VERSION", "")) or "")
 
     good = ~bad
     if good.any():
@@ -208,6 +212,7 @@ def _read_frame(path: Path) -> Dict[str, Any]:
         "wcs": wcs,
         "obs_time": obs_time,
         "detector": detector,
+        "version": version,
         "wavelength_center_um": wl,
         "bandwidth_um": bw,
         "spectral_wcs": spectral_wcs,
@@ -269,6 +274,7 @@ def load_and_clean_real_fits(fits_files: List[Path], ra: float | None = None,
         "wcs": frame["wcs"],
         "obs_time": frame["obs_time"],
         "detector": frame["detector"],
+        "version": frame.get("version", ""),
         "wavelength_center_um": wavelength,
         "bandwidth_um": bandwidth,
         "flux_unit": frame["flux_unit"],

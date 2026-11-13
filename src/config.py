@@ -3,7 +3,7 @@ Configuración centralizada de la Versión 2.0 (100% APIs Reales NASA/IPAC IRSA 
 """
 
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 DATA_DIR: Path = BASE_DIR / "data"
@@ -17,9 +17,11 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 IRSA_TAP_URL: str = "https://irsa.ipac.caltech.edu/TAP"
 IRSA_SCS_URL: str = "https://irsa.ipac.caltech.edu/SCS"
 IRSA_BASE_URL: str = "https://irsa.ipac.caltech.edu/"
-IRSA_SIA_SPHEREX_URL: str = "https://irsa.ipac.caltech.edu/SIA?COLLECTION=spherex_qr2&"
+IRSA_SIA_SPHEREX_COLLECTIONS: Tuple[str, ...] = ("spherex_dr1", "spherex_qr3")
+IRSA_SIA_SPHEREX_URL: str = "https://irsa.ipac.caltech.edu/SIA?COLLECTION=spherex_dr1&COLLECTION=spherex_qr3&"
 CDS_TAP_URL: str = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap"
 ARI_GAIA_TAP_URL: str = "https://gaia.ari.uni-heidelberg.de/tap"
+WISEVIEW_GAIA_TAP_JSON_URL: str = "https://n7z4i9pzx8.execute-api.us-west-2.amazonaws.com/prod/catalog/gaiadr2"
 
 DEFAULT_FOV_DEG: float = 0.05
 DEFAULT_CUTOUT_PIXELS: int = 128
