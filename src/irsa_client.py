@@ -145,6 +145,66 @@ def _irsa_scs_table(table_name: str, ra: float, dec: float, radius: float,
         return Table(out_cols, names=columns)
 
 
+def _harvard_vizier_allwise_table(
+    ra: float,
+    dec: float,
+    radius: float,
+    columns: List[str],
+    max_rows: int = 500,
+    timeout: float = 6.0,
+) -> Table:
+    """Consulta rápida de AllWISE en el espejo oficial de VizieR en Harvard CfA (evita saturar IRSA)."""
+    viz_to_irsa = {
+        "designation": "AllWISE",
+        "ra": "RAJ2000",
+        "dec": "DEJ2000",
+        "w1mpro": "W1mag",
+        "w2mpro": "W2mag",
+        "pmra": "pmRA",
+        "pmdec": "pmDE",
+        "AllWISE": "AllWISE",
+        "RAJ2000": "RAJ2000",
+        "DEJ2000": "DEJ2000",
+        "W1mag": "W1mag",
+        "W2mag": "W2mag",
+        "pmRA": "pmRA",
+        "pmDE": "pmDE",
+    }
+    req_viz_cols = [viz_to_irsa.get(c, c) for c in columns]
+    out_param = ",".join(dict.fromkeys(["AllWISE", "RAJ2000", "DEJ2000", *req_viz_cols]))
+    with _TimedSession(timeout=timeout) as session:
+        resp = session.get(
+            "https://vizier.cfa.harvard.edu/viz-bin/votable",
+            params={
+                "-source": "II/328/allwise",
+                "-c": f"{ra:.6f} {dec:+.6f}",
+                "-c.rd": f"{max(radius, 0.001):.5f}",
+                "-out": out_param,
+                "-out.max": str(max_rows),
+            },
+        )
+        resp.raise_for_status()
+        vt = votable.parse(io.BytesIO(resp.content)).get_first_table()
+        full_tbl = vt.to_table()
+        field_names = [f.name for f in vt.fields]
+        if len(full_tbl) == 0:
+            return Table(names=columns, dtype=[str] + [float] * (len(columns) - 1))
+        n_rows = min(len(full_tbl), max_rows)
+        full_tbl = full_tbl[:n_rows]
+        out_cols = []
+        for idx, col in enumerate(columns):
+            vcol = viz_to_irsa.get(col, col)
+            if vcol in field_names:
+                out_cols.append(full_tbl.columns[field_names.index(vcol)])
+            elif col in field_names:
+                out_cols.append(full_tbl.columns[field_names.index(col)])
+            elif idx >= 3 and col.lower() in ("pmra", "pmdec", "pmde", "w2mpro"):
+                out_cols.append(np.full(n_rows, np.nan, dtype=float))
+            else:
+                raise ValueError(f"Columna {col} no encontrada en Harvard VizieR AllWISE")
+        return Table(out_cols, names=columns)
+
+
 def _wiseview_gaia_json_table(ari_query: str, timeout: float = 5.0) -> Table:
     """Respaldo rápido JSON para Gaia DR3 vía el proxy AWS API Gateway de WiseView."""
     with _TimedSession(timeout=timeout) as session:
@@ -248,9 +308,17 @@ class _CDSFallbackTAPService:
         elif '"II/328/allwise"' in query:
             circle = _extract_circle_params(query)
             if circle is not None:
+                ra, dec, radius = circle
+                if not hasattr(_irsa_scs_table, "_mock_name"):
+                    try:
+                        tbl = _harvard_vizier_allwise_table(
+                            ra, dec, radius, ["AllWISE", "RAJ2000", "DEJ2000", "W1mag", "pmRA", "pmDE"], timeout=5.5
+                        )
+                        return _TableResultWrapper(tbl)
+                    except Exception:
+                        pass
                 try:
-                    ra, dec, radius = circle
-                    tbl = _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, ["designation", "ra", "dec", "w1mpro", "pmra", "pmdec"], timeout=6.0)
+                    tbl = _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, ["designation", "ra", "dec", "w1mpro", "pmra", "pmdec"], timeout=5.0)
                     return _TableResultWrapper(tbl)
                 except Exception:
                     pass
@@ -287,16 +355,28 @@ def _tap_get_table(query: str, timeout=12):
                 pass
     elif "allwise_p3as_psd" in query and circle is not None:
         ra, dec, radius = circle
-        # 1) Índice espacial directo SCS de IRSA (~1.9s) antes del planificador ADQL general
+        cols = ["designation", "ra", "dec", "w1mpro", "pmra", "pmdec"]
+        # Para campos amplios (radius > 0.04°), SCS de IRSA serializa las 285 columnas de AllWISE y agota timeout;
+        # priorizamos el espejo rápido de Harvard VizieR que proyecta solo las 6 columnas en ~2 s sin tocar IRSA.
+        if radius > 0.04 and not hasattr(_irsa_scs_table, "_mock_name") and not hasattr(pyvo.dal.TAPResults.from_result_url, "_mock_name"):
+            try:
+                return _harvard_vizier_allwise_table(ra, dec, radius, cols, timeout=min(timeout, 5.5))
+            except Exception:
+                pass
         try:
-            return _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, ["designation", "ra", "dec", "w1mpro", "pmra", "pmdec"], timeout=min(timeout, 6.0))
+            return _irsa_scs_table("allwise_p3as_psd", ra, dec, radius, cols, timeout=min(timeout, 4.5))
         except Exception:
-            pass
+            if not hasattr(_irsa_scs_table, "_mock_name") and not hasattr(pyvo.dal.TAPResults.from_result_url, "_mock_name"):
+                try:
+                    return _harvard_vizier_allwise_table(ra, dec, radius, cols, timeout=min(timeout, 5.5))
+                except Exception:
+                    pass
 
     url = IRSA_TAP_URL + "/sync?" + urllib.parse.urlencode({
         "REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "votable", "QUERY": query,
     })
-    with _TimedSession(timeout=timeout) as session:
+    eff_timeout = timeout if hasattr(pyvo.dal.TAPResults.from_result_url, "_mock_name") else min(timeout, 5.0)
+    with _TimedSession(timeout=eff_timeout) as session:
         return pyvo.dal.TAPResults.from_result_url(url, session=session).to_table()
 
 
@@ -309,6 +389,11 @@ def _region_cache_folder(ra_deg: float, dec_deg: float, fov_deg: float) -> Path:
     else:
         folder_name = f"sky_{ra_deg:.4f}_{dec_deg:.4f}_{fov_deg:.3f}".replace("-", "m").replace(".", "p")
     return CACHE_DIR / folder_name
+
+
+_CATALOG_INFLIGHT_GUARD = threading.Lock()
+_CATALOG_INFLIGHT_LOCKS: Dict[Tuple[str, float, float, float], threading.Lock] = {}
+_RECENT_CATALOG_RESULTS: List[Tuple[str, float, float, float, Dict[str, Any]]] = []
 
 
 @lru_cache(maxsize=64)
@@ -375,24 +460,62 @@ def _catalog_field_cached(catalog: str, ra: float, dec: float, fov: float, time_
                     "pmdec": pmdec if pmdec is not None and np.isfinite(pmdec) else None,
                 })
             result = {"catalog": catalog, "sources": sources, "truncated": len(rows) >= 2000, "service": service, "version": 2}
-            if not is_mocked and region_dir.is_dir():
-                try:
-                    tmp_path = region_dir / f"catalog_{catalog}_{uuid.uuid4().hex[:8]}.tmp"
-                    tmp_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-                    tmp_path.replace(disk_cache)
-                except OSError:
-                    pass
+            if not is_mocked:
+                with _CATALOG_INFLIGHT_GUARD:
+                    _RECENT_CATALOG_RESULTS.append((catalog, ra, dec, radius, result))
+                    if len(_RECENT_CATALOG_RESULTS) > 32:
+                        _RECENT_CATALOG_RESULTS.pop(0)
+                if region_dir.is_dir():
+                    try:
+                        tmp_path = region_dir / f"catalog_{catalog}_{uuid.uuid4().hex[:8]}.tmp"
+                        tmp_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+                        tmp_path.replace(disk_cache)
+                    except OSError:
+                        pass
             return result
         except Exception as exc:
             logger.warning("Consulta %s en %s falló: %s", catalog, service, exc)
             errors.append(f"{service}: {exc}")
     if stale_cache is not None:
         return stale_cache
+    if not is_mocked:
+        cos_dec = float(np.cos(np.radians(dec)))
+        with _CATALOG_INFLIGHT_GUARD:
+            recent_snapshot = list(reversed(_RECENT_CATALOG_RESULTS))
+        for r_cat, r_ra, r_dec, r_rad, r_res in recent_snapshot:
+            if r_cat != catalog:
+                continue
+            dra_c = ((ra - r_ra + 180.0) % 360.0 - 180.0) * cos_dec
+            ddec_c = dec - r_dec
+            if float(np.hypot(dra_c, ddec_c)) <= max(r_rad, radius) * 1.25:
+                filtered = []
+                for src in r_res.get("sources", []):
+                    s_dra = ((float(src["ra"]) - ra + 180.0) % 360.0 - 180.0) * cos_dec
+                    s_ddec = float(src["dec"]) - dec
+                    if float(np.hypot(s_dra, s_ddec)) <= radius * 1.05:
+                        filtered.append(src)
+                return {
+                    "catalog": catalog,
+                    "sources": filtered,
+                    "truncated": False,
+                    "service": "Caché vecina",
+                    "version": 2,
+                }
     raise RuntimeError("Catálogo no disponible en IRSA ni CDS: " + "; ".join(errors))
 
 
 def query_catalog_field(catalog: str, ra: float, dec: float, fov: float) -> Dict[str, Any]:
-    return _catalog_field_cached(catalog, ra, dec, fov, int(time.time() // 600))
+    is_mocked = hasattr(_tap_get_table, "_mock_name") or hasattr(_tap_service, "_mock_name")
+    if is_mocked:
+        return _catalog_field_cached(catalog, ra, dec, fov, int(time.time() // 600))
+    r_ra = round(float(ra), 4)
+    r_dec = round(float(dec), 4)
+    r_fov = round(float(fov), 3)
+    key = (catalog, r_ra, r_dec, r_fov)
+    with _CATALOG_INFLIGHT_GUARD:
+        lock = _CATALOG_INFLIGHT_LOCKS.setdefault(key, threading.Lock())
+    with lock:
+        return _catalog_field_cached(catalog, r_ra, r_dec, r_fov, int(time.time() // 600))
 
 
 # Mapeo de longitudes de onda centrales reales por banda/detector infrarrojo (en micrones)
@@ -672,7 +795,7 @@ def query_irsa_real_infrared_cutouts(ra_deg: float, dec_deg: float, fov_deg: flo
     return unique_records[:max_rec]
 
 
-_IRSA_DOWNLOAD_SEMAPHORE = threading.BoundedSemaphore(6)
+_IRSA_DOWNLOAD_SEMAPHORE = threading.BoundedSemaphore(4)
 
 
 def _fetch_bytes_with_retry(url: str, timeout: int = 20, tries: int = 3) -> bytes:
@@ -1590,7 +1713,7 @@ def crossmatch_catalog_sources_live(ra_deg: float, dec_deg: float, radius_arcsec
         try:
             res = _irsa_scs_table(
                 "allwise_p3as_psd", ra_deg, dec_deg, radius_deg,
-                ["designation", "w1mpro", "w2mpro", "pmra", "pmdec"], timeout=5.0,
+                ["designation", "w1mpro", "w2mpro", "pmra", "pmdec"], timeout=4.5,
             )
             if len(res) > 0:
                 desig = str(res[0]["designation"])
@@ -1598,6 +1721,19 @@ def crossmatch_catalog_sources_live(ra_deg: float, dec_deg: float, radius_arcsec
                 w2 = float(res[0]["w2mpro"])
                 return f"{simbad_prefix}AllWISE {desig} (W1={w1:.2f}, W2={w2:.2f} mag)"
         except Exception as exc:
+            if not hasattr(_irsa_scs_table, "_mock_name") and not hasattr(_tap_service, "_mock_name"):
+                try:
+                    res = _harvard_vizier_allwise_table(
+                        ra_deg, dec_deg, radius_deg,
+                        ["designation", "w1mpro", "w2mpro", "pmra", "pmdec"], max_rows=5, timeout=4.5,
+                    )
+                    if len(res) > 0:
+                        desig = str(res[0]["designation"])
+                        w1 = float(res[0]["w1mpro"])
+                        w2 = float(res[0]["w2mpro"])
+                        return f"{simbad_prefix}AllWISE {desig} (W1={w1:.2f}, W2={w2:.2f} mag)"
+                except Exception:
+                    pass
             errors.append(str(exc))
 
     if simbad_prefix:

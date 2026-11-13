@@ -9,7 +9,7 @@ const CUTOUT_NPIX = 128.0;
 const TILE_STEP_PIX = 96.0;
 const TILE_MARGIN_PIX = (CUTOUT_NPIX - TILE_STEP_PIX) / 2;
 const DEFAULT_SKY_ZOOM = +(CUTOUT_NPIX / TILE_STEP_PIX).toFixed(4);
-const MAX_CONCURRENT_TILE_FETCHES = 2;
+const MAX_CONCURRENT_TILE_FETCHES = 1;
 
 const state = {
   ra: 133.795129,
@@ -891,13 +891,11 @@ function scheduleInfinitePrefetch() {
   }
   const sequence = state.exploreSequence;
 
-  // 1. Precargar de inmediato el paquete ligero de estrellas y catálogos en un radio 3x mayor
-  void prefetchWideCatalogsAndStars(state.skyView.centerRa, state.skyView.centerDec, sequence);
-
-  // 2. Encolar sectores FITS visibles + sectores vecinos predictivos en la dirección del movimiento
+  // Encolar sectores FITS visibles y catálogos tras una breve pausa de arrastre (260 ms)
   if (state.prefetchTimerId) clearTimeout(state.prefetchTimerId);
   state.prefetchTimerId = setTimeout(() => {
     if (sequence !== state.exploreSequence) return;
+    void prefetchWideCatalogsAndStars(state.skyView.centerRa, state.skyView.centerDec, sequence);
     const bounds = getVisibleTileBounds(384);
     const { gxMin, gxMax, gyMin, gyMax, centerGx, centerGy } = bounds;
 
@@ -937,7 +935,7 @@ function scheduleInfinitePrefetch() {
 
     updateInfinitePlaneBadge();
     processTilePrefetchQueue(sequence);
-  }, 90);
+  }, 260);
 }
 
 function bindSynchronizedPlaneEvents(canvas) {
@@ -1039,8 +1037,7 @@ function bindSynchronizedPlaneEvents(canvas) {
       if (hoveredObj) {
         showNamedObjectDetail(hoveredObj);
       } else {
-        const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
-        if (activeObj) showNamedObjectDetail(activeObj);
+        restoreSelectedNamedObjectDetail();
       }
       renderContextSkyMap();
       renderCanvas();
@@ -1055,8 +1052,7 @@ function bindSynchronizedPlaneEvents(canvas) {
     if (state.hoveredNamedObjectId !== null) {
       state.hoveredNamedObjectId = null;
       canvas.style.cursor = "grab";
-      const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
-      if (activeObj) showNamedObjectDetail(activeObj);
+      restoreSelectedNamedObjectDetail();
       renderContextSkyMap();
       renderCanvas();
     }
@@ -1068,6 +1064,16 @@ function bindSynchronizedPlaneEvents(canvas) {
     const cx = ((e.clientX - rect.left) / rect.width) * canvas.width;
     const cy = ((e.clientY - rect.top) / rect.height) * canvas.height;
     const { xPix, yPix } = skyCanvasToFITS(cx, cy, canvas.width);
+
+    // 1. Clic sobre un astro con nombre (estrella, planeta o sistema planetario): queda seleccionado
+    const hitNamed = findHoveredNamedObject(xPix, yPix, 6.5 / state.skyView.zoom);
+    if (hitNamed) {
+      selectNamedObject(hitNamed);
+      return;
+    }
+
+    // 2. Clic en otro lugar del mapa: se libera la selección del astro con nombre
+    clearNamedObjectSelection();
 
     const hitDet = findNearestAIDetection(xPix, yPix, 5.0 / state.skyView.zoom);
     if (hitDet) {
@@ -1510,6 +1516,8 @@ function renderNamedObjectsPanel() {
       ? ` (${obj.planets.length} planeta${obj.planets.length === 1 ? "" : "s"})`
       : "";
     btn.textContent = `${obj.name}${planetBadge}`;
+    btn.dataset.namedId = String(obj.id);
+    btn.setAttribute("aria-pressed", String(isSelected));
     btn.addEventListener("mouseenter", () => {
       state.hoveredNamedObjectId = obj.id;
       showNamedObjectDetail(obj);
@@ -1518,33 +1526,68 @@ function renderNamedObjectsPanel() {
     });
     btn.addEventListener("mouseleave", () => {
       state.hoveredNamedObjectId = null;
-      const activeObj = objects.find((o) => o.id === state.selectedNamedObjectId) || objects[0];
-      if (activeObj) showNamedObjectDetail(activeObj);
+      restoreSelectedNamedObjectDetail();
       renderContextSkyMap();
       renderCanvas();
     });
     btn.addEventListener("click", () => {
-      state.selectedNamedObjectId = obj.id;
-      showNamedObjectDetail(obj);
-      renderNamedObjectsPanel();
-      state.selectedDetectionId = null;
-      state.selectedPixel = { x: obj.x, y: obj.y };
-      updateAIDetectionCardsSelection();
-      updateAladinView(obj.ra, obj.dec, state.fov);
-      renderCanvas();
-      const tileGx = Math.floor((obj.x + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
-      const tileGy = Math.floor((obj.y + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
-      const tileCenter = getTileCenterCoords(tileGx, tileGy);
-      fetchAndRenderSpectrum(obj.ra, obj.dec, true, tileCenter.ra, tileCenter.dec);
+      selectNamedObject(obj, { recenter: true, scroll: false });
     });
     listEl.appendChild(btn);
   });
 
-  const activeObj = objects.find((o) => o.id === state.selectedNamedObjectId) || objects[0];
+  restoreSelectedNamedObjectDetail();
+}
+
+function showNamedObjectsHint() {
+  const detailEl = document.getElementById("named-object-detail");
+  if (!detailEl) return;
+  detailEl.replaceChildren();
+  detailEl.textContent =
+    "Pasá el cursor por encima de las estrellas del mapa para ver su nombre, o tocá una para fijarla y ver su información y espectro.";
+}
+
+function restoreSelectedNamedObjectDetail() {
+  const activeObj = (state.skyView.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId);
   if (activeObj) {
-    state.selectedNamedObjectId = activeObj.id;
     showNamedObjectDetail(activeObj);
+  } else {
+    if (state.selectedNamedObjectId !== null) state.selectedNamedObjectId = null;
+    if ((state.skyView.namedObjects || []).length > 0) showNamedObjectsHint();
   }
+}
+
+function selectNamedObject(obj, { recenter = false, scroll = true } = {}) {
+  if (!obj) return;
+  state.selectedNamedObjectId = obj.id;
+  state.hoveredNamedObjectId = null;
+  state.selectedDetectionId = null;
+  state.selectedPixel = { x: obj.x, y: obj.y };
+  renderNamedObjectsPanel();
+  showNamedObjectDetail(obj);
+  if (scroll) {
+    const chip = document.querySelector(`#named-objects-list [data-named-id="${CSS.escape(String(obj.id))}"]`);
+    chip?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    document.getElementById("named-objects-panel")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  updateAIDetectionCardsSelection();
+  updateCatalogSelectionSummary();
+  if (recenter) {
+    updateAladinView(obj.ra, obj.dec, state.fov);
+  } else {
+    renderContextSkyMap();
+  }
+  renderCanvas();
+  const tileGx = Math.floor((obj.x + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const tileGy = Math.floor((obj.y + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const tileCenter = getTileCenterCoords(tileGx, tileGy);
+  fetchAndRenderSpectrum(obj.ra, obj.dec, true, tileCenter.ra, tileCenter.dec);
+}
+
+function clearNamedObjectSelection() {
+  if (state.selectedNamedObjectId === null) return;
+  state.selectedNamedObjectId = null;
+  renderNamedObjectsPanel();
 }
 
 function findBestTileForGlobalPixel(rawX, rawY) {
@@ -1747,7 +1790,7 @@ function mergeCatalogSources(key, newSources) {
 async function prefetchWideCatalogsAndStars(centerRa, centerDec, sequence) {
   if (!Number.isFinite(centerRa) || !Number.isFinite(centerDec)) return;
   const cosDec = Math.max(0.05, Math.cos((centerDec * Math.PI) / 180));
-  const minStep = state.fov * 0.55;
+  const minStep = state.fov * 1.15;
   const alreadyQueried = state.catalogCentersQueried.some((q) => {
     const dra = (((centerRa - q.ra + 180) % 360 + 360) % 360 - 180) * cosDec;
     const ddec = centerDec - q.dec;
@@ -1819,9 +1862,13 @@ async function loadFieldCatalogs(sequence) {
   };
   refreshBadge();
 
+  const effFov = state.infinitePlaneEnabled
+    ? Number(Math.min(0.45, Math.max(state.fov * 3.0, 0.12)).toFixed(4))
+    : state.fov;
+
   const objectsPromise = (async () => {
     try {
-      const res = await fetch(`/api/objects?ra=${state.ra}&dec=${state.dec}&fov=${state.fov}`,
+      const res = await fetch(`/api/objects?ra=${state.ra}&dec=${state.dec}&fov=${effFov}`,
         { signal: state.exploreController.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -1842,7 +1889,7 @@ async function loadFieldCatalogs(sequence) {
     objectsPromise,
     ...["gaia", "allwise"].map(async (catalog) => {
       try {
-        const res = await fetch(`/api/catalog?catalog=${catalog}&ra=${state.ra}&dec=${state.dec}&fov=${state.fov}`,
+        const res = await fetch(`/api/catalog?catalog=${catalog}&ra=${state.ra}&dec=${state.dec}&fov=${effFov}`,
           { signal: state.exploreController.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -1859,12 +1906,6 @@ async function loadFieldCatalogs(sequence) {
       renderContextSkyMap();
     }),
   ]);
-
-  // Expandir el paquete de estrellas y catálogos a sectores vecinos (3x FoV) solo si el Mapa Global está activo
-  if (sequence === state.exploreSequence && state.infinitePlaneEnabled) {
-    state.catalogCentersQueried = [];
-    void prefetchWideCatalogsAndStars(state.ra, state.dec, sequence);
-  }
 }
 
 function updateCatalogSelectionSummary() {
@@ -2150,19 +2191,28 @@ function renderContextSkyMap() {
       const isHovered = state.hoveredNamedObjectId === obj.id;
       const isSelected = state.selectedNamedObjectId === obj.id;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
-      const ringColor = isHovered ? "#34d399" : hasPlanets ? "#a78bfa" : "#fde047";
+      const ringColor = isHovered || isSelected ? "#34d399" : hasPlanets ? "#a78bfa" : "#fde047";
 
       ctx.save();
       ctx.strokeStyle = ringColor;
-      ctx.lineWidth = isHovered || isSelected ? 2.2 : 1.5;
+      ctx.lineWidth = isHovered || isSelected ? 2.4 : 1.5;
       ctx.beginPath();
-      ctx.arc(cx, cy, isHovered ? 9 : 7, 0, Math.PI * 2);
+      ctx.arc(cx, cy, isHovered || isSelected ? 9 : 7, 0, Math.PI * 2);
       ctx.stroke();
+      if (isSelected) {
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       ctx.restore();
 
-      if (isHovered || state.showNamedObjects) {
-        const labelText = hasPlanets
-          ? `${obj.name} · ${obj.planets.length} planeta${obj.planets.length === 1 ? "" : "s"}`
+      if (isHovered || isSelected || state.showNamedObjects) {
+        const nPlanets = obj.planets ? obj.planets.length : 0;
+        const labelText = nPlanets > 0
+          ? `${obj.name} · ${nPlanets} planeta${nPlanets === 1 ? "" : "s"}`
           : obj.name;
         drawTagAbovePoint(
           ctx,
@@ -2170,7 +2220,7 @@ function renderContextSkyMap() {
           cy,
           labelText,
           ringColor,
-          isHovered ? "#6ee7b7" : hasPlanets ? "#ddd6fe" : "#fef08a",
+          isHovered || isSelected ? "#6ee7b7" : hasPlanets ? "#ddd6fe" : "#fef08a",
           W
         );
       }
@@ -2404,24 +2454,35 @@ function renderCanvas() {
     ctx.restore();
   }
 
-  // 4. Etiquetas de astros nombrados al pasar el cursor (o con "Fijar nombres" activo)
-  if ((state.showNamedObjects || state.hoveredNamedObjectId) && state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
+  // 4. Etiquetas de astros nombrados al pasar el cursor, el astro seleccionado (fijo) o con "Fijar nombres" activo
+  if ((state.showNamedObjects || state.hoveredNamedObjectId || state.selectedNamedObjectId) && state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
     state.skyView.namedObjects.forEach((obj) => {
       const isHovered = state.hoveredNamedObjectId === obj.id;
-      if (!isHovered && !state.showNamedObjects) return;
+      const isSelected = state.selectedNamedObjectId === obj.id;
+      if (!isHovered && !isSelected && !state.showNamedObjects) return;
       const { cx: ox, cy: oy } = fitsToSkyCanvas(obj.x, obj.y, W);
       if (ox < -20 || ox > W + 20 || oy < -20 || oy > H + 20) return;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
-      const labelText = hasPlanets
-        ? `${obj.name} · ${obj.planets.length} planeta${obj.planets.length === 1 ? "" : "s"}`
+      const nPlanets = obj.planets ? obj.planets.length : 0;
+      const labelText = nPlanets > 0
+        ? `${obj.name} · ${nPlanets} planeta${nPlanets === 1 ? "" : "s"}`
         : obj.name;
+      if (isSelected) {
+        ctx.save();
+        ctx.strokeStyle = "#34d399";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 11, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
       drawTagAbovePoint(
         ctx,
         ox,
         oy,
         labelText,
-        hasPlanets ? "#a78bfa" : "#34d399",
-        hasPlanets ? "#ddd6fe" : "#a7f3d0",
+        isSelected ? "#34d399" : hasPlanets ? "#a78bfa" : "#34d399",
+        isSelected ? "#6ee7b7" : hasPlanets ? "#ddd6fe" : "#a7f3d0",
         W
       );
     });
@@ -2769,7 +2830,7 @@ function renderAIDetectionsList(detections) {
     });
 
     const cachedMatch = state.crossmatchByDetId[det.id] || resolveLocalNamedMatchForDetection(det);
-    if (cachedMatch || idx < 4) {
+    if (cachedMatch || idx < 2) {
       const line = document.createElement("p");
       line.className = "detection-crossmatch-line text-[11px] text-slate-400 leading-snug mt-1.5 font-medium";
       card.appendChild(line);
