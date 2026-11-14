@@ -1,0 +1,18 @@
+# Python 3.12-3.14: conjunto actual. Python 3.10-3.11: conjunto compatible.
+# pip selecciona las versiones por el intérprete del entorno virtual.
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.2
+numpy==2.5.4; python_version >= "3.12"
+numpy==2.2.6; python_version < "3.12"
+scipy==1.18.1; python_version >= "3.12"
+scipy==1.15.3; python_version < "3.12"
+astropy==8.0.2; python_version >= "3.12"
+astropy==6.1.7; python_version < "3.12"
+pyvo==1.9.1
+reproject==0.21.0; python_version >= "3.12"
+reproject==0.14.1; python_version < "3.12"
+photutils==3.1.1; python_version >= "3.12"
+photutils==2.0.2; python_version < "3.12"
+Pillow==13.0.0; python_version >= "3.12"
+Pillow==11.3.0; python_version < "3.12"

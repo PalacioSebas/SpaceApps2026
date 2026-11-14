@@ -1,0 +1,49 @@
+name: Windows and Linux compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    env:
+      PYTHONUTF8: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        id: python
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Linux launcher and regression tests
+        if: runner.os == 'Linux'
+        env:
+          PAPASTRONOMY_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: bash run_project.sh --test
+      - name: Windows launcher and regression tests
+        if: runner.os == 'Windows'
+        shell: cmd
+        env:
+          PAPASTRONOMY_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: run_project.bat --test

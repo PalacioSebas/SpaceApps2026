@@ -1,0 +1,76 @@
+# Python: bytecode y caches de herramientas
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
+
+# Entornos y configuracion local; conservar plantillas compartibles
+.venv/
+.venv-*/
+venv/
+env/
+ENV/
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Datos descargados y caches regenerables (no ignora fixtures fuera de data/cache)
+/data/cache/
+/data/raw_downloads/
+.matplotlib/
+.cache/
+
+# Builds, paquetes y reportes generados
+/build/
+/dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+/playwright-report/
+/test-results/
+
+# Dependencias y caches de herramientas JavaScript
+node_modules/
+.npm/
+.vite/
+
+# Descargas incompletas, logs y archivos temporales
+/tmp/
+/temp/
+*.tmp
+*.temp
+*.part
+*.download
+*.log
+*.log.*
+*~
+.*.swp
+.*.swo
+
+# Metadatos del sistema y sesiones locales del editor
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+.idea/workspace.xml
+.idea/tasks.xml
+.vscode/*.log
+.vscode/*.local.json
+
+# Exclusiones locales que ya utilizaba este repositorio
+.agents
+AGENTS.md
+reducto-out
+EVALUACION_OBJETIVOS_NASA.md
