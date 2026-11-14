@@ -125,7 +125,7 @@ def main(argv=None):
         return 0
     print("[3/3] Servidor: http://127.0.0.1:8000 (Ctrl+C para detener)", flush=True)
     return run([str(executable), "-m", "uvicorn", "src.main:app", "--host", "127.0.0.1",
-                "--port", "8000", "--reload"] + server_args, environment)
+                "--port", "8000"] + server_args, environment)
 
 
 if __name__ == "__main__":

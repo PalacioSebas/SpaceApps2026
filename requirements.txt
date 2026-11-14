@@ -3,8 +3,6 @@
 fastapi==0.162.0
 uvicorn[standard]==0.54.0
 pydantic==2.14.2
-pandas==3.1.0; python_version >= "3.12"
-pandas==2.3.3; python_version < "3.12"
 numpy==2.5.4; python_version >= "3.12"
 numpy==2.2.6; python_version < "3.12"
 scipy==1.18.1; python_version >= "3.12"
@@ -12,14 +10,9 @@ scipy==1.15.3; python_version < "3.12"
 astropy==8.0.2; python_version >= "3.12"
 astropy==6.1.7; python_version < "3.12"
 pyvo==1.9.1
-astroquery==0.4.11
 reproject==0.21.0; python_version >= "3.12"
 reproject==0.14.1; python_version < "3.12"
 photutils==3.1.1; python_version >= "3.12"
 photutils==2.0.2; python_version < "3.12"
-scikit-image==0.26.0; python_version >= "3.12"
-scikit-image==0.25.2; python_version < "3.12"
-matplotlib==3.11.2; python_version >= "3.12"
-matplotlib==3.10.8; python_version < "3.12"
 Pillow==13.0.0; python_version >= "3.12"
 Pillow==11.3.0; python_version < "3.12"

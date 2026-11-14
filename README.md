@@ -120,7 +120,6 @@ Nasa/
 ├── data/
 │   └── cache/                   # Caché local de recortes FITS reales y catálogos JSON
 ├── start_project.py             # Lanzador multiplataforma con autoverificación de entorno
-├── setup_cache_and_inspect.py   # Inicializador y verificador de caché real de IRSA
 ├── estado actual del proyecto.md# Checklist actualizado contra los objetivos de la NASA
 ├── AGENTS.md                    # Reglas de exploración del grafo de código con Reducto
 ├── requirements.txt             # Dependencias de Python
@@ -136,7 +135,7 @@ Nasa/
 - **Python:** 3.10 a 3.14 (compatible con Windows, Linux y macOS).
 
 ### Opción A: Arranque automático en 1 paso (Recomendado)
-El lanzador multiplataforma [`start_project.py`](file:///c:/Users/Sebas/OneDrive/Desktop/Nasa/start_project.py) (invocado también por `run_project.bat` en Windows o `./run_project.sh` en Linux/macOS) detecta automáticamente una versión compatible de Python, crea el entorno virtual `.venv` si no existe, instala las dependencias, verifica la caché de recortes `.FITS` y levanta el servidor en `http://127.0.0.1:8000`:
+El lanzador multiplataforma [`start_project.py`](start_project.py) (invocado también por `run_project.bat` en Windows o `./run_project.sh` en Linux/macOS) detecta automáticamente una versión compatible de Python, crea el entorno virtual `.venv` si no existe, instala las dependencias y levanta el servidor en `http://127.0.0.1:8000`. El servidor arranca sin el proceso adicional de vigilancia de archivos. Para desarrollo con recarga automática se puede añadir `--reload`.
 
 ```powershell
 # En Windows:
@@ -155,7 +154,6 @@ python start_project.py
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
-py .\setup_cache_and_inspect.py
 .\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -163,7 +161,7 @@ py .\setup_cache_and_inspect.py
 
 ## 6. Pruebas Automatizadas y Rendimiento
 
-### Ejecución de la suite de tests (79 tests unitarios y de integración)
+### Ejecución de la suite de tests (88 tests unitarios y de integración)
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
@@ -174,6 +172,47 @@ La suite verifica:
 - Selección de líneas de base temporales y exclusión de restas entre detectores o longitudes de onda incompatibles (`tests/test_temporal_search.py`).
 - Funcionamiento 100% offline de los 5 casos oficiales de la NASA con apilados por detector (`detector_coadds`), resta temporal disponible y ajuste espectral de Planck (`tests/test_regressions.py`).
 - Compatibilidad multiplataforma del lanzador automático (`tests/test_launcher.py`).
+- Límites LRU por memoria, caducidad, invalidación de FITS modificados, caché HTTP y compresión sin cambios en las respuestas (`tests/test_performance.py`).
+
+### Optimización e instalación liviana
+
+Se eliminaron del conjunto de dependencias directas **Pandas, Matplotlib, scikit-image y Astroquery**. El cliente TAP recorre las tablas Astropy directamente y los PNG usan NumPy/Pillow. Los cálculos científicos conservan NumPy, SciPy, Astropy, Reproject y Photutils. Instalar los requisitos nuevos en un entorno viejo no desinstala automáticamente los paquetes sobrantes.
+
+Para crear un entorno reducido sin reemplazar el existente:
+
+```bash
+# Linux
+bash run_project.sh --venv .venv-light --setup-only
+bash run_project.sh --venv .venv-light --no-install
+```
+
+```bat
+rem Windows
+run_project.bat --venv .venv-light --setup-only
+run_project.bat --venv .venv-light --no-install
+```
+
+La API comprime JSON y JavaScript cuando el cliente admite gzip. El JavaScript permite revalidación con ETag/Last-Modified, y la interfaz carga Plotly Basic para los espectros y curvas de luz. El arrastre agrupa los repintados por frame y retiene como máximo seis imágenes de relevamientos externos. El mosaico libera sectores alejados con un objetivo de 32 en memoria, protegiendo el campo visible, sus vecinos y la selección; los metadatos dejan de retener los PNG base64 después de decodificarlos.
+
+Las cachés usan LRU y presupuestos configurables antes de iniciar:
+
+| Variable de entorno | Predeterminado | Alcance |
+| --- | --- | --- |
+| `PAPASTRONOMY_FITS_CACHE_MB` | 64 MiB | Buffers y estructuras Python de FITS leídos. |
+| `PAPASTRONOMY_REPROJECT_CACHE_MB` | 16 MiB | Imágenes y máscaras reproyectadas. |
+| `PAPASTRONOMY_RESPONSE_CACHE_MB` | 16 MiB | Respuestas de exploración; caducan a los cinco minutos. |
+
+Se admiten enteros no negativos; `0` desactiva la caché correspondiente. Estos presupuestos contabilizan los datos retenidos, **no el consumo total del proceso** ni todas las estructuras nativas de WCS. Una entrada mayor al presupuesto se procesa sin guardarse. Los FITS y las reproyecciones se invalidan al cambiar tamaño o fecha de modificación del archivo.
+
+Para distribuir solo el código y los recursos, sin `.git`, entornos ni FITS:
+
+```bash
+python scripts/create_light_bundle.py
+```
+
+Genera `dist/papastronomy-light.zip`. Esta distribución necesita internet para obtener datos astronómicos; la caché se prepara al consultar los cinco objetivos desde la interfaz. La suite completa incluye pruebas con esos FITS y requiere prepararlos antes de ejecutarse en una instalación sin datos.
+
+Las mediciones, el alcance de las pruebas y los comandos para repetirlas están en [OPTIMIZACION.md](docs/OPTIMIZACION.md). El `.gitignore` excluye archivos generados nuevos; los FITS de demostración ya versionados siguen en Git porque las pruebas los necesitan. El historial mantiene su tamaño; el paquete liviano permite distribuir las fuentes sin incluirlo.
 
 ---
 

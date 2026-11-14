@@ -643,11 +643,11 @@ def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05,
                 with _IRSA_TAP_LOCK:
                     service = _tap_service(IRSA_TAP_URL)
                     results = service.search(primary_adql)
-                    df = results.to_table().to_pandas()
-                logger.info("TAP spherex: %.1f s, %d filas (intento %d)", time.perf_counter() - t_tap, len(df), attempt)
-                if not df.empty:
+                    table = results.to_table()
+                logger.info("TAP spherex: %.1f s, %d filas (intento %d)", time.perf_counter() - t_tap, len(table), attempt)
+                if len(table):
                     records = []
-                    for _, row in df.iterrows():
+                    for row in table:
                         records.append(
                             {
                                 "cutout_url": str(row["cutout_url"]),
