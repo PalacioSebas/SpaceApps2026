@@ -1,0 +1,1432 @@
+{
+  "schema_version": 1,
+  "locale": "es-AR",
+  "integration_status": "portable_content_not_connected",
+  "context_contract": {
+    "states": {
+      "field_state": [
+        "unknown",
+        "none",
+        "loading",
+        "ready"
+      ],
+      "comparison_state": [
+        "unknown",
+        "unavailable",
+        "available"
+      ],
+      "detection_state": [
+        "unknown",
+        "none",
+        "present"
+      ],
+      "candidate_state": [
+        "none",
+        "selected"
+      ],
+      "candidate_kind": [
+        "unknown",
+        "motion",
+        "variability"
+      ],
+      "photometry_state": [
+        "unknown",
+        "loading",
+        "empty",
+        "ready"
+      ]
+    },
+    "values": {
+      "target_name": {
+        "type": "string",
+        "description": "Nombre de catálogo, nombre de objetivo precargado o rótulo del campo por coordenadas."
+      },
+      "loaded_frame_count": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Cantidad realmente cargada, no la cantidad solicitada."
+      },
+      "comparison_reason": {
+        "type": "string",
+        "description": "Motivo actual informado por el backend; nunca fabricarlo a partir del aspecto del PNG."
+      },
+      "candidate_count": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Cantidad devuelta para el análisis indicado; no convertir un dato ausente en cero."
+      },
+      "candidate_id": {
+        "type": "string_or_integer",
+        "description": "ID del candidato que está seleccionado al hacer la consulta."
+      },
+      "measurement_count": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Cantidad de mediciones válidas de la selección actual."
+      },
+      "measurement_unit": {
+        "type": "string",
+        "description": "Unidad informada por el backend. No suponer MJy/sr si la nueva base usa otra magnitud."
+      }
+    }
+  },
+  "actions": [
+    {
+      "id": "open_explorer",
+      "label": "Ver observaciones",
+      "effect": "navigation",
+      "requires_explicit_click": true
+    },
+    {
+      "id": "open_detector",
+      "label": "Ir al detector",
+      "effect": "navigation",
+      "requires_explicit_click": true
+    },
+    {
+      "id": "open_spectrum",
+      "label": "Ver el espectro",
+      "effect": "navigation",
+      "requires_explicit_click": true
+    },
+    {
+      "id": "prepare_settings",
+      "label": "Preparar ajustes",
+      "effect": "proposal_only",
+      "requires_explicit_click": true
+    }
+  ],
+  "entries": [
+    {
+      "id": "start",
+      "topic": "start",
+      "questions": [
+        "¿Cómo empiezo?",
+        "No sé nada de astronomía",
+        "Ayudame a empezar",
+        "¿Cómo arranco?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Elegí un objetivo, recorré sus imágenes y seleccioná una fuente para ver qué información tiene.",
+          "detail": "Empezá por un objeto precargado. Si la secuencia avanza muy rápido, pausala o cambiá la velocidad. Después podés consultar su espectro o el estado de la comparación temporal."
+        },
+        "technical": {
+          "summary": "Explorá un campo y revisá los metadatos antes de interpretar diferencias entre observaciones.",
+          "detail": "Contrastá banda, fecha, detector y calidad. Consultá la disponibilidad del análisis temporal y las mediciones de la selección; el perfil no restringe estas funciones."
+        }
+      },
+      "source_ids": [
+        "product_scope"
+      ],
+      "action_ids": [
+        "open_explorer",
+        "prepare_settings"
+      ],
+      "follow_up_ids": [
+        "field_summary",
+        "profiles"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "mission",
+      "topic": "mission",
+      "questions": [
+        "¿Qué es SPHEREx?",
+        "¿Qué observa este telescopio?",
+        "¿Para qué sirve la misión?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "SPHEREx es una misión de la NASA que realiza un relevamiento espectral del cielo.",
+          "detail": "Sus observaciones ayudan a estudiar estrellas, galaxias y materiales interestelares. La app permite explorar una parte de esos datos públicos."
+        },
+        "technical": {
+          "summary": "SPHEREx obtiene un relevamiento espectral del cielo con observaciones en distintas longitudes de onda.",
+          "detail": "La misión tiene objetivos cosmológicos y estudios de la historia de la luz galáctica y los hielos. Los archivos concretos disponibles se consultan en IRSA."
+        }
+      },
+      "source_ids": [
+        "nasa_spherex",
+        "irsa_archive"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "start",
+        "wavelengths"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "profiles",
+      "topic": "profiles",
+      "questions": [
+        "¿Qué cambia con mi perfil?",
+        "¿El nivel avanzado tiene más funciones?",
+        "¿Cómo saben cuánto sé?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "El perfil elige valores iniciales y el estilo de las explicaciones. Todas las funciones siguen disponibles.",
+          "detail": "El nivel lo elegís vos; no se deduce automáticamente de tus preguntas. Podés cambiarlo y también ajustar los parámetros por tu cuenta."
+        },
+        "technical": {
+          "summary": "La experiencia declarada y el estilo de explicación son preferencias independientes, no permisos.",
+          "detail": "El adaptador de la versión estable debe conservar los ajustes manuales al cambiar el nivel. Este paquete no autentica usuarios ni asigna capacidades por perfil."
+        }
+      },
+      "source_ids": [
+        "product_scope"
+      ],
+      "action_ids": [
+        "prepare_settings"
+      ],
+      "follow_up_ids": [
+        "manual_settings"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "manual_settings",
+      "topic": "settings",
+      "questions": [
+        "¿Puedo cambiar los ajustes?",
+        "¿El asistente me bloquea los parámetros?",
+        "¿Puedo modificar lo que recomienda?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Sí. Podés revisar la propuesta y modificar los parámetros después de aplicarla.",
+          "detail": "Tus cambios manuales tienen prioridad sobre los valores iniciales. Una propuesta no debe alterar coordenadas o empezar una descarga sin que elijas esa acción."
+        },
+        "technical": {
+          "summary": "Las preferencias manuales deben prevalecer sobre los valores del perfil.",
+          "detail": "La integración debe validar los parámetros y distinguir cambios de visualización de cambios que necesitan una consulta nueva. Mostrar una propuesta no ejecuta el análisis."
+        }
+      },
+      "source_ids": [
+        "product_scope"
+      ],
+      "action_ids": [
+        "prepare_settings"
+      ],
+      "follow_up_ids": [
+        "start"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "no_field",
+      "topic": "field",
+      "questions": [
+        "¿Qué estoy viendo?",
+        "¿Qué hay en este campo?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "none",
+          "unknown"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Todavía no hay un campo cargado. Elegí un objetivo o ingresá sus coordenadas.",
+          "detail": "Al terminar la carga podremos explicar el campo y sus resultados. También podés consultar las guías generales mientras tanto."
+        },
+        "technical": {
+          "summary": "No hay datos del campo actual para interpretar.",
+          "detail": "No reutilizar resultados de una consulta anterior. Las guías generales pueden seguir disponibles sin atribuir mediciones a esta selección."
+        }
+      },
+      "source_ids": [
+        "product_scope"
+      ],
+      "action_ids": [
+        "open_explorer"
+      ],
+      "follow_up_ids": [
+        "start"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "field_loading",
+      "topic": "field",
+      "questions": [
+        "¿Qué estoy viendo?",
+        "Explicá este campo"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "loading"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "El campo se está cargando. Consultame cuando termine para usar sus datos actualizados.",
+          "detail": "Una espera o un error de conexión no indican que el cielo esté vacío. Podés leer una guía general durante la carga."
+        },
+        "technical": {
+          "summary": "La consulta actual está pendiente; todavía no corresponde interpretar sus resultados.",
+          "detail": "Invalidar las respuestas pendientes que dependan del campo anterior y volver a obtener el contexto antes de responder."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "mission"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "field_summary",
+      "topic": "field",
+      "questions": [
+        "¿Qué estoy viendo?",
+        "Resumime el campo",
+        "¿Qué hay acá?"
+      ],
+      "priority": 20,
+      "when": {
+        "field_state": [
+          "ready"
+        ]
+      },
+      "requires": [
+        "target_name",
+        "loaded_frame_count"
+      ],
+      "answers": {
+        "simple": {
+          "summary": "Estás mirando {{target_name}}, con {{loaded_frame_count}} recortes cargados.",
+          "detail": "Los recortes pueden corresponder a bandas o instantes distintos. Consultá los metadatos antes de atribuir una diferencia al movimiento."
+        },
+        "technical": {
+          "summary": "La selección actual es {{target_name}} y contiene {{loaded_frame_count}} recortes disponibles.",
+          "detail": "La cantidad cargada puede ser menor que la solicitada. No deducir disponibilidad temporal, número de bandas ni cobertura a partir de ese único conteo."
+        }
+      },
+      "source_ids": [
+        "field_result",
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_explorer"
+      ],
+      "follow_up_ids": [
+        "comparison_unknown",
+        "wavelengths"
+      ],
+      "fallback_ids": [
+        "field_generic"
+      ]
+    },
+    {
+      "id": "field_generic",
+      "topic": "field",
+      "questions": [
+        "Explicá el campo cargado"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Hay un campo cargado. Revisá sus imágenes y los metadatos de cada observación.",
+          "detail": "Todavía faltan datos para resumir cantidades o identificar el objetivo con precisión. Puedo explicar las herramientas sin completar esos valores."
+        },
+        "technical": {
+          "summary": "Hay datos disponibles, pero faltan metadatos para un resumen cuantitativo.",
+          "detail": "Mantener desconocidos el nombre o el conteo ausente; no rellenar estos datos con valores predeterminados de otro campo."
+        }
+      },
+      "source_ids": [
+        "product_display"
+      ],
+      "action_ids": [
+        "open_explorer"
+      ],
+      "follow_up_ids": [
+        "wavelengths"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "wavelengths",
+      "topic": "images",
+      "questions": [
+        "¿Por qué se ven distintas las imágenes?",
+        "¿Por qué cambia entre bandas?",
+        "¿Qué es una banda?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Cada banda observa una parte distinta de la luz. Una fuente puede cambiar de aspecto entre bandas sin haberse movido.",
+          "detail": "Revisá la banda y la fecha por separado. Para hablar de un cambio temporal necesitás una comparación adecuada entre observaciones."
+        },
+        "technical": {
+          "summary": "El aspecto de una fuente depende de su distribución espectral y de las condiciones de observación.",
+          "detail": "Separar dependencia espectral y temporal. Los metadatos espectrales de SPHEREx describen la banda observada en la posición de la fuente."
+        }
+      },
+      "source_ids": [
+        "irsa_images",
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_explorer"
+      ],
+      "follow_up_ids": [
+        "comparison_unknown",
+        "ambiguous_change"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "ambiguous_change",
+      "topic": "clarification",
+      "questions": [
+        "¿Por qué cambia?",
+        "¿Por qué cambia el brillo?",
+        "¿Por qué se ve diferente?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "¿Te referís a una diferencia entre bandas o a un cambio entre fechas?",
+          "detail": "Elegí el sentido de la pregunta para continuar con una explicación concreta."
+        },
+        "technical": {
+          "summary": "¿Querés comparar la dependencia espectral o una diferencia temporal?",
+          "detail": "Una pregunta ambigua no autoriza a atribuir la diferencia al movimiento o la variabilidad."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "wavelengths",
+        "comparison_unknown"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "comparison_unknown",
+      "topic": "comparison",
+      "questions": [
+        "¿Puedo usar la resta temporal?",
+        "¿Por qué no hay detecciones?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "comparison_state": [
+          "unknown"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Todavía no tengo un diagnóstico de comparación para este campo.",
+          "detail": "Eso no equivale a una resta válida sin candidatos. Revisá el estado del análisis antes de sacar una conclusión."
+        },
+        "technical": {
+          "summary": "La disponibilidad de la comparación temporal no fue informada.",
+          "detail": "Un estado desconocido no debe convertirse en disponible ni en una detección negativa. Solicitar o consultar el diagnóstico de la base estable."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "wavelengths"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "comparison_unavailable_reason",
+      "topic": "detector",
+      "questions": [
+        "¿Por qué no hay detecciones?",
+        "¿Por qué no puedo restar?",
+        "El detector no muestra nada"
+      ],
+      "priority": 30,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "comparison_state": [
+          "unavailable"
+        ]
+      },
+      "requires": [
+        "comparison_reason"
+      ],
+      "answers": {
+        "simple": {
+          "summary": "Este campo no tiene una comparación temporal válida con las observaciones actuales.",
+          "detail": "El análisis informa: {{comparison_reason}}. Podés revisar ese motivo antes de buscar otras observaciones; una búsqueda nueva no garantiza un par utilizable."
+        },
+        "technical": {
+          "summary": "La comparación actual no está habilitada. Diagnóstico: {{comparison_reason}}.",
+          "detail": "No atribuir el rechazo a una causa distinta de la informada ni afirmar que no hay objetos variables. Las condiciones concretas dependen del backend integrado."
+        }
+      },
+      "source_ids": [
+        "comparison_result",
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "verify_comparison"
+      ],
+      "fallback_ids": [
+        "comparison_unavailable"
+      ]
+    },
+    {
+      "id": "comparison_unavailable",
+      "topic": "detector",
+      "questions": [
+        "¿Por qué no hay detecciones?",
+        "No puedo comparar"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "comparison_state": [
+          "unavailable"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "La comparación temporal no está disponible para este campo.",
+          "detail": "No recibí un motivo detallado. Puedo explicar qué se revisa, pero no asegurar cuál fue el problema de estas observaciones."
+        },
+        "technical": {
+          "summary": "El backend marca la comparación como no disponible, sin diagnóstico detallado.",
+          "detail": "No completar el motivo con una causa genérica. Un rechazo de procesamiento no representa una ausencia de cambios físicos."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "verify_comparison"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "no_candidates",
+      "topic": "detector",
+      "questions": [
+        "¿Por qué no hay detecciones?",
+        "¿Encontró algo?",
+        "¿Está vacío el campo?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "comparison_state": [
+          "available"
+        ],
+        "detection_state": [
+          "none"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "La comparación se completó y no encontró candidatos con los criterios actuales.",
+          "detail": "Esto describe el resultado de ese análisis; no demuestra que el campo esté vacío ni que no pueda existir un cambio por debajo de su sensibilidad."
+        },
+        "technical": {
+          "summary": "La comparación está disponible y el detector informó cero candidatos.",
+          "detail": "Interpretar el resultado junto con cobertura, ruido y criterios del detector. El umbral no se fija en este texto: debe proceder de la configuración real."
+        }
+      },
+      "source_ids": [
+        "detection_result",
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "verify_comparison"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "detector_pending",
+      "topic": "detector",
+      "questions": [
+        "¿Qué encontró el detector?",
+        "¿Hay resultados?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "comparison_state": [
+          "available"
+        ],
+        "detection_state": [
+          "unknown"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Hay una comparación disponible, pero todavía no tengo un resultado del detector.",
+          "detail": "Esperá su resultado o consultá el panel correspondiente. No interpretar un conteo ausente como cero candidatos."
+        },
+        "technical": {
+          "summary": "La resta está disponible; el resultado de detección no fue informado.",
+          "detail": "Mantener separados los estados del procesamiento de imágenes y de la detección. Puede existir una resta sin un catálogo de candidatos terminado."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [],
+      "fallback_ids": []
+    },
+    {
+      "id": "candidates_available",
+      "topic": "detector",
+      "questions": [
+        "¿Qué encontró el detector?",
+        "¿Hay candidatos?",
+        "¿Qué resultados tiene?"
+      ],
+      "priority": 20,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "comparison_state": [
+          "available"
+        ],
+        "detection_state": [
+          "present"
+        ]
+      },
+      "requires": [
+        "candidate_count"
+      ],
+      "answers": {
+        "simple": {
+          "summary": "El análisis informó {{candidate_count}} candidatos. Elegí uno para revisar sus datos.",
+          "detail": "Cada candidato necesita revisar las observaciones que lo originaron y las condiciones de calidad. La lista no confirma descubrimientos."
+        },
+        "technical": {
+          "summary": "El resultado contiene {{candidate_count}} candidatos pendientes de validación.",
+          "detail": "Comprobar a qué región y ejecución pertenece el conteo. No sumar resultados de consultas o campos distintos sin indicarlo."
+        }
+      },
+      "source_ids": [
+        "detection_result",
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "candidate_missing"
+      ],
+      "fallback_ids": [
+        "candidates_generic"
+      ]
+    },
+    {
+      "id": "candidates_generic",
+      "topic": "detector",
+      "questions": [
+        "¿Hay candidatos para revisar?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "comparison_state": [
+          "available"
+        ],
+        "detection_state": [
+          "present"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Hay candidatos disponibles. Seleccioná uno en el detector.",
+          "detail": "No recibí un conteo verificable, por eso no voy a indicar una cantidad."
+        },
+        "technical": {
+          "summary": "Se informó presencia de candidatos, pero no un conteo utilizable.",
+          "detail": "La selección individual debe proceder del resultado actual, no de un ejemplo fijo de presentación."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [],
+      "fallback_ids": []
+    },
+    {
+      "id": "candidate_missing",
+      "topic": "candidate",
+      "questions": [
+        "Explicá el candidato seleccionado",
+        "¿Qué significa esta detección?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "candidate_state": [
+          "none"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Seleccioná un candidato para poder explicar sus datos.",
+          "detail": "Si no hay ninguno disponible, podés consultar el estado de la comparación. No voy a elegir un objeto distinto sin indicarlo."
+        },
+        "technical": {
+          "summary": "No hay un candidato seleccionado en el contexto actual.",
+          "detail": "No reutilizar el ID, la señal o la descripción de una selección anterior."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "comparison_unknown"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "candidate_motion",
+      "topic": "candidate",
+      "questions": [
+        "Explicá el candidato seleccionado",
+        "¿Qué significa este dipolo?"
+      ],
+      "priority": 30,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "candidate_state": [
+          "selected"
+        ],
+        "candidate_kind": [
+          "motion"
+        ]
+      },
+      "requires": [
+        "candidate_id"
+      ],
+      "answers": {
+        "simple": {
+          "summary": "El candidato {{candidate_id}} tiene una señal compatible con posible movimiento.",
+          "detail": "Un par de residuos opuestos puede indicar una diferencia de posición. También puede producirse por problemas de alineación, PSF u otros artefactos; revisá los originales."
+        },
+        "technical": {
+          "summary": "El detector clasificó el candidato {{candidate_id}} como compatible con un patrón de movimiento.",
+          "detail": "La interpretación depende del método real del detector y de la calidad de la comparación. Una clasificación algorítmica no determina el tipo de objeto celeste."
+        }
+      },
+      "source_ids": [
+        "candidate_result",
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "verify_candidate",
+        "planet_limits"
+      ],
+      "fallback_ids": [
+        "candidate_generic"
+      ]
+    },
+    {
+      "id": "candidate_variability",
+      "topic": "candidate",
+      "questions": [
+        "Explicá el candidato seleccionado",
+        "¿Qué significa este monopolo?"
+      ],
+      "priority": 30,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "candidate_state": [
+          "selected"
+        ],
+        "candidate_kind": [
+          "variability"
+        ]
+      },
+      "requires": [
+        "candidate_id"
+      ],
+      "answers": {
+        "simple": {
+          "summary": "El candidato {{candidate_id}} tiene una señal compatible con posible cambio de brillo.",
+          "detail": "Revisá banda, fecha, calidad e incertidumbre. Un residuo también puede deberse a diferencias de procesamiento y no a una variación física."
+        },
+        "technical": {
+          "summary": "El detector clasificó el candidato {{candidate_id}} como compatible con un patrón de variabilidad.",
+          "detail": "El rótulo describe el resultado algorítmico. La interpretación requiere observaciones comparables y validación de posibles artefactos."
+        }
+      },
+      "source_ids": [
+        "candidate_result",
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "verify_candidate"
+      ],
+      "fallback_ids": [
+        "candidate_generic"
+      ]
+    },
+    {
+      "id": "candidate_generic",
+      "topic": "candidate",
+      "questions": [
+        "Explicá la selección del detector"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "candidate_state": [
+          "selected"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Hay un candidato seleccionado, pero faltan datos para interpretar su tipo.",
+          "detail": "Consultá su ficha y el diagnóstico. No voy a asignarle movimiento, variabilidad o una categoría celeste sin información suficiente."
+        },
+        "technical": {
+          "summary": "La selección existe, pero su clasificación o identificador no están disponibles en el contexto.",
+          "detail": "Tratar el tipo como desconocido y conservar la procedencia del resultado si existe."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [],
+      "fallback_ids": []
+    },
+    {
+      "id": "dipole_definition",
+      "topic": "types",
+      "questions": [
+        "¿Qué es un dipolo?",
+        "¿Qué significa monopolo?",
+        "¿Cuál es la diferencia entre ambos?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Un dipolo tiene dos lóbulos de signo opuesto en una resta; un monopolo es un residuo concentrado.",
+          "detail": "Estos patrones pueden ser compatibles con movimiento o variación de brillo. También pueden surgir por artefactos; su forma por sí sola no identifica un objeto."
+        },
+        "technical": {
+          "summary": "Son descripciones morfológicas del residuo de una comparación, no categorías físicas del objeto.",
+          "detail": "El signo depende del orden de la resta. Un desajuste de registro o PSF puede imitar señales que requieren verificación adicional."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "verify_candidate"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "verify_candidate",
+      "topic": "verification",
+      "questions": [
+        "¿Y cómo lo compruebo?",
+        "¿Cómo reviso un candidato?",
+        "¿Qué hago después?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "candidate_state": [
+          "selected"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Compará las observaciones originales y revisá el diagnóstico de calidad del candidato.",
+          "detail": "Comprobá si hay cobertura válida, si las bandas son comparables y si el residuo persiste. Contrastá identificaciones de catálogo cuando estén disponibles."
+        },
+        "technical": {
+          "summary": "Revisá los insumos, la compatibilidad y las limitaciones del método que produjo el candidato.",
+          "detail": "Consultar incertidumbres, registro, PSF y calibración cuando el backend los informe. No atribuir validaciones o cruces de catálogo que la versión integrada no haya ejecutado."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "planet_limits"
+      ],
+      "fallback_ids": [
+        "candidate_missing"
+      ]
+    },
+    {
+      "id": "verify_comparison",
+      "topic": "verification",
+      "questions": [
+        "¿Cómo reviso la comparación?",
+        "¿Y cómo lo compruebo?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Revisá el diagnóstico y las observaciones que se están comparando.",
+          "detail": "Una diferencia entre imágenes puede tener causas distintas del tiempo. Si falta información de calidad, la interpretación debe quedar pendiente."
+        },
+        "technical": {
+          "summary": "Consultá las condiciones espectrales, temporales y de calidad informadas para la comparación.",
+          "detail": "La disponibilidad del botón o el aspecto de una imagen no prueban una calibración. Usar el estado y el diagnóstico reales del procesamiento."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [
+        "open_detector"
+      ],
+      "follow_up_ids": [
+        "wavelengths"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "spectrum_definition",
+      "topic": "spectrum",
+      "questions": [
+        "¿Qué es el espectro?",
+        "¿Qué significan los puntos?",
+        "¿Qué es la curva de luz?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "El espectro muestra mediciones de brillo en distintas longitudes de onda; una curva de luz organiza mediciones en el tiempo.",
+          "detail": "Revisá fechas, bandas e incertidumbres. Que dos puntos tengan distinto brillo no alcanza para demostrar un cambio temporal."
+        },
+        "technical": {
+          "summary": "El eje espectral y el temporal responden preguntas distintas y deben interpretarse con metadatos compatibles.",
+          "detail": "Los valores, unidades e incertidumbres deben proceder del backend integrado; no se deducen de los colores o del contraste de los PNG."
+        }
+      },
+      "source_ids": [
+        "irsa_images",
+        "product_display"
+      ],
+      "action_ids": [
+        "open_spectrum"
+      ],
+      "follow_up_ids": [
+        "photometry_ready",
+        "photometry_pending"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "photometry_pending",
+      "topic": "photometry",
+      "questions": [
+        "¿Cuánto brillo tiene?",
+        "¿Por qué no aparece el espectro?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "photometry_state": [
+          "loading",
+          "unknown"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Todavía no hay una medición actualizada de esta selección.",
+          "detail": "Seleccioná una fuente y esperá el resultado. No voy a mostrar cifras de un punto o de un campo que consultaste antes."
+        },
+        "technical": {
+          "summary": "La fotometría actual está pendiente o no fue informada.",
+          "detail": "Invalidar la medición anterior al cambiar la selección o el campo. Esperar una respuesta asociada a la selección vigente."
+        }
+      },
+      "source_ids": [
+        "product_display"
+      ],
+      "action_ids": [
+        "open_spectrum"
+      ],
+      "follow_up_ids": [],
+      "fallback_ids": []
+    },
+    {
+      "id": "photometry_empty",
+      "topic": "photometry",
+      "questions": [
+        "¿Cuánto brillo tiene?",
+        "¿Por qué no hay puntos?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "photometry_state": [
+          "empty"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "La selección no tiene mediciones válidas disponibles en este resultado.",
+          "detail": "Puede ser una zona enmascarada o sin cobertura. Un resultado vacío no equivale a brillo cero; probá otra posición o revisá el diagnóstico."
+        },
+        "technical": {
+          "summary": "El resultado fotométrico actual está vacío.",
+          "detail": "No fabricar flujos, errores o ajustes a partir de una lista vacía. La causa concreta solo puede atribuirse si el procesamiento la informa."
+        }
+      },
+      "source_ids": [
+        "product_display"
+      ],
+      "action_ids": [
+        "open_spectrum"
+      ],
+      "follow_up_ids": [],
+      "fallback_ids": []
+    },
+    {
+      "id": "photometry_ready",
+      "topic": "photometry",
+      "questions": [
+        "¿Cuánto brillo tiene?",
+        "Mostrame las mediciones",
+        "¿Qué unidad tiene el brillo?"
+      ],
+      "priority": 20,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "photometry_state": [
+          "ready"
+        ]
+      },
+      "requires": [
+        "measurement_count",
+        "measurement_unit"
+      ],
+      "answers": {
+        "simple": {
+          "summary": "Hay {{measurement_count}} mediciones válidas de la selección, expresadas en {{measurement_unit}}.",
+          "detail": "Cada valor debe acompañarse de su banda, fecha e incertidumbre cuando estén disponibles. Consultá el gráfico o la tabla para ver los datos concretos."
+        },
+        "technical": {
+          "summary": "El resultado actual contiene {{measurement_count}} mediciones en {{measurement_unit}}.",
+          "detail": "No asumir una conversión de unidades ni combinar bandas distintas como variabilidad temporal. Conservar los valores y la procedencia originales."
+        }
+      },
+      "source_ids": [
+        "photometry_result",
+        "product_display"
+      ],
+      "action_ids": [
+        "open_spectrum"
+      ],
+      "follow_up_ids": [
+        "spectrum_definition"
+      ],
+      "fallback_ids": [
+        "photometry_generic"
+      ]
+    },
+    {
+      "id": "photometry_generic",
+      "topic": "photometry",
+      "questions": [
+        "¿Hay fotometría disponible?"
+      ],
+      "priority": 10,
+      "when": {
+        "field_state": [
+          "ready"
+        ],
+        "photometry_state": [
+          "ready"
+        ]
+      },
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Hay un resultado fotométrico disponible. Revisá sus valores y unidades en la vista correspondiente.",
+          "detail": "Faltan metadatos para resumirlo con cifras verificables. No voy a suponer el conteo o la unidad."
+        },
+        "technical": {
+          "summary": "La fotometría está disponible, pero su resumen cuantitativo no está completo en este contexto.",
+          "detail": "El adaptador debe suministrar unidades y conteos verificables antes de utilizar la respuesta cuantificada."
+        }
+      },
+      "source_ids": [
+        "product_display"
+      ],
+      "action_ids": [
+        "open_spectrum"
+      ],
+      "follow_up_ids": [],
+      "fallback_ids": []
+    },
+    {
+      "id": "quality_flags",
+      "topic": "quality",
+      "questions": [
+        "¿Qué son FLAGS?",
+        "¿Por qué hay píxeles marcados?",
+        "¿Qué significan las máscaras?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Las banderas de calidad ayudan a identificar píxeles que requieren cuidado al interpretar una observación.",
+          "detail": "Consultá la leyenda y la documentación del producto: el significado de los colores de una superposición lo define la aplicación."
+        },
+        "technical": {
+          "summary": "Los productos SPHEREx incluyen información de calidad por píxel.",
+          "detail": "La selección de bits que se consideran inválidos debe revisarse en el procesamiento real. Esta biblioteca no define ni ejecuta esa máscara."
+        }
+      },
+      "source_ids": [
+        "irsa_images",
+        "product_display"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "coverage",
+        "verify_comparison"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "coverage",
+      "topic": "images",
+      "questions": [
+        "¿Por qué hay huecos?",
+        "¿Por qué hay partes oscuras?",
+        "¿Hay datos en toda la imagen?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Una zona sin cobertura válida no ofrece una medición utilizable para esa observación.",
+          "detail": "Revisá la leyenda: un píxel oscuro con datos y una zona sin medición son cosas distintas. No rellenar un hueco para presentarlo como una detección."
+        },
+        "technical": {
+          "summary": "Distinguir intensidad medida, píxeles enmascarados y ausencia de cobertura.",
+          "detail": "El estilo visual puede variar entre versiones; describir los indicadores reales de la interfaz y conservar la procedencia de las máscaras."
+        }
+      },
+      "source_ids": [
+        "product_display"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "quality_flags"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "false_color",
+      "topic": "images",
+      "questions": [
+        "¿Los colores son reales?",
+        "¿Qué significa RGB?",
+        "¿Rojo significa que es una enana marrón?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "En una vista de falso color, los colores representan bandas elegidas para visualizar los datos.",
+          "detail": "Un color por sí solo no permite identificar una categoría de objeto ni medir su temperatura. Consultá las bandas y la explicación de esa composición."
+        },
+        "technical": {
+          "summary": "La asignación RGB es una elección de visualización y depende de las bandas y transferencias usadas.",
+          "detail": "No interpretar un PNG estirado como un cociente fotométrico calibrado. La clasificación necesita datos y métodos adicionales."
+        }
+      },
+      "source_ids": [
+        "product_display"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "wavelengths",
+        "object_type"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "psf",
+      "topic": "quality",
+      "questions": [
+        "¿Qué es la PSF?",
+        "¿Por qué una estrella se ve más ancha?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "La PSF describe cómo aparece una fuente puntual en una observación.",
+          "detail": "Su forma puede cambiar y afectar la comparación de imágenes. Consultá qué controles de calidad aplica el análisis."
+        },
+        "technical": {
+          "summary": "La respuesta a una fuente puntual debe considerarse al interpretar residuos entre observaciones.",
+          "detail": "Los productos SPHEREx incluyen modelos ePSF. Que esos modelos existan no garantiza que un backend concreto los haya utilizado para la comparación."
+        }
+      },
+      "source_ids": [
+        "irsa_psf",
+        "product_comparison"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "verify_comparison"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "object_type",
+      "topic": "classification",
+      "questions": [
+        "¿Qué tipo de objeto es?",
+        "¿Un dipolo es un cometa?",
+        "¿Es una estrella o una enana marrón?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "El patrón del detector no basta para determinar el tipo de objeto celeste.",
+          "detail": "Usá una clasificación de catálogo o del objetivo conocido cuando exista. Si no hay evidencia suficiente, el tipo debe quedar sin confirmar."
+        },
+        "technical": {
+          "summary": "Separar el rótulo algorítmico del candidato de la clasificación astrofísica de la fuente.",
+          "detail": "No convertir movimiento, variabilidad, un color ilustrativo o un ajuste aproximado en una identificación física confirmada."
+        }
+      },
+      "source_ids": [
+        "product_comparison",
+        "product_display"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "planet_limits"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "planet_limits",
+      "topic": "limits",
+      "questions": [
+        "¿Puede confirmar un planeta?",
+        "¿Encontró Planeta X?",
+        "¿Es un descubrimiento?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "La app puede ayudar a revisar candidatos; una señal aislada no confirma un planeta ni un descubrimiento.",
+          "detail": "Hace falta contrastar observaciones, calidad e identificaciones. El asistente explica la evidencia disponible, sin completar una confirmación que no existe."
+        },
+        "technical": {
+          "summary": "Una candidatura de movimiento no constituye una identificación ni una confirmación de un nuevo objeto.",
+          "detail": "Mantener separadas detección, asociación a catálogo e inferencia física. No atribuir verificaciones de órbita o catálogos a un backend que no las ejecuta."
+        }
+      },
+      "source_ids": [
+        "product_comparison"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "verify_candidate"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "assistant_scope",
+      "topic": "assistant",
+      "questions": [
+        "¿Esto es un LLM?",
+        "¿Se conecta a una IA?",
+        "¿De dónde sale la respuesta?"
+      ],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Este asistente usa respuestas integradas y datos de la app; no necesita un LLM.",
+          "detail": "Las preguntas conocidas se reconocen con reglas. Podés revisar las fuentes y los datos que respaldan una explicación."
+        },
+        "technical": {
+          "summary": "Es un sistema de respuestas predefinidas con selección por intención y estado del contexto.",
+          "detail": "Los textos no ejecutan cálculos científicos. El adaptador suministra resultados y acciones permitidas; las fuentes de datos deben ser instantáneas de cada consulta."
+        }
+      },
+      "source_ids": [
+        "product_scope"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "start"
+      ],
+      "fallback_ids": []
+    },
+    {
+      "id": "unknown_question",
+      "topic": "fallback",
+      "questions": [
+        "Pregunta no reconocida"
+      ],
+      "priority": 0,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Puedo ayudarte con la exploración, los perfiles, el detector, las imágenes y los espectros. Elegí una guía para continuar.",
+          "detail": "Si una pregunta es ambigua, puedo ofrecer opciones. Para un tema fuera del alcance, no voy a fabricar una respuesta."
+        },
+        "technical": {
+          "summary": "No se reconoció una intención cubierta por esta biblioteca.",
+          "detail": "Ofrecer temas soportados y evitar asignar una intención por una palabra aislada si cambia el sentido de la consulta."
+        }
+      },
+      "source_ids": [
+        "product_scope"
+      ],
+      "action_ids": [],
+      "follow_up_ids": [
+        "start",
+        "mission"
+      ],
+      "fallback_ids": []
+    }
+  ]
+}

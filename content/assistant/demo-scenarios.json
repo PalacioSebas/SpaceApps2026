@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "locale": "es-AR",
+  "scenarios": [
+    {
+      "id": "first_exploration",
+      "title": "Empezar a explorar y conservar los ajustes manuales",
+      "goal": "Mostrar cómo un visitante puede orientarse y preparar una configuración revisable.",
+      "required_capabilities": [
+        "objetivos_o_coordenadas",
+        "perfil_demo_o_invitado",
+        "propuesta_de_ajustes_editable"
+      ],
+      "preflight": [
+        "Elegir un objetivo real que ya pueda cargarse en la versión estable.",
+        "Anotar qué preferencias admite esa versión. No depender de los valores de nuestra rama."
+      ],
+      "steps": [
+        {
+          "id": "entry",
+          "instruction": "Entrar como invitado o con un perfil demo. Si la base no tiene pantalla de acceso, comenzar directamente en el explorador.",
+          "question": "¿Qué cambia con mi perfil?",
+          "expected_entry_ids": [
+            "profiles"
+          ],
+          "check": "El perfil no restringe funciones y el nivel es declarado."
+        },
+        {
+          "id": "help",
+          "instruction": "Abrir el asistente y pedir una orientación breve.",
+          "question": "¿Cómo empiezo?",
+          "expected_entry_ids": [
+            "start"
+          ],
+          "check": "Se ofrece un recorrido y se puede volver al explorador sin cambiar los datos."
+        },
+        {
+          "id": "load",
+          "instruction": "Elegir el objetivo preparado y esperar la carga.",
+          "question": "¿Qué estoy viendo?",
+          "expected_entry_ids": [
+            "field_summary",
+            "field_generic"
+          ],
+          "check": "El resumen utiliza el campo cargado y la cantidad recibida; no una cifra fija de demostración."
+        },
+        {
+          "id": "manual_preference",
+          "instruction": "Cambiar manualmente un ajuste de visualización que admita la base, como la velocidad.",
+          "question": "¿Puedo modificar lo que recomienda?",
+          "expected_entry_ids": [
+            "manual_settings"
+          ],
+          "check": "El ajuste manual conserva prioridad y no se bloquean los controles."
+        },
+        {
+          "id": "proposal",
+          "instruction": "Solicitar una propuesta, revisar los valores y aplicar solo si esa acción está implementada en la base estable.",
+          "question": "¿Qué ajustes me convienen?",
+          "expected_entry_ids": [
+            "profiles",
+            "manual_settings"
+          ],
+          "action_id": "prepare_settings",
+          "check": "Preparar la propuesta no inicia descargas; no se altera el campo automáticamente."
+        }
+      ],
+      "contingencies": [
+        {
+          "if": "El servicio remoto no responde.",
+          "do": "Usar datos reales ya guardados, indicando su procedencia. Si no hay datos utilizables, mostrar la guía general y la carga no disponible."
+        },
+        {
+          "if": "La propuesta editable todavía no fue integrada.",
+          "do": "Mostrar la explicación y los controles manuales; anunciar que la acción está pendiente de integración."
+        }
+      ],
+      "success": "Se entiende el recorrido, el usuario mantiene el control y los valores mostrados corresponden a su sesión."
+    },
+    {
+      "id": "comparison_unavailable",
+      "title": "Entender por qué el detector no muestra candidatos",
+      "goal": "Distinguir la falta de una comparación válida de un análisis válido sin detecciones.",
+      "required_capabilities": [
+        "estado_de_comparacion",
+        "diagnostico_o_estado_desconocido"
+      ],
+      "preflight": [
+        "Buscar un campo real cuyo backend marque la comparación como no disponible.",
+        "Revisar el diagnóstico antes de presentar. No cambiar un estado real para que coincida con el guion."
+      ],
+      "steps": [
+        {
+          "id": "state",
+          "instruction": "Cargar el campo preparado y verificar su estado.",
+          "question": "¿Por qué no hay detecciones?",
+          "expected_entry_ids": [
+            "comparison_unavailable_reason",
+            "comparison_unavailable"
+          ],
+          "check": "Se explica que falta una comparación válida, sin afirmar que no hay variabilidad."
+        },
+        {
+          "id": "evidence",
+          "instruction": "Abrir las fuentes o el detalle que respalda la explicación.",
+          "expected_entry_ids": [
+            "comparison_unavailable_reason",
+            "comparison_unavailable"
+          ],
+          "check": "El motivo citado corresponde a esta ejecución y no se inventa si falta."
+        },
+        {
+          "id": "next",
+          "instruction": "Continuar la conversación sobre cómo revisar ese problema.",
+          "question": "¿Y cómo lo compruebo?",
+          "expected_entry_ids": [
+            "verify_comparison"
+          ],
+          "action_id": "open_detector",
+          "check": "Se ofrecen pasos verificables, sin afirmar que una búsqueda nueva encontrará un par."
+        },
+        {
+          "id": "ambiguity",
+          "instruction": "Hacer una pregunta que pueda referirse a banda o fecha.",
+          "question": "¿Por qué cambia?",
+          "expected_entry_ids": [
+            "ambiguous_change"
+          ],
+          "check": "El asistente pide elegir entre diferencia espectral y temporal."
+        },
+        {
+          "id": "bands",
+          "instruction": "Elegir diferencias entre bandas.",
+          "question": "¿Por qué cambia entre bandas?",
+          "expected_entry_ids": [
+            "wavelengths"
+          ],
+          "check": "No se atribuye automáticamente el aspecto diferente al movimiento."
+        }
+      ],
+      "contingencies": [
+        {
+          "if": "El campo tiene comparación válida y cero candidatos.",
+          "do": "Usar no_candidates y explicar que es un caso distinto; no presentar este campo como comparación no disponible."
+        },
+        {
+          "if": "El backend no informa el estado de comparación.",
+          "do": "Usar comparison_unknown. No convertir la ausencia del dato en un fallo de calibración."
+        },
+        {
+          "if": "El campo tiene candidatos.",
+          "do": "Usar el recorrido de revisión de candidato o elegir otro campo real para este caso."
+        }
+      ],
+      "success": "La audiencia comprende la limitación real de los datos y sabe qué puede revisar después."
+    },
+    {
+      "id": "review_candidate",
+      "title": "Revisar un candidato y su evidencia",
+      "goal": "Mostrar cómo el asistente ayuda a interpretar un resultado real sin confirmar una identidad física.",
+      "required_capabilities": [
+        "resultado_de_detector",
+        "seleccion_de_candidato",
+        "acceso_a_observaciones_o_mediciones"
+      ],
+      "preflight": [
+        "Localizar un campo con un candidato real en la versión que se va a presentar.",
+        "Registrar el campo, el ID y la procedencia al preparar la presentación.",
+        "No depender de que un ID o un número de candidatos se mantengan entre versiones o ejecuciones."
+      ],
+      "steps": [
+        {
+          "id": "results",
+          "instruction": "Cargar el campo verificado y consultar sus resultados.",
+          "question": "¿Qué encontró el detector?",
+          "expected_entry_ids": [
+            "candidates_available",
+            "candidates_generic"
+          ],
+          "check": "El conteo solo aparece si fue suministrado por el resultado actual."
+        },
+        {
+          "id": "select",
+          "instruction": "Seleccionar un candidato de la lista.",
+          "question": "Explicá el candidato seleccionado",
+          "expected_entry_ids": [
+            "candidate_motion",
+            "candidate_variability",
+            "candidate_generic"
+          ],
+          "check": "Se utiliza el ID actual y se distingue un patrón algorítmico de un tipo de objeto."
+        },
+        {
+          "id": "inspect",
+          "instruction": "Continuar la conversación y abrir las observaciones que respaldan el resultado.",
+          "question": "¿Y cómo lo compruebo?",
+          "expected_entry_ids": [
+            "verify_candidate"
+          ],
+          "action_id": "open_detector",
+          "check": "Se propone revisar originales, compatibilidad y calidad; no se ejecuta una validación ficticia."
+        },
+        {
+          "id": "spectrum",
+          "instruction": "Seleccionar una fuente y esperar la medición, si esa función está disponible.",
+          "question": "¿Cuánto brillo tiene?",
+          "expected_entry_ids": [
+            "photometry_ready",
+            "photometry_generic",
+            "photometry_empty",
+            "photometry_pending"
+          ],
+          "action_id": "open_spectrum",
+          "check": "Se conservan las unidades, las incertidumbres y la asociación con la selección actual. Un resultado vacío no se convierte en cero."
+        },
+        {
+          "id": "limits",
+          "instruction": "Preguntar por el alcance de la conclusión.",
+          "question": "¿Puede confirmar un planeta?",
+          "expected_entry_ids": [
+            "planet_limits"
+          ],
+          "check": "La respuesta mantiene la distinción entre candidato, identificación y confirmación."
+        }
+      ],
+      "contingencies": [
+        {
+          "if": "No hay candidatos reales disponibles.",
+          "do": "No fabricar uno para completar el recorrido. Presentar no_candidates o comparison_unavailable según los datos y explicar la revisión de forma general."
+        },
+        {
+          "if": "No se conoce el tipo del candidato.",
+          "do": "Usar candidate_generic y dejar la clasificación pendiente."
+        },
+        {
+          "if": "La fotometría está pendiente o vacía.",
+          "do": "Usar photometry_pending o photometry_empty. No mostrar cifras de otra posición."
+        },
+        {
+          "if": "Falla un catálogo externo.",
+          "do": "Indicar que esa identificación no se pudo consultar; conservar el candidato como no confirmado."
+        }
+      ],
+      "success": "El candidato se explica con datos de su consulta y la audiencia reconoce qué evidencia falta para una conclusión física."
+    }
+  ]
+}

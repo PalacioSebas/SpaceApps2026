@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "nasa_spherex",
+      "kind": "official_reference",
+      "title": "NASA · misión SPHEREx",
+      "url": "https://science.nasa.gov/mission/spherex/",
+      "reviewed_on": "2026-11-14",
+      "supports": [
+        "Descripción y objetivos generales de la misión."
+      ],
+      "does_not_support": [
+        "Estado de un campo o candidato concreto de esta aplicación."
+      ]
+    },
+    {
+      "id": "irsa_archive",
+      "kind": "official_reference",
+      "title": "IRSA · archivo SPHEREx",
+      "url": "https://irsa.ipac.caltech.edu/Missions/spherex.html",
+      "reviewed_on": "2026-11-14",
+      "supports": [
+        "Archivo, productos públicos y documentación de SPHEREx."
+      ],
+      "does_not_support": [
+        "Disponibilidad en vivo de un recorte concreto."
+      ]
+    },
+    {
+      "id": "irsa_images",
+      "kind": "official_reference",
+      "title": "IRSA · introducción a imágenes espectrales",
+      "url": "https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/",
+      "reviewed_on": "2026-11-14",
+      "supports": [
+        "Estructura FITS, FLAGS, VARIANCE y coordenadas espaciales y espectrales."
+      ],
+      "does_not_support": [
+        "Que nuestro backend haya aplicado correctamente una calibración."
+      ]
+    },
+    {
+      "id": "irsa_psf",
+      "kind": "official_reference",
+      "title": "IRSA · modelos ePSF",
+      "url": "https://caltech-ipac.github.io/irsa-tutorials/spherex-psf/",
+      "reviewed_on": "2026-11-14",
+      "supports": [
+        "PSF y su representación en los productos SPHEREx."
+      ],
+      "does_not_support": [
+        "Validez de una resta específica de nuestra aplicación."
+      ]
+    },
+    {
+      "id": "product_scope",
+      "kind": "product_contract",
+      "title": "Alcance acordado del MVP",
+      "document": "README.md#alcance",
+      "supports": [
+        "Acceso demo, perfiles declarados, respuestas integradas y ajustes revisables."
+      ],
+      "integration_review_required": true
+    },
+    {
+      "id": "product_comparison",
+      "kind": "product_contract",
+      "title": "Criterios para explicar una comparación",
+      "document": "README.md#datos-y-resultados",
+      "supports": [
+        "Distinguir una comparación ausente de una comparación sin candidatos."
+      ],
+      "integration_review_required": true
+    },
+    {
+      "id": "product_display",
+      "kind": "product_contract",
+      "title": "Vistas y mediciones",
+      "document": "README.md#datos-y-resultados",
+      "supports": [
+        "Separar una vista ilustrativa de una medición o clasificación científica."
+      ],
+      "integration_review_required": true
+    },
+    {
+      "id": "field_result",
+      "kind": "context_snapshot",
+      "title": "Campo de esta consulta",
+      "context_fields": [
+        "target_name",
+        "loaded_frame_count"
+      ],
+      "supports": [
+        "Datos realmente recibidos para el campo actual."
+      ]
+    },
+    {
+      "id": "comparison_result",
+      "kind": "context_snapshot",
+      "title": "Diagnóstico temporal de esta consulta",
+      "context_fields": [
+        "comparison_reason"
+      ],
+      "supports": [
+        "Disponibilidad y motivo de la comparación actual."
+      ]
+    },
+    {
+      "id": "detection_result",
+      "kind": "context_snapshot",
+      "title": "Resultados del detector",
+      "context_fields": [
+        "candidate_count"
+      ],
+      "supports": [
+        "Cantidad de candidatos devuelta por el análisis actual."
+      ]
+    },
+    {
+      "id": "candidate_result",
+      "kind": "context_snapshot",
+      "title": "Candidato seleccionado",
+      "context_fields": [
+        "candidate_id"
+      ],
+      "supports": [
+        "Identificador y tipo reportado del candidato actual."
+      ]
+    },
+    {
+      "id": "photometry_result",
+      "kind": "context_snapshot",
+      "title": "Fotometría de la selección",
+      "context_fields": [
+        "measurement_count",
+        "measurement_unit"
+      ],
+      "supports": [
+        "Mediciones actuales, con las unidades y las incertidumbres que suministre el backend."
+      ]
+    }
+  ]
+}
