@@ -1,6 +1,8 @@
 """Regresiones de límites de memoria, invalidación y transferencia HTTP."""
 
 import os
+import base64
+from io import BytesIO
 import gzip
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from PIL import Image
 from astropy.table import Table
 from fastapi.testclient import TestClient
 
@@ -104,6 +107,29 @@ class DisplayAndDependencyTests(unittest.TestCase):
         np.testing.assert_array_equal(rgba[0, 3], [0, 0, 0, 0])
         self.assertTrue(np.isnan(values[0, 3]))
         self.assertEqual(values[0, 1], .5)
+
+    def test_png_preserves_missing_coverage_saturated_holes_and_north_up(self):
+        values = np.arange(81, dtype=float).reshape(9, 9)
+        values[3:6, 3:6] = np.nan  # Núcleo sin mediciones: no reconstruir una estrella.
+        values[0, 0] = np.inf
+        values[-1, -1] = -np.inf
+        original = values.copy()
+        for mode in ("science", "diff"):
+            with self.subTest(mode=mode):
+                payload = pipeline.matrix_to_base64_png(values, mode).split(",", 1)[1]
+                rgba = np.array(Image.open(BytesIO(base64.b64decode(payload))))
+                np.testing.assert_array_equal(rgba[..., 3] > 0, np.flipud(np.isfinite(values)))
+                if mode == "science":
+                    self.assertGreater(rgba[0, 0, 0], rgba[-1, 1, 0])
+                else:
+                    self.assertGreater(rgba[0, 0, 0], rgba[0, 0, 2])
+        np.testing.assert_array_equal(values, original)
+
+    def test_empty_science_and_difference_png_are_transparent(self):
+        for mode in ("science", "diff"):
+            payload = pipeline.matrix_to_base64_png(np.full((8, 8), np.nan), mode).split(",", 1)[1]
+            rgba = np.array(Image.open(BytesIO(base64.b64decode(payload))))
+            self.assertFalse(rgba[..., 3].any())
 
     def test_tap_fallback_reads_astropy_tables_without_pandas_conversion(self):
         table = Table({"cutout_url": ["https://example/fits"], "obs_time": ["60800"],

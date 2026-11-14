@@ -1,7 +1,7 @@
 /**
  * Frontend v2.4 - Papastronomy SPHEREx & Planet X Explorer.
  * Conectado a recortes .FITS reales de NASA/IPAC IRSA (128x128 px),
- * visor multi-época en loop para Flipbook, Resta (ΔI) y Suma SNR,
+ * visor multi-época para Flipbook, Resta (ΔI) y mediana,
  * y visor interactivo de Contexto Multi-Catálogo (Gaia DR3 + AllWISE).
  */
 
@@ -23,6 +23,7 @@ const state = {
   selectedBand: "auto",
   isPlaying: true,
   fps: 2,
+  frameLimit: 10,
   timerId: null,
   viewMode: "blink",
   showAIMarkers: true,
@@ -45,6 +46,7 @@ const state = {
   shiftStackMeta: null,
   spectrumPlotMode: "spectrum",
   lastSpectrumData: null,
+  assistantSpectrum: null,
   contextSurvey: "spherex",
   externalSurveyCache: new Map(),
   exploreController: null,
@@ -93,6 +95,245 @@ const state = {
     colorSkyCanvas: null,
   },
 };
+
+let demoStore = null;
+let demoAssistantUI = null;
+let demoAppReady = false;
+let demoEditing = false;
+let demoSelectedId = "principiante";
+let resolveDemoEntry = null;
+const DEMO_CONTROLS = {
+  "input-fov": "fov", "input-max-frames": "maxFrames", "select-fps": "fps",
+  "chk-flags": "showFlags", "chk-ai-markers": "showAIMarkers", "chk-invert": "invertPixels",
+  "slider-stretch": "stretchLinearity", "slider-contrast": "contrastGain",
+  "chk-gaia": "showGaiaCat", "chk-wise": "showWiseCat", "chk-pm-vectors": "showPmVectors",
+  "chk-named-objects": "showNamedObjects", "select-context-survey": "contextSurvey",
+};
+
+function rememberDemoSettings(patch) {
+  demoStore?.remember(patch);
+  updateDemoSummary();
+}
+
+function updateDemoSummary() {
+  if (!demoStore) return;
+  const profile = demoStore.get();
+  document.getElementById("demo-user-label").textContent = profile
+    ? `${profile.alias} · ${DemoProfiles.PRESETS[profile.level].label}` : "Exploración como invitado";
+  document.getElementById("btn-demo-profile").textContent = profile ? "Mi perfil" : "Entrar con un perfil";
+  document.getElementById("btn-demo-logout").hidden = !profile;
+  document.getElementById("demo-guide").hidden = !profile;
+  document.getElementById("demo-storage-notice").hidden = demoStore.persistent;
+  demoAssistantUI?.refresh();
+  if (!profile) return;
+  document.getElementById("demo-guide-title").textContent = `Tu guía · ${DemoProfiles.INTERESTS[profile.interest]}`;
+  const guides = {
+    simple: "Elegí un objeto y recorré sus imágenes. Tocá una fuente para ver su espectro. Una diferencia de aspecto entre bandas no demuestra movimiento; el modo temporal comprueba qué observaciones se pueden comparar.",
+    equilibrada: "Compará exposiciones, medí espectros y consultá los catálogos. Para estudiar cambios en el tiempo, usá pares del mismo detector y banda. La resta muestra su disponibilidad y las condiciones de calibración.",
+    tecnica: "El análisis temporal exige compatibilidad espectral, PSF y referencias fotométricas. Revisá FLAGS, cobertura y diagnósticos de la resta; las detecciones son candidatos pendientes de validación.",
+  };
+  document.getElementById("demo-guide-text").textContent = guides[profile.explanations];
+  document.getElementById("demo-settings-status").textContent = !demoStore.persistent
+    ? "Solo durante esta visita" : Object.keys(profile.overrides).length
+      ? "Ajustes guardados" : "Valores iniciales del perfil";
+}
+
+function applyDemoSettings() {
+  const profile = demoStore?.get();
+  const settings = profile ? DemoProfiles.effectiveSettings(profile) : DemoProfiles.PRESETS.explorador.settings;
+  state.frameLimit = settings.maxFrames;
+  for (const [id, key] of Object.entries(DEMO_CONTROLS)) {
+    const control = document.getElementById(id);
+    if (control.type === "checkbox") control.checked = settings[key];
+    else control.value = settings[key];
+    // FoV describe los datos actualmente dibujados; solo cambia al completar una consulta.
+    if (key !== "fov" && key !== "maxFrames") state[key] = settings[key];
+  }
+  state.viewMode = settings.viewMode;
+  state.spectrumPlotMode = settings.spectrumPlotMode;
+  syncFovPresetSelect(settings.fov);
+  document.getElementById("chk-pm-vectors").disabled = !state.showGaiaCat;
+  const pmLabel = document.getElementById("lbl-pm-vectors");
+  pmLabel.classList.toggle("opacity-40", !state.showGaiaCat);
+  pmLabel.classList.toggle("cursor-not-allowed", !state.showGaiaCat);
+  pmLabel.classList.toggle("cursor-pointer", state.showGaiaCat);
+  document.getElementById("lbl-contrast-val").textContent = `${state.contrastGain.toFixed(2)}×`;
+  document.getElementById("lbl-stretch-val").textContent = state.stretchLinearity <= .05 ? "Original"
+    : state.stretchLinearity >= .95 ? "Contraste" : `${Math.round(state.stretchLinearity * 100)}%`;
+  updateDemoSummary();
+  if (demoAppReady) {
+    rebakeAllOpticalCanvases();
+    setViewMode(state.viewMode);
+    renderSpectrumOrLightCurve();
+    startBlinkTimer();
+  }
+  return settings;
+}
+
+function previewDemoDefaults() {
+  const profile = demoStore.get(demoSelectedId);
+  profile.level = document.getElementById("demo-level").value;
+  const settings = DemoProfiles.effectiveSettings(profile);
+  const preview = document.getElementById("demo-defaults-preview");
+  preview.replaceChildren();
+  for (const [label, value] of [["Recortes", settings.maxFrames], ["Velocidad", `${settings.fps} fps`],
+    ["Campo", `${settings.fov}°`], ["FLAGS", settings.showFlags ? "Visibles" : "Ocultas"]]) {
+    const item = document.createElement("span");
+    item.appendChild(document.createTextNode(label));
+    const number = document.createElement("strong");
+    number.textContent = String(value);
+    item.appendChild(number);
+    preview.appendChild(item);
+  }
+  document.getElementById("demo-defaults-note").textContent = Object.keys(profile.overrides).length
+    ? "Tus ajustes manuales tienen prioridad sobre el nivel elegido." : "Son valores iniciales; todos los parámetros se pueden editar.";
+}
+
+function openDemoDialog(editing = false, selectedId = null) {
+  demoEditing = editing && Boolean(demoStore.get());
+  demoSelectedId = selectedId || demoStore.data.activeId || "principiante";
+  const profile = demoStore.get(demoSelectedId);
+  for (const key of ["alias", "level", "interest", "explanations"]) document.getElementById(`demo-${key}`).value = profile[key];
+  document.getElementById("demo-account-choices").hidden = demoEditing;
+  document.getElementById("demo-dialog-title").textContent = demoEditing ? "Tu perfil, a tu manera" : "Tu punto de partida en el cielo";
+  document.getElementById("demo-dialog-description").textContent = demoEditing
+    ? "Elegí cómo querés explorar y recibir las explicaciones. Tus ajustes manuales se conservan."
+    : "Elegí un perfil para empezar. Todos los controles estarán disponibles y podés cambiar cualquier parámetro.";
+  document.getElementById("demo-save").textContent = demoEditing ? "Guardar perfil" : "Entrar al explorador";
+  document.getElementById("demo-cancel").textContent = demoEditing ? "Cancelar" : "Continuar como invitado";
+  document.getElementById("demo-reset").hidden = !demoEditing;
+  document.querySelectorAll("[data-demo-account]").forEach((button) => {
+    const id = button.dataset.demoAccount;
+    const saved = demoStore.get(id);
+    button.setAttribute("aria-pressed", String(id === demoSelectedId));
+    button.querySelector("strong").textContent = demoStore.data.profiles[id] ? saved.alias : DemoProfiles.PRESETS[id].label;
+    button.querySelector("span").textContent = demoStore.data.profiles[id]
+      ? `${DemoProfiles.PRESETS[saved.level].label} · preferencias guardadas` : DemoProfiles.PRESETS[id].description;
+  });
+  updateDemoSummary();
+  previewDemoDefaults();
+  const dialog = document.getElementById("demo-profile-dialog");
+  if (!dialog.open) {
+    dialog.showModal();
+    const focusTarget = demoEditing ? document.getElementById("demo-alias")
+      : document.querySelector(`[data-demo-account="${demoSelectedId}"]`);
+    focusTarget.focus();
+  }
+}
+
+async function loadDemoAccount() {
+  const settings = applyDemoSettings();
+  if (!demoAppReady) { resolveDemoEntry?.(); resolveDemoEntry = null; return; }
+  const region = demoStore.get()?.lastRegion || { ra: 133.795129, dec: -7.245147, temporal: false };
+  await exploreCoordinates(region.ra, region.dec, settings.fov, Math.min(settings.maxFrames, region.temporal ? 32 : 102), region.temporal);
+  setViewMode(state.viewMode);
+  startBlinkTimer();
+}
+
+async function initDemoProfiles() {
+  if (state.embed) return;
+  demoStore = new DemoProfiles.Store();
+  document.querySelectorAll("[data-demo-account]").forEach((button) => {
+    button.addEventListener("click", () => openDemoDialog(false, button.dataset.demoAccount));
+  });
+  document.getElementById("demo-level").addEventListener("change", previewDemoDefaults);
+  document.getElementById("btn-demo-profile").addEventListener("click", () => openDemoDialog(Boolean(demoStore.get())));
+  document.getElementById("btn-demo-logout").addEventListener("click", () => {
+    demoStore.leave();
+    updateDemoSummary();
+    openDemoDialog();
+  });
+  const dialog = document.getElementById("demo-profile-dialog");
+  const cancel = () => {
+    if (!demoEditing) demoStore.leave(true);
+    dialog.close();
+    updateDemoSummary();
+    if (!demoEditing) void loadDemoAccount();
+  };
+  document.getElementById("demo-cancel").addEventListener("click", cancel);
+  document.getElementById("demo-close").addEventListener("click", cancel);
+  dialog.addEventListener("cancel", (event) => { event.preventDefault(); cancel(); });
+  document.getElementById("demo-profile-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const previousSettings = demoStore.get() ? JSON.stringify(DemoProfiles.effectiveSettings(demoStore.get())) : null;
+    const fields = {};
+    for (const key of ["alias", "level", "interest", "explanations"]) fields[key] = document.getElementById(`demo-${key}`).value;
+    if (demoEditing) demoStore.update(fields);
+    else demoStore.enter(demoSelectedId, fields);
+    dialog.close();
+    if (demoEditing) {
+      if (previousSettings !== JSON.stringify(DemoProfiles.effectiveSettings(demoStore.get()))) applyDemoSettings();
+      else updateDemoSummary();
+      setExploreProgress("Perfil guardado. Si cambiaste el campo o la cantidad de recortes, pulsá Explorar Cielo para aplicarlos a los datos.");
+    } else void loadDemoAccount();
+  });
+  document.getElementById("demo-reset").addEventListener("click", () => {
+    demoStore.reset();
+    dialog.close();
+    void loadDemoAccount();
+  });
+  document.addEventListener("change", (event) => {
+    const key = DEMO_CONTROLS[event.target.id] || (event.target.id === "select-fov-preset" && event.target.value !== "custom" ? "fov" : null);
+    if (!key) return;
+    const control = event.target;
+    if (control.type === "number" && !control.validity.valid) return;
+    const value = control.type === "checkbox" ? control.checked
+      : ["fov", "maxFrames", "fps", "stretchLinearity", "contrastGain"].includes(key) ? Number(control.value) : control.value;
+    if (key === "maxFrames") state.frameLimit = value;
+    rememberDemoSettings({ [key]: value });
+  });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (["mode-blink", "mode-coadd", "mode-rgb", "mode-diff"].includes(button.id)) rememberDemoSettings({ viewMode: state.viewMode });
+    if (["btn-plot-spectrum", "btn-plot-lightcurve"].includes(button.id)) rememberDemoSettings({ spectrumPlotMode: state.spectrumPlotMode });
+    if (["btn-load-102-bands", "btn-temporal-search", "btn-irsa-sync"].includes(button.id)) rememberDemoSettings({ maxFrames: state.frameLimit });
+  });
+  updateDemoSummary();
+  if (!demoStore.data.entered) await new Promise((resolve) => { resolveDemoEntry = resolve; openDemoDialog(); });
+}
+
+function getAssistantContext() {
+  const profile = demoStore?.get();
+  const level = profile?.level || "explorador";
+  const pendingFrames = Number(document.getElementById("input-max-frames").value);
+  const settings = { maxFrames: Number.isInteger(pendingFrames) && pendingFrames > 0 ? pendingFrames : state.frameLimit,
+    fps: state.fps, showFlags: state.showFlags, showAIMarkers: state.showAIMarkers };
+  return {
+    profile: profile ? { ...profile, levelLabel: DemoProfiles.PRESETS[level].label } : null,
+    defaults: DemoProfiles.PRESETS[level].settings,
+    manualOverrides: profile ? profile.overrides : settings,
+    target: state.exploreData?.target_info || null,
+    detections: state.allAiDetections || [], selectedDetectionId: state.selectedDetectionId,
+    analysisFrames: (state.exploreData?.target_info?.analysis_frame_indices || []).map(index => state.exploreData.epochs[index]).filter(Boolean),
+    spectrum: !state.isLoading && state.assistantSpectrum?.exploreSequence === state.exploreSequence ? state.assistantSpectrum.data : null,
+    conversationKey: JSON.stringify([profile?.id || "guest", state.exploreSequence]),
+    answerKey: JSON.stringify([state.exploreSequence, state.selectedDetectionId, state.spectrumSequence, Boolean(state.assistantSpectrum)]),
+    temporal: state.temporalSearch, loading: state.isLoading,
+    revision: JSON.stringify([profile?.id || "guest", level, profile?.explanations, state.exploreSequence, state.isLoading, settings]),
+  };
+}
+
+function applyAssistantSettings(patch, revision) {
+  const context = getAssistantContext();
+  if (context.loading || context.revision !== revision) throw new Error("El contexto cambió. Pedí una propuesta nueva.");
+  if (!Number.isInteger(patch.maxFrames) || patch.maxFrames < 1 || patch.maxFrames > (state.temporalSearch ? 32 : 102)
+      || ![1, 2, 4, 6].includes(patch.fps) || typeof patch.showFlags !== "boolean" || typeof patch.showAIMarkers !== "boolean") {
+    throw new Error("Revisá los valores de la propuesta.");
+  }
+  const settings = { maxFrames: patch.maxFrames, fps: patch.fps, showFlags: patch.showFlags, showAIMarkers: patch.showAIMarkers };
+  state.frameLimit = settings.maxFrames;
+  state.fps = settings.fps;
+  state.showFlags = settings.showFlags;
+  state.showAIMarkers = settings.showAIMarkers;
+  document.getElementById("input-max-frames").value = settings.maxFrames;
+  document.getElementById("select-fps").value = settings.fps;
+  document.getElementById("chk-flags").checked = settings.showFlags;
+  document.getElementById("chk-ai-markers").checked = settings.showAIMarkers;
+  rememberDemoSettings(settings);
+  startBlinkTimer();
+  renderCanvas();
+}
 
 /**
  * Parsea coordenadas en grados decimales o sexagesimales.
@@ -171,7 +412,7 @@ function syncUrlParams(ra, dec, fov, temporalSearch = false) {
   else url.searchParams.delete("embed");
   if (state.invertPixels) url.searchParams.set("invert", "1");
   else url.searchParams.delete("invert");
-  window.history.replaceState({}, "", url);
+  window.history.replaceState({ ...window.history.state, papastronomyManagedUrl: true }, "", url);
 }
 
 function pixelToRaDec(xPix, yPix) {
@@ -251,16 +492,18 @@ function getTileCanvasRect(gx, gy, canvasSize) {
 
 function drawSeamlessTileImage(ctx, img, rect) {
   if (!img) return;
+  const sourceWidth = img.naturalWidth || img.width || CUTOUT_NPIX;
+  const sourceHeight = img.naturalHeight || img.height || CUTOUT_NPIX;
   if (rect.fullCutout) {
-    ctx.drawImage(img, 0, 0, CUTOUT_NPIX, CUTOUT_NPIX, rect.x, rect.y, rect.w, rect.h);
+    ctx.drawImage(img, 0, 0, sourceWidth, sourceHeight, rect.x, rect.y, rect.w, rect.h);
     return;
   }
   ctx.drawImage(
     img,
-    TILE_MARGIN_PIX,
-    TILE_MARGIN_PIX,
-    TILE_STEP_PIX,
-    TILE_STEP_PIX,
+    TILE_MARGIN_PIX / CUTOUT_NPIX * sourceWidth,
+    TILE_MARGIN_PIX / CUTOUT_NPIX * sourceHeight,
+    TILE_STEP_PIX / CUTOUT_NPIX * sourceWidth,
+    TILE_STEP_PIX / CUTOUT_NPIX * sourceHeight,
     rect.x,
     rect.y,
     rect.w,
@@ -301,11 +544,11 @@ function updateInfinitePlaneBadge() {
   if (!state.infinitePlaneEnabled) {
     badge.textContent = "Sección única · Mapa global inactivo";
     badge.className =
-      "absolute top-2.5 right-2.5 bg-slate-950/85 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-mono text-slate-300 pointer-events-none";
+      "map-status";
     return;
   }
   badge.className =
-    "absolute top-2.5 right-2.5 bg-slate-950/85 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-mono text-sky-300 pointer-events-none";
+    "map-status is-active";
   let readyCount = 0;
   let loadingCount = 0;
   state.tileGrid.forEach((t) => {
@@ -319,419 +562,64 @@ function updateInfinitePlaneBadge() {
   }
 }
 
-function extractNormalizedSnrGrid(rgbaData, w = 128, h = 128) {
-  const vals = [];
-  for (let y = TILE_MARGIN_PIX; y < h - TILE_MARGIN_PIX; y++) {
-    for (let x = TILE_MARGIN_PIX; x < w - TILE_MARGIN_PIX; x++) {
-      const i = (y * w + x) * 4;
-      if (rgbaData[i + 3] > 16) vals.push(rgbaData[i]);
-    }
-  }
-  if (vals.length === 0) {
-    for (let i = 0; i < rgbaData.length; i += 4) {
-      if (rgbaData[i + 3] > 16) vals.push(rgbaData[i]);
-    }
-  }
-  vals.sort((a, b) => a - b);
-  const p12 = vals.length ? vals[Math.floor(vals.length * 0.12)] : 14;
-  const p25 = vals.length ? vals[Math.floor(vals.length * 0.25)] : 20;
-  const p50 = vals.length ? vals[Math.floor(vals.length * 0.50)] : 26;
-  const absDevs = vals.map((v) => Math.abs(v - p50)).sort((a, b) => a - b);
-  const mad = absDevs.length ? absDevs[Math.floor(absDevs.length * 0.5)] : 6;
-  const lowerSigma = Math.max((p50 - p12) * 1.35, 6.0);
-  const sigma = Math.max(lowerSigma, Math.min(1.4826 * mad, lowerSigma * 2.2));
-  const sky = p25;
-
+// Los PNG son vistas estiradas de 8 bits, no matrices de flujo ni SNR.
+// Conservar la cobertura y cada exposición; nunca rellenar ni mezclar sus píxeles.
+function extractDisplayGrid(rgbaData, w = 128, h = 128) {
   const grid = new Float32Array(w * h);
-  grid.fill(NaN);
-  for (let idx = 0; idx < w * h; idx++) {
-    const i = idx * 4;
-    if (rgbaData[i + 3] > 16) {
-      grid[idx] = (rgbaData[i] - sky) / sigma;
-    }
+  for (let idx = 0; idx < grid.length; idx++) {
+    grid[idx] = rgbaData[idx * 4 + 3] > 0 ? rgbaData[idx * 4] / 255 : NaN;
   }
   return grid;
 }
 
-function inpaintMissingPixels(grid, w = 128, h = 128, passes = 14) {
-  let current = Float32Array.from(grid);
-  for (let p = 0; p < passes; p++) {
-    const next = Float32Array.from(current);
-    let remaining = 0;
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const idx = y * w + x;
-        if (Number.isFinite(current[idx])) continue;
-        let sum = 0;
-        let cnt = 0;
-        for (let dy = -2; dy <= 2; dy++) {
-          const ny = y + dy;
-          if (ny < 0 || ny >= h) continue;
-          for (let dx = -2; dx <= 2; dx++) {
-            const nx = x + dx;
-            if (nx < 0 || nx >= w) continue;
-            const v = current[ny * w + nx];
-            if (Number.isFinite(v)) {
-              sum += v;
-              cnt++;
-            }
-          }
-        }
-        if (cnt > 0) next[idx] = sum / cnt;
-        else remaining++;
-      }
-    }
-    current = next;
-    if (remaining === 0) break;
-  }
-  for (let i = 0; i < current.length; i++) {
-    if (!Number.isFinite(current[i])) current[i] = 0.0;
-  }
-  return current;
+function displayValueToByte(value) {
+  const gain = Number.isFinite(state.contrastGain) ? state.contrastGain : 1;
+  const amount = Number.isFinite(state.stretchLinearity) ? state.stretchLinearity : 0;
+  // Identidad por defecto; la curva adicional solo modifica el brillo de pantalla.
+  const v = Math.max(0, Math.min(1, value * gain));
+  const adjusted = (1 - amount) * v + amount * v * v;
+  const byte = Math.round(adjusted * 255);
+  return state.invertPixels ? 255 - byte : byte;
 }
 
-function snrToGrayscaleByte(snr) {
-  const gain = Number.isFinite(state.contrastGain) ? state.contrastGain : 1.0;
-  const lin = Number.isFinite(state.stretchLinearity) ? state.stretchLinearity : 0.0;
-  const z = Math.max(0.0, (snr + 0.55) * gain);
-  const asinhNorm = Math.min(1.0, Math.asinh(z / 2.2) / Math.asinh(14.0));
-  const linNorm = Math.min(1.0, z / 14.0);
-  const norm = (1.0 - lin) * asinhNorm + lin * linNorm;
-  const rawByte = Math.min(255, Math.max(0, Math.round(norm * 255)));
-  return state.invertPixels ? 255 - rawByte : rawByte;
-}
-
-function overlapTaper1D(u) {
-  const overlap = TILE_MARGIN_PIX * 2; // 32 px
-  if (u < overlap) {
-    return 0.5 * (1.0 - Math.cos((Math.PI * (u + 0.5)) / overlap));
+function displayGridToCanvas(grid) {
+  const canvas = document.createElement("canvas");
+  canvas.width = CUTOUT_NPIX;
+  canvas.height = CUTOUT_NPIX;
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(canvas.width, canvas.height);
+  for (let idx = 0; idx < grid.length; idx++) {
+    if (!Number.isFinite(grid[idx])) continue;
+    const byte = displayValueToByte(grid[idx]);
+    image.data.set([byte, byte, byte, 255], idx * 4);
   }
-  if (u >= CUTOUT_NPIX - overlap) {
-    return 0.5 * (1.0 - Math.cos((Math.PI * (CUTOUT_NPIX - 0.5 - u)) / overlap));
-  }
-  return 1.0;
-}
-
-function calibrateTileGridsToNeighbors(gx, gy, visualGrids) {
-  if ((gx === 0 && gy === 0) || !state.tileGrid) return;
-  const selfPairs = [];
-  const refPairs = [];
-
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if (dx === 0 && dy === 0) continue;
-      const nx = gx + dx;
-      const ny = gy + dy;
-      const neighbor = state.tileGrid.get(`${nx},${ny}`);
-      const nGrids = neighbor?.visualGrids;
-      if (!neighbor || neighbor.status !== "ready" || !nGrids) continue;
-
-      const shiftX = (gx - nx) * TILE_STEP_PIX;
-      const shiftY = -(gy - ny) * TILE_STEP_PIX;
-      const xStart = Math.max(0, -shiftX);
-      const xEnd = Math.min(CUTOUT_NPIX, CUTOUT_NPIX - shiftX);
-      const yStart = Math.max(0, -shiftY);
-      const yEnd = Math.min(CUTOUT_NPIX, CUTOUT_NPIX - shiftY);
-
-      for (let py = yStart; py < yEnd; py += 2) {
-        const npy = py + shiftY;
-        for (let px = xStart; px < xEnd; px += 2) {
-          const npx = px + shiftX;
-          const vSelf = visualGrids.mid[py * CUTOUT_NPIX + px];
-          const vRef = nGrids.mid[npy * CUTOUT_NPIX + npx];
-          if (Number.isFinite(vSelf) && Number.isFinite(vRef)) {
-            selfPairs.push(vSelf);
-            refPairs.push(vRef);
-          }
-        }
-      }
-    }
-  }
-
-  if (selfPairs.length < 24) return;
-  const sortedSelf = [...selfPairs].sort((a, b) => a - b);
-  const sortedRef = [...refPairs].sort((a, b) => a - b);
-  const q25Idx = Math.floor(sortedSelf.length * 0.25);
-  const q50Idx = Math.floor(sortedSelf.length * 0.50);
-  const q75Idx = Math.floor(sortedSelf.length * 0.75);
-
-  const medSelf = sortedSelf[q50Idx];
-  const medRef = sortedRef[q50Idx];
-  const iqrSelf = Math.max(sortedSelf[q75Idx] - sortedSelf[q25Idx], 0.45);
-  const iqrRef = Math.max(sortedRef[q75Idx] - sortedRef[q25Idx], 0.45);
-
-  const scale = Math.min(1.85, Math.max(0.42, iqrRef / iqrSelf));
-  const offset = Math.min(3.2, Math.max(-3.2, medRef - medSelf * scale));
-
-  const applyTransform = (arr) => {
-    for (let i = 0; i < arr.length; i++) {
-      arr[i] = arr[i] * scale + offset;
-    }
-  };
-  applyTransform(visualGrids.mid);
-  applyTransform(visualGrids.early);
-  applyTransform(visualGrids.late);
-  visualGrids.epochs.forEach(applyTransform);
+  ctx.putImageData(image, 0, 0);
+  return canvas;
 }
 
 function renderTileCanvasesFromGrids(gx, gy, visualGrids) {
-  const w = CUTOUT_NPIX;
-  const h = CUTOUT_NPIX;
-  const overlap = TILE_MARGIN_PIX * 2; // 32 px
-
-  const neighbors = [];
-  if (state.tileGrid) {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue;
-        const nx = gx + dx;
-        const ny = gy + dy;
-        const nTile = state.tileGrid.get(`${nx},${ny}`);
-        if (nTile && nTile.status === "ready" && nTile.visualGrids) {
-          neighbors.push({
-            shiftX: (gx - nx) * TILE_STEP_PIX,
-            shiftY: -(gy - ny) * TILE_STEP_PIX,
-            grids: nTile.visualGrids,
-          });
-        }
-      }
-    }
-  }
-
-  const blendMid = new Float32Array(w * h);
-  const blendEarly = new Float32Array(w * h);
-  const blendLate = new Float32Array(w * h);
-  const nEp = visualGrids.epochs.length;
-  const blendEpochs = visualGrids.epochs.map(() => new Float32Array(w * h));
-
-  for (let py = 0; py < h; py++) {
-    const wy = overlapTaper1D(py);
-    const inBorderY = py < overlap || py >= h - overlap;
-    for (let px = 0; px < w; px++) {
-      const idx = py * w + px;
-      const inBorderX = px < overlap || px >= w - overlap;
-      if (!inBorderX && !inBorderY || neighbors.length === 0) {
-        blendMid[idx] = visualGrids.mid[idx];
-        blendEarly[idx] = visualGrids.early[idx];
-        blendLate[idx] = visualGrids.late[idx];
-        for (let k = 0; k < nEp; k++) {
-          blendEpochs[k][idx] = visualGrids.epochs[k][idx];
-        }
-        continue;
-      }
-
-      const wSelf = Math.max(1e-4, overlapTaper1D(px) * wy);
-      let wSum = wSelf;
-      let mSum = wSelf * visualGrids.mid[idx];
-      let eSum = wSelf * visualGrids.early[idx];
-      let lSum = wSelf * visualGrids.late[idx];
-
-      for (let nIdx = 0; nIdx < neighbors.length; nIdx++) {
-        const nb = neighbors[nIdx];
-        const npx = px + nb.shiftX;
-        const npy = py + nb.shiftY;
-        if (npx < 0 || npx >= w || npy < 0 || npy >= h) continue;
-        const nWeight = overlapTaper1D(npx) * overlapTaper1D(npy);
-        if (nWeight <= 0) continue;
-        const nFlat = npy * w + npx;
-        wSum += nWeight;
-        mSum += nWeight * nb.grids.mid[nFlat];
-        eSum += nWeight * nb.grids.early[nFlat];
-        lSum += nWeight * nb.grids.late[nFlat];
-      }
-
-      const mVal = mSum / wSum;
-      blendMid[idx] = mVal;
-      blendEarly[idx] = eSum / wSum;
-      blendLate[idx] = lSum / wSum;
-
-      const deltaMid = mVal - visualGrids.mid[idx];
-      for (let k = 0; k < nEp; k++) {
-        blendEpochs[k][idx] = visualGrids.epochs[k][idx] + deltaMid;
-      }
-    }
-  }
-
-  // 1. Canvas de Mediana en escala de grises continua sin costuras entre bordes
-  const healedCoaddCanvas = document.createElement("canvas");
-  healedCoaddCanvas.width = w;
-  healedCoaddCanvas.height = h;
-  const hcCtx = healedCoaddCanvas.getContext("2d");
-  const hcImg = hcCtx.createImageData(w, h);
-  for (let idx = 0; idx < w * h; idx++) {
-    const g = snrToGrayscaleByte(blendMid[idx]);
-    const i = idx * 4;
-    hcImg.data[i] = g;
-    hcImg.data[i + 1] = g;
-    hcImg.data[i + 2] = g;
-    hcImg.data[i + 3] = 255;
-  }
-  hcCtx.putImageData(hcImg, 0, 0);
-
-  // 2. Épocas individuales alineadas radiométricamente al mosaico continuo
-  const normalizedEpochs = blendEpochs.map((epGrid) => {
-    const c = document.createElement("canvas");
-    c.width = w;
-    c.height = h;
-    const cctx = c.getContext("2d");
-    const cImg = cctx.createImageData(w, h);
-    for (let idx = 0; idx < w * h; idx++) {
-      const g = snrToGrayscaleByte(epGrid[idx]);
-      const i = idx * 4;
-      cImg.data[i] = g;
-      cImg.data[i + 1] = g;
-      cImg.data[i + 2] = g;
-      cImg.data[i + 3] = 255;
-    }
-    cctx.putImageData(cImg, 0, 0);
-    return c;
-  });
-
-  // 3. Compuesto infrarrojo continuo sin saltos de brillo ni color entre sectores
-  const colorCanvas = document.createElement("canvas");
-  colorCanvas.width = w;
-  colorCanvas.height = h;
-  const colorCtx = colorCanvas.getContext("2d");
-  const colorImg = colorCtx.createImageData(w, h);
-  const gain = Number.isFinite(state.contrastGain) ? state.contrastGain : 1.0;
-  const lin = Number.isFinite(state.stretchLinearity) ? state.stretchLinearity : 0.0;
-  for (let idx = 0; idx < w * h; idx++) {
-    const sMid = blendMid[idx];
-    const sEarly = blendEarly[idx];
-    const sLate = blendLate[idx];
-    const sLum = Math.max(0.0, (0.25 * sEarly + 0.50 * sMid + 0.25 * sLate + 0.55) * gain);
-    const asinhLum = Math.min(1.0, Math.asinh(sLum / 2.0) / Math.asinh(13.5));
-    const linLum = Math.min(1.0, sLum / 13.5);
-    const lum = (1.0 - lin) * asinhLum + lin * linLum;
-
-    const sourceWeight = Math.min(1.0, Math.max(0.0, (sLum - 1.1) / 2.6));
-    const colorIndex = Math.max(-1.0, Math.min(1.0, (sLate - sEarly) * 0.22)) * sourceWeight;
-
-    const baseR = 7 + lum * 242;
-    const baseG = 11 + lum * 236;
-    const baseB = 22 + lum * 233;
-
-    const i = idx * 4;
-    const rByte = Math.min(255, Math.max(0, Math.round(baseR + colorIndex * 46)));
-    const gByte = Math.min(255, Math.max(0, Math.round(baseG - Math.abs(colorIndex) * 10)));
-    const bByte = Math.min(255, Math.max(0, Math.round(baseB - colorIndex * 46)));
-    colorImg.data[i] = state.invertPixels ? 255 - rByte : rByte;
-    colorImg.data[i + 1] = state.invertPixels ? 255 - gByte : gByte;
-    colorImg.data[i + 2] = state.invertPixels ? 255 - bByte : bByte;
-    colorImg.data[i + 3] = 255;
-  }
-  colorCtx.putImageData(colorImg, 0, 0);
-
-  return { colorCanvas, healedCoaddCanvas, normalizedEpochs };
-}
-
-function rebakeTileNeighborhood(centerGx, centerGy) {
-  if (!state.tileGrid) return;
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const tx = centerGx + dx;
-      const ty = centerGy + dy;
-      const tile = state.tileGrid.get(`${tx},${ty}`);
-      if (!tile || tile.status !== "ready" || !tile.visualGrids) continue;
-      const baked = renderTileCanvasesFromGrids(tx, ty, tile.visualGrids);
-      tile.coaddImage = baked.healedCoaddCanvas;
-      tile.epochImages = baked.normalizedEpochs;
-      tile.colorSkyCanvas = baked.colorCanvas;
-      if (tx === 0 && ty === 0) {
-        state.coaddImage = baked.healedCoaddCanvas;
-        state.epochImages = baked.normalizedEpochs;
-        state.skyView.colorSkyCanvas = baked.colorCanvas;
-      }
-    }
-  }
-  snapNamedObjectsToTilePeaks();
+  const coaddCanvas = displayGridToCanvas(visualGrids.mid);
+  return {
+    colorCanvas: coaddCanvas,
+    coaddCanvas,
+    epochCanvases: visualGrids.epochs.map(displayGridToCanvas),
+  };
 }
 
 function createTileVisualCanvases(coaddImage, epochImages, gx = 0, gy = 0) {
   if (!coaddImage) {
-    return {
-      colorCanvas: null,
-      healedCoaddCanvas: null,
-      normalizedEpochs: epochImages || [],
-      visualGrids: null,
-    };
+    return { colorCanvas: null, coaddCanvas: null, epochCanvases: epochImages || [], visualGrids: null };
   }
-  const w = 128;
-  const h = 128;
-  const off = document.createElement("canvas");
-  off.width = w;
-  off.height = h;
-  const ctx = off.getContext("2d");
-  ctx.drawImage(coaddImage, 0, 0, w, h);
-  const coaddGrid = extractNormalizedSnrGrid(ctx.getImageData(0, 0, w, h).data, w, h);
-
-  const epochGrids = (epochImages || []).map((img) => {
-    const c = document.createElement("canvas");
-    c.width = w;
-    c.height = h;
-    const cctx = c.getContext("2d");
-    cctx.drawImage(img, 0, 0, w, h);
-    return extractNormalizedSnrGrid(cctx.getImageData(0, 0, w, h).data, w, h);
-  });
-
-  const nEp = epochGrids.length;
-  const third = Math.max(1, Math.floor(nEp / 3));
-  const sampleEpochRange = (startIdx, endIdx, idx) => {
-    let sum = 0;
-    let cnt = 0;
-    for (let k = startIdx; k < endIdx; k++) {
-      const v = epochGrids[k][idx];
-      if (Number.isFinite(v)) {
-        sum += v;
-        cnt++;
-      }
-    }
-    return cnt > 0 ? sum / cnt : NaN;
+  const readGrid = (image) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = CUTOUT_NPIX;
+    canvas.height = CUTOUT_NPIX;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return extractDisplayGrid(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
   };
-
-  const midRaw = new Float32Array(w * h);
-  const earlyRaw = new Float32Array(w * h);
-  const lateRaw = new Float32Array(w * h);
-  for (let idx = 0; idx < w * h; idx++) {
-    const vAll = nEp > 0 ? sampleEpochRange(0, nEp, idx) : NaN;
-    const vCoadd = coaddGrid[idx];
-    const m = Number.isFinite(vCoadd) && Number.isFinite(vAll)
-      ? 0.55 * vCoadd + 0.45 * vAll
-      : Number.isFinite(vCoadd)
-      ? vCoadd
-      : vAll;
-    midRaw[idx] = m;
-    const e = nEp >= 2 ? sampleEpochRange(0, third, idx) : m;
-    const l = nEp >= 2 ? sampleEpochRange(Math.max(1, nEp - third), nEp, idx) : m;
-    earlyRaw[idx] = Number.isFinite(e) ? e : m;
-    lateRaw[idx] = Number.isFinite(l) ? l : m;
-  }
-
-  const midHealed = inpaintMissingPixels(midRaw, w, h, 14);
-  const earlyHealed = inpaintMissingPixels(earlyRaw, w, h, 14);
-  const lateHealed = inpaintMissingPixels(lateRaw, w, h, 14);
-  const healedEpochs = epochGrids.map((epGrid) => {
-    const out = new Float32Array(w * h);
-    for (let idx = 0; idx < w * h; idx++) {
-      out[idx] = Number.isFinite(epGrid[idx]) ? epGrid[idx] : midHealed[idx];
-    }
-    return out;
-  });
-
-  const visualGrids = {
-    mid: midHealed,
-    early: earlyHealed,
-    late: lateHealed,
-    epochs: healedEpochs,
-  };
-
-  calibrateTileGridsToNeighbors(gx, gy, visualGrids);
-  const baked = renderTileCanvasesFromGrids(gx, gy, visualGrids);
-  return { ...baked, visualGrids };
-}
-
-function createColorCompositeCanvas(coaddImage, epochImages) {
-  return createTileVisualCanvases(coaddImage, epochImages, 0, 0).colorCanvas;
+  const visualGrids = { mid: readGrid(coaddImage), epochs: (epochImages || []).map(readGrid) };
+  return { ...renderTileCanvasesFromGrids(gx, gy, visualGrids), visualGrids };
 }
 
 function abortBackgroundTiles() {
@@ -839,15 +727,14 @@ async function fetchSingleBackgroundTile(gx, gy, sequence) {
     const visuals = createTileVisualCanvases(coadd, images, gx, gy);
     entry.status = "ready";
     entry.exploreData = data;
-    entry.epochImages = visuals.normalizedEpochs;
+    entry.epochImages = visuals.epochCanvases;
     entry.flagImages = flags;
-    entry.coaddImage = visuals.healedCoaddCanvas || coadd;
+    entry.coaddImage = visuals.coaddCanvas || coadd;
     entry.diffImage = diff;
     entry.colorSkyCanvas = visuals.colorCanvas;
     entry.visualGrids = visuals.visualGrids;
     entry.aiDetections = mappedDetections;
 
-    rebakeTileNeighborhood(gx, gy);
     mergeTileDetections(mappedDetections);
     trimTileCache();
     updateInfinitePlaneBadge();
@@ -1221,13 +1108,10 @@ function buildThreeBandRgbCanvas() {
     else if (wl >= 3.0) redIdxs.push(idx);
   });
 
-  const sampleIndices = (idxs, fallbackGrid, pIdx) => {
-    if (!idxs.length) return fallbackGrid ? fallbackGrid[pIdx] : 0;
-    let sum = 0;
-    for (let i = 0; i < idxs.length; i++) {
-      sum += grids.epochs[idxs[i]][pIdx];
-    }
-    return sum / idxs.length;
+  if (!blueIdxs.length || !greenIdxs.length || !redIdxs.length) return null;
+  const sampleIndices = (idxs, pIdx) => {
+    const values = idxs.map((idx) => grids.epochs[idx]?.[pIdx]).filter(Number.isFinite);
+    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : NaN;
   };
 
   const c = document.createElement("canvas");
@@ -1236,14 +1120,13 @@ function buildThreeBandRgbCanvas() {
   const ctx = c.getContext("2d");
   const imgData = ctx.createImageData(w, h);
   for (let pIdx = 0; pIdx < w * h; pIdx++) {
-    const bSnr = sampleIndices(blueIdxs, grids.early, pIdx);
-    const rSnr = sampleIndices(redIdxs, grids.late, pIdx);
-    const gSnr = greenIdxs.length
-      ? sampleIndices(greenIdxs, grids.mid, pIdx)
-      : 0.5 * (bSnr + rSnr);
-    const rByte = snrToGrayscaleByte(rSnr);
-    const gByte = snrToGrayscaleByte(gSnr);
-    const bByte = snrToGrayscaleByte(bSnr);
+    const blueValue = sampleIndices(blueIdxs, pIdx);
+    const redValue = sampleIndices(redIdxs, pIdx);
+    const greenValue = sampleIndices(greenIdxs, pIdx);
+    if (![blueValue, redValue, greenValue].every(Number.isFinite)) continue;
+    const rByte = displayValueToByte(redValue);
+    const gByte = displayValueToByte(greenValue);
+    const bByte = displayValueToByte(blueValue);
     const i = pIdx * 4;
     imgData.data[i] = rByte;
     imgData.data[i + 1] = gByte;
@@ -1269,16 +1152,17 @@ function computeManualEpochPairCanvas(idxA, idxB, op = "diff") {
 
   for (let pIdx = 0; pIdx < w * h; pIdx++) {
     const i = pIdx * 4;
+    if (!Number.isFinite(gridA[pIdx]) || !Number.isFinite(gridB[pIdx])) continue;
     if (op === "sum") {
       const avg = 0.5 * (gridA[pIdx] + gridB[pIdx]);
-      const g = snrToGrayscaleByte(avg);
+      const g = displayValueToByte(avg);
       imgData.data[i] = g;
       imgData.data[i + 1] = g;
       imgData.data[i + 2] = g;
       imgData.data[i + 3] = 255;
     } else {
       const delta = gridB[pIdx] - gridA[pIdx];
-      const norm = Math.tanh(delta / 2.8);
+      const norm = Math.tanh(delta * 3);
       if (norm >= 0) {
         imgData.data[i] = Math.min(255, Math.round(12 + norm * 243));
         imgData.data[i + 1] = Math.min(255, Math.round(16 + norm * 55));
@@ -1318,32 +1202,37 @@ function computeShiftAndStackCanvas(pmRaMasYr, pmDecMasYr, directPixelDelta = nu
   const arcsecPerPix = Math.max(0.05, (state.fov * 3600.0) / CUTOUT_NPIX);
 
   const sampleBilinear = (grid, x, y) => {
-    const cx = Math.max(0, Math.min(w - 1.001, x));
-    const cy = Math.max(0, Math.min(h - 1.001, y));
+    if (x < 0 || y < 0 || x > w - 1 || y > h - 1) return NaN;
+    const cx = x;
+    const cy = y;
     const x0 = Math.floor(cx);
     const y0 = Math.floor(cy);
     const fx = cx - x0;
     const fy = cy - y0;
-    const v00 = grid[y0 * w + x0];
-    const v10 = grid[y0 * w + (x0 + 1)];
-    const v01 = grid[(y0 + 1) * w + x0];
-    const v11 = grid[(y0 + 1) * w + (x0 + 1)];
-    return (1 - fx) * (1 - fy) * v00 + fx * (1 - fy) * v10 + (1 - fx) * fy * v01 + fx * fy * v11;
+    const x1 = Math.min(x0 + 1, w - 1);
+    const y1 = Math.min(y0 + 1, h - 1);
+    const samples = [[grid[y0 * w + x0], (1-fx)*(1-fy)],
+      [grid[y0 * w + x1], fx*(1-fy)], [grid[y1 * w + x0], (1-fx)*fy],
+      [grid[y1 * w + x1], fx*fy]];
+    if (samples.some(([v, weight]) => weight > 1e-9 && !Number.isFinite(v))) return NaN;
+    return samples.reduce((sum, [v, weight]) => sum + (weight > 1e-9 ? v * weight : 0), 0);
   };
 
+  if (!directPixelDelta && (pmRaMasYr || pmDecMasYr) && validMjds.length !== nEp) return null;
   const shifts = [];
   for (let k = 0; k < nEp; k++) {
     if (directPixelDelta && Number.isFinite(directPixelDelta.dxEarlyToLate) && Number.isFinite(directPixelDelta.dyEarlyToLate)) {
-      const fracFromLate = nEp > 1 ? k / (nEp - 1) - 1.0 : 0.0;
+      const fracFromLate = spanDays > 0 && Number.isFinite(mjds[k])
+        ? (mjds[k] - maxMjd) / spanDays : 0;
       shifts.push({
         dx: fracFromLate * directPixelDelta.dxEarlyToLate,
         dy: -fracFromLate * directPixelDelta.dyEarlyToLate,
       });
     } else {
       const dtYears =
-        spanDays >= 7.0 && Number.isFinite(mjds[k])
+        Number.isFinite(mjds[k])
           ? (mjds[k] - maxMjd) / 365.25
-          : (nEp > 1 ? k / (nEp - 1) - 1.0 : 0.0) * 0.5;
+          : 0;
       const dRaArcsec = (pmRaMasYr / 1000.0) * dtYears;
       const dDecArcsec = (pmDecMasYr / 1000.0) * dtYears;
       shifts.push({
@@ -1361,11 +1250,13 @@ function computeShiftAndStackCanvas(pmRaMasYr, pmDecMasYr, directPixelDelta = nu
   for (let py = 0; py < h; py++) {
     for (let px = 0; px < w; px++) {
       let sum = 0;
+      let count = 0;
       for (let k = 0; k < nEp; k++) {
-        sum += sampleBilinear(grids.epochs[k], px + shifts[k].dx, py + shifts[k].dy);
+        const value = sampleBilinear(grids.epochs[k], px + shifts[k].dx, py + shifts[k].dy);
+        if (Number.isFinite(value)) { sum += value; count++; }
       }
-      const stackedSnr = (sum / nEp) * Math.min(1.45, Math.pow(nEp, 0.18));
-      const g = snrToGrayscaleByte(stackedSnr);
+      if (!count) continue;
+      const g = displayValueToByte(sum / count);
       const i = (py * w + px) * 4;
       imgData.data[i] = g;
       imgData.data[i + 1] = g;
@@ -1382,19 +1273,19 @@ function rebakeAllOpticalCanvases() {
     state.tileGrid.forEach((tile) => {
       if (!tile || tile.status !== "ready" || !tile.visualGrids) return;
       const baked = renderTileCanvasesFromGrids(tile.gx, tile.gy, tile.visualGrids);
-      tile.coaddImage = baked.healedCoaddCanvas;
-      tile.epochImages = baked.normalizedEpochs;
+      tile.coaddImage = baked.coaddCanvas;
+      tile.epochImages = baked.epochCanvases;
       tile.colorSkyCanvas = baked.colorCanvas;
       if (tile.gx === 0 && tile.gy === 0) {
-        state.coaddImage = baked.healedCoaddCanvas;
-        state.epochImages = baked.normalizedEpochs;
+        state.coaddImage = baked.coaddCanvas;
+        state.epochImages = baked.epochCanvases;
         state.skyView.colorSkyCanvas = baked.colorCanvas;
       }
     });
   } else if (state.originVisualGrids) {
     const baked = renderTileCanvasesFromGrids(0, 0, state.originVisualGrids);
-    state.coaddImage = baked.healedCoaddCanvas;
-    state.epochImages = baked.normalizedEpochs;
+    state.coaddImage = baked.coaddCanvas;
+    state.epochImages = baked.epochCanvases;
     state.skyView.colorSkyCanvas = baked.colorCanvas;
   }
   state.rgbCompositeCanvas = buildThreeBandRgbCanvas();
@@ -1420,8 +1311,8 @@ function buildCatalogSourcesFromField() {
   const visuals = createTileVisualCanvases(state.coaddImage, state.epochImages, 0, 0);
   state.originVisualGrids = visuals.visualGrids || null;
   state.skyView.colorSkyCanvas = visuals.colorCanvas;
-  if (visuals.healedCoaddCanvas) state.coaddImage = visuals.healedCoaddCanvas;
-  if (visuals.normalizedEpochs?.length) state.epochImages = visuals.normalizedEpochs;
+  if (visuals.coaddCanvas) state.coaddImage = visuals.coaddCanvas;
+  if (visuals.epochCanvases?.length) state.epochImages = visuals.epochCanvases;
   state.rgbCompositeCanvas = buildThreeBandRgbCanvas();
   state.manualOpCanvas = null;
   state.manualOpMeta = null;
@@ -1628,161 +1519,11 @@ function clearNamedObjectSelection() {
   renderNamedObjectsPanel();
 }
 
-function findBestTileForGlobalPixel(rawX, rawY) {
-  if (!state.tileGrid) return null;
-  const prefGx = Math.floor((rawX + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
-  const prefGy = Math.floor((rawY + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
-  const prefTile = state.tileGrid.get(`${prefGx},${prefGy}`);
-  if (prefTile && prefTile.status === "ready" && prefTile.visualGrids) {
-    return prefTile;
-  }
-
-  let bestTile = null;
-  let bestDist = Infinity;
-  state.tileGrid.forEach((tile) => {
-    if (tile.status !== "ready" || !tile.visualGrids) return;
-    const lx = rawX - tile.gx * TILE_STEP_PIX;
-    const ly = rawY - tile.gy * TILE_STEP_PIX;
-    if (lx >= 2 && lx < CUTOUT_NPIX - 2 && ly >= 2 && ly < CUTOUT_NPIX - 2) {
-      const d = Math.hypot(lx - 63.5, ly - 63.5);
-      if (d < bestDist) {
-        bestDist = d;
-        bestTile = tile;
-      }
-    }
-  });
-  return bestTile;
-}
-
-function snapGlobalPixelToTilePeak(rawX, rawY, maxRadius = 22, minExcess = 0.65) {
-  const tile = findBestTileForGlobalPixel(rawX, rawY);
-  if (!tile || !tile.visualGrids) return null;
-
-  const w = CUTOUT_NPIX;
-  const h = CUTOUT_NPIX;
-  const px0 = rawX - tile.gx * TILE_STEP_PIX;
-  const py0 = h - 1 - (rawY - tile.gy * TILE_STEP_PIX);
-  const ix = Math.round(px0);
-  const iy = Math.round(py0);
-  if (ix < 2 || ix >= w - 2 || iy < 2 || iy >= h - 2) return null;
-
-  const { mid, early, late } = tile.visualGrids;
-  const x0 = Math.max(1, ix - maxRadius);
-  const x1 = Math.min(w - 2, ix + maxRadius);
-  const y0 = Math.max(1, iy - maxRadius);
-  const y1 = Math.min(h - 2, iy + maxRadius);
-
-  const sampleSmooth = (cx, cy) => {
-    let sum = 0;
-    for (let dy = -1; dy <= 1; dy++) {
-      const row = (cy + dy) * w;
-      for (let dx = -1; dx <= 1; dx++) {
-        const idx = row + (cx + dx);
-        sum += Math.max(mid[idx], early[idx], late[idx]);
-      }
-    }
-    return sum / 9.0;
-  };
-
-  const centerVal = sampleSmooth(ix, iy);
-  // Si ya está en la cúpula de una estrella saturada gigante (como R Draconis), mantener el centro
-  if (centerVal > 6.5) {
-    return { x: rawX, y: rawY, snapped: false };
-  }
-
-  const samples = [];
-  for (let y = y0; y <= y1; y += 2) {
-    for (let x = x0; x <= x1; x += 2) {
-      samples.push(sampleSmooth(x, y));
-    }
-  }
-  samples.sort((a, b) => a - b);
-  const bgFloor = Math.min(0.20, samples.length ? samples[Math.floor(samples.length * 0.2)] : 0.0);
-
-  let bestScore = -1.0;
-  let peakX = ix;
-  let peakY = iy;
-
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const d = Math.hypot(x - px0, y - py0);
-      if (d > maxRadius) continue;
-      const valC = sampleSmooth(x, y);
-      const exc = valC - bgFloor;
-      if (exc < minExcess) continue;
-
-      let isLocalMax = true;
-      for (let ny = y - 1; ny <= y + 1 && isLocalMax; ny++) {
-        for (let nx = x - 1; nx <= x + 1; nx++) {
-          if (nx === x && ny === y) continue;
-          if (sampleSmooth(nx, ny) > valC + 1e-5) {
-            isLocalMax = false;
-            break;
-          }
-        }
-      }
-      if (!isLocalMax) continue;
-
-      const score = Math.pow(exc, 2.2) / (1.0 + 0.06 * d);
-      if (score > bestScore) {
-        bestScore = score;
-        peakX = x;
-        peakY = y;
-      }
-    }
-  }
-
-  if (bestScore < 0) return null;
-
-  let wSum = 0;
-  let wxSum = 0;
-  let wySum = 0;
-  for (let y = Math.max(0, peakY - 2); y <= Math.min(h - 1, peakY + 2); y++) {
-    for (let x = Math.max(0, peakX - 2); x <= Math.min(w - 1, peakX + 2); x++) {
-      const idx = y * w + x;
-      const rawV = Math.max(mid[idx], early[idx], late[idx]);
-      const exc = Math.max(0.0, rawV - bgFloor);
-      const wt = exc * exc;
-      wSum += wt;
-      wxSum += x * wt;
-      wySum += y * wt;
-    }
-  }
-
-  const cenPx = wSum > 1e-6 ? wxSum / wSum : peakX;
-  const cenPy = wSum > 1e-6 ? wySum / wSum : peakY;
-  const snappedX = tile.gx * TILE_STEP_PIX + cenPx;
-  const snappedY = tile.gy * TILE_STEP_PIX + (h - 1 - cenPy);
-  return { x: snappedX, y: snappedY, snapped: true };
-}
-
-function snapNamedObjectsToTilePeaks() {
-  const objects = state.skyView.namedObjects || [];
-  objects.forEach((obj) => {
-    const baseRa = obj.catalogRa ?? obj.ra;
-    const baseDec = obj.catalogDec ?? obj.dec;
-    const rawPos = raDecToPixel(baseRa, baseDec);
-    if (obj.in_fov === false && !state.infinitePlaneEnabled) {
-      obj.x = rawPos.x;
-      obj.y = rawPos.y;
-      return;
-    }
-    const isPrimaryOrHighPm =
-      (Number.isFinite(obj.distance_arcsec) && obj.distance_arcsec <= 15) ||
-      (Number.isFinite(obj.proper_motion_mas_yr) && obj.proper_motion_mas_yr >= 500);
-    const snapRadius = isPrimaryOrHighPm ? 20 : 5;
-    const minExcess = isPrimaryOrHighPm ? 0.85 : 1.15;
-    const snapped = snapGlobalPixelToTilePeak(rawPos.x, rawPos.y, snapRadius, minExcess);
-    if (snapped && snapped.snapped) {
-      obj.x = snapped.x;
-      obj.y = snapped.y;
-      const coords = pixelToRaDec(snapped.x, snapped.y);
-      obj.ra = coords.ra;
-      obj.dec = coords.dec;
-    } else {
-      obj.x = rawPos.x;
-      obj.y = rawPos.y;
-    }
+function projectNamedObjects() {
+  (state.skyView.namedObjects || []).forEach((obj) => {
+    obj.ra = obj.catalogRa ?? obj.ra;
+    obj.dec = obj.catalogDec ?? obj.dec;
+    Object.assign(obj, raDecToPixel(obj.ra, obj.dec));
   });
 }
 
@@ -1806,7 +1547,7 @@ function mergeNamedObjects(newObjects) {
     });
   });
   state.skyView.namedObjects = Array.from(map.values());
-  snapNamedObjectsToTilePeaks();
+  projectNamedObjects();
 }
 
 function mergeCatalogSources(key, newSources) {
@@ -1814,11 +1555,10 @@ function mergeCatalogSources(key, newSources) {
   (state.skyView[key] || []).forEach((src) => map.set(src.id, src));
   (newSources || []).forEach((src) => {
     const rawPos = raDecToPixel(src.ra, src.dec);
-    const snapped = snapGlobalPixelToTilePeak(rawPos.x, rawPos.y, 3, 1.15);
     map.set(src.id, {
       ...src,
-      x: snapped?.snapped ? snapped.x : rawPos.x,
-      y: snapped?.snapped ? snapped.y : rawPos.y,
+      x: rawPos.x,
+      y: rawPos.y,
       w1: src.mag,
     });
   });
@@ -2027,10 +1767,14 @@ const SURVEY_HIPS_MAP = {
   dss2: { id: "CDS/P/DSS2/color", label: "DSS2 Óptico (Rojo/Azul)" },
 };
 
+function externalSurveyKey(survey, ra, dec, fov) {
+  return `${survey}|${Number(ra).toFixed(5)}|${Number(dec).toFixed(5)}|${Number(fov).toFixed(4)}`;
+}
+
 function ensureExternalSurveyImage(survey, ra, dec, fov) {
   const meta = SURVEY_HIPS_MAP[survey];
   if (!meta) return null;
-  const key = `${survey}|${Number(ra).toFixed(5)}|${Number(dec).toFixed(5)}|${Number(fov).toFixed(4)}`;
+  const key = externalSurveyKey(survey, ra, dec, fov);
   const cached = state.externalSurveyCache.get(key);
   if (cached) {
     state.externalSurveyCache.delete(key);
@@ -2059,12 +1803,22 @@ function ensureExternalSurveyImage(survey, ra, dec, fov) {
   };
   img.onerror = () => {
     entry.status = "error";
+    renderContextSkyMap();
   };
   img.src =
     `https://alasky.cds.unistra.fr/hips-image-services/hips2fits?hips=${encodeURIComponent(meta.id)}` +
     `&width=384&height=384&fov=${encodeURIComponent(fov)}&projection=TAN&coordsys=icrs` +
     `&ra=${encodeURIComponent(ra)}&dec=${encodeURIComponent(dec)}&format=jpg`;
   return null;
+}
+
+function paintCoverageBackground(ctx, width, height) {
+  for (let y = 0; y < height; y += 12) {
+    for (let x = 0; x < width; x += 12) {
+      ctx.fillStyle = ((x / 12 + y / 12) % 2) ? "#172333" : "#101927";
+      ctx.fillRect(x, y, 12, 12);
+    }
+  }
 }
 
 function renderContextSkyMap() {
@@ -2074,8 +1828,7 @@ function renderContextSkyMap() {
   const W = canvas.width;
   const H = canvas.height;
 
-  ctx.fillStyle = "#050914";
-  ctx.fillRect(0, 0, W, H);
+  paintCoverageBackground(ctx, W, H);
 
   const bounds = state.infinitePlaneEnabled
     ? getVisibleTileBounds(W)
@@ -2088,8 +1841,8 @@ function renderContextSkyMap() {
       surveyHudEl.textContent = SURVEY_HIPS_MAP[state.contextSurvey].label;
       surveyHudEl.className = "text-amber-300 font-semibold";
     } else {
-      surveyHudEl.textContent = "Compuesto visual SPHEREx";
-      surveyHudEl.className = "hidden";
+      surveyHudEl.textContent = "SPHEREx · mediana de los recortes";
+      surveyHudEl.className = "text-sky-300 font-semibold";
     }
   }
 
@@ -2105,7 +1858,7 @@ function renderContextSkyMap() {
         isOrigin && state.contextSurvey !== "spherex"
           ? ensureExternalSurveyImage(state.contextSurvey, state.ra, state.dec, state.fov)
           : null;
-      const colorImg = extSurveyImg
+      const colorImg = state.contextSurvey !== "spherex"
         ? extSurveyImg
         : (tile && tile.status === "ready")
         ? tile.colorSkyCanvas
@@ -2115,7 +1868,16 @@ function renderContextSkyMap() {
       if (colorImg) {
         drawSeamlessTileImage(ctx, colorImg, rect);
       } else {
-        drawInfiniteTilePlaceholder(ctx, rect, gx, gy, tile?.status || "queued");
+        if (state.contextSurvey !== "spherex") {
+          const entry = state.externalSurveyCache.get(externalSurveyKey(state.contextSurvey, state.ra, state.dec, state.fov));
+          ctx.fillStyle = "#cbd5e1";
+          ctx.font = "12px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(isOrigin ? (entry?.status === "error" ? "No se pudo cargar el relevamiento" : "Cargando relevamiento…") : "Relevamiento externo: campo central", rect.x + rect.w / 2, rect.y + rect.h / 2);
+          ctx.textAlign = "start";
+        } else {
+          drawInfiniteTilePlaceholder(ctx, rect, gx, gy, tile?.status || "queued");
+        }
       }
     }
   }
@@ -2177,7 +1939,6 @@ function renderContextSkyMap() {
     ctx.save();
     ctx.strokeStyle = "rgba(56, 189, 248, 0.70)";
     ctx.lineWidth = 1.2;
-    const pxPerArcsec = W / ((state.fov / (state.skyView.zoom || 1)) * 3600);
     state.skyView.gaiaSources.forEach((src) => {
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
@@ -2186,13 +1947,16 @@ function renderContextSkyMap() {
       ctx.stroke();
       // Flecha de movimiento propio (Gaia pmra/pmdec en mas/año)
       if (state.showPmVectors && Number.isFinite(src.pmra) && Number.isFinite(src.pmdec) && (src.pmra !== 0 || src.pmdec !== 0)) {
-        const dRa = (src.pmra / 1000) * Math.cos((src.dec * Math.PI) / 180); // ″/año en RA
-        const dDec = src.pmdec / 1000; // ″/año en Dec
-        const mag = Math.hypot(dRa, dDec);
-        if (mag > 0) {
-          const len = Math.min(30, Math.max(7, mag * pxPerArcsec * 80));
-          const ux = dRa / mag;
-          const uy = -dDec / mag; // el Dec crece hacia arriba en pantalla
+        const cosDec = Math.cos(src.dec * Math.PI / 180);
+        const endpoint = raDecToPixel(src.ra + src.pmra * 80 / (3600000 * Math.max(1e-6, Math.abs(cosDec))), src.dec + src.pmdec * 80 / 3600000);
+        const endScreen = fitsToSkyCanvas(endpoint.x, endpoint.y, W);
+        const dx = endScreen.cx - cx;
+        const dy = endScreen.cy - cy;
+        const mag = Math.hypot(dx, dy);
+        if (mag > 0.5) {
+          const len = Math.min(30, mag);
+          const ux = dx / mag;
+          const uy = dy / mag;
           const ex = cx + ux * len;
           const ey = cy + uy * len;
           ctx.strokeStyle = "rgba(125, 211, 252, 0.9)";
@@ -2300,6 +2064,11 @@ function loadImagePromise(b64Src) {
   });
 }
 
+function getAutoEpochIndices(epochs) {
+  const indices = epochs.flatMap((ep, idx) => ep.valid_pixels_pct === 0 ? [] : [idx]);
+  return indices.length ? indices : epochs.map((_, idx) => idx);
+}
+
 function getSelectedBandIndex(epochs) {
   if (!epochs.length) return 0;
   if (state.selectedBand === "auto" || String(state.selectedBand).startsWith("coadd:")) {
@@ -2336,11 +2105,13 @@ function renderCanvas() {
   const W = canvas.width;
   const H = canvas.height;
   ctx.imageSmoothingEnabled = false;
-  ctx.fillStyle = "#030712";
-  ctx.fillRect(0, 0, W, H);
+  paintCoverageBackground(ctx, W, H);
 
   const epochs = state.exploreData.epochs || [];
   const epIdx = getSelectedBandIndex(epochs);
+  const note = document.getElementById("image-integrity-note");
+  const shape = epochs[epIdx]?.native_shape;
+  if (note) note.textContent = `Norte arriba · este a la izquierda. Damero: sin datos válidos.${state.showFlags && state.viewMode === "blink" && !String(state.selectedBand).startsWith("coadd:") ? " Magenta: FLAGS de esta exposición." : " FLAGS se aplica a exposiciones individuales."}${state.viewMode === "blink" && shape?.length === 2 ? ` Recorte original: ${shape[1]} × ${shape[0]} píxeles; reproyectado a 128 × 128.` : ""}`;
   const selectedDetCode = String(state.selectedBand).startsWith("coadd:")
     ? String(state.selectedBand).slice(6)
     : null;
@@ -2369,13 +2140,13 @@ function renderCanvas() {
           : Boolean(tile?.exploreData?.target_info?.difference_available);
         let baseImg = null;
         if (state.viewMode === "diff") {
-          baseImg = hasDiff && tDiff ? tDiff : tCoadd;
+          baseImg = hasDiff ? tDiff : null;
         } else if (isOrigin && state.viewMode === "shift_stack" && state.shiftStackCanvas) {
           baseImg = state.shiftStackCanvas;
         } else if (isOrigin && (state.viewMode === "manual_diff" || state.viewMode === "manual_sum") && state.manualOpCanvas) {
           baseImg = state.manualOpCanvas;
         } else if (state.viewMode === "rgb") {
-          baseImg = isOrigin && state.rgbCompositeCanvas ? state.rgbCompositeCanvas : (tile?.colorSkyCanvas || tCoadd);
+          baseImg = isOrigin ? state.rgbCompositeCanvas : null;
         } else if (isOrigin && detCoaddImg) {
           baseImg = detCoaddImg;
         } else if (state.viewMode === "coadd") {
@@ -2385,8 +2156,12 @@ function renderCanvas() {
           baseImg = tEpochs[tileEpIdx];
         }
 
-        if (state.viewMode === "blink" && !detCoaddImg && tCoadd && baseImg !== tCoadd) {
-          drawSeamlessTileImage(ctx, tCoadd, rect);
+        if (isOrigin && ((state.viewMode === "blink" && !detCoaddImg && epochs[epIdx]?.valid_pixels_pct === 0) || (!baseImg && state.viewMode === "rgb"))) {
+          ctx.fillStyle = "#cbd5e1";
+          ctx.font = "12px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(state.viewMode === "rgb" ? "Sin cobertura para los tres canales RGB" : "Este recorte no tiene píxeles válidos", W / 2, H / 2);
+          ctx.textAlign = "start";
         }
         if (baseImg) {
           if (state.invertPixels && (baseImg === tDiff || baseImg === detCoaddImg)) {
@@ -2399,7 +2174,7 @@ function renderCanvas() {
           }
         }
 
-        if (state.showFlags && tFlags && tFlags.length > 0) {
+        if (state.showFlags && state.viewMode === "blink" && !detCoaddImg && tFlags && tFlags.length > 0) {
           const flgImg = tFlags[(isOrigin ? epIdx : state.currentEpochIdx) % tFlags.length];
           if (flgImg) {
             drawSeamlessTileImage(ctx, flgImg, rect);
@@ -2556,17 +2331,17 @@ function renderCanvas() {
       document.getElementById("frame-counter").textContent =
         op === "diff"
           ? `Resta Manual (Época ${idxB + 1} − Época ${idxA + 1})`
-          : `Suma Manual (Época ${idxA + 1} + Época ${idxB + 1})`;
+          : `Promedio visual (recortes ${idxA + 1} y ${idxB + 1})`;
       document.getElementById("overlay-date").textContent =
         `A (#${idxA + 1}): ${Number(epA.wavelength_center_um).toFixed(2)}µm (${epA.detector}) vs B (#${idxB + 1}): ${Number(epB.wavelength_center_um).toFixed(2)}µm (${epB.detector})`;
       document.getElementById("overlay-detector").textContent =
         op === "diff"
-          ? "Operación: ΔI = Flujo(B) − Flujo(A)"
-          : "Operación: Promedio SNR = (Flujo(A) + Flujo(B)) / 2";
+          ? "Vista PNG: B − A; no es ΔI calibrada"
+          : "Vista previa: promedio del brillo PNG de A y B";
       document.getElementById("overlay-clean").textContent =
         `Cobertura A: ${epA.clean_pixels_pct}% · Cobertura B: ${epB.clean_pixels_pct}%`;
     } else if (state.viewMode === "shift_stack" && state.shiftStackMeta) {
-      const { pmRaMasYr, pmDecMasYr, label, snrBoost } = state.shiftStackMeta;
+      const { pmRaMasYr, pmDecMasYr, label } = state.shiftStackMeta;
       document.getElementById("frame-counter").textContent =
         `Shift & Stack · pmRA ${pmRaMasYr >= 0 ? "+" : ""}${Math.round(pmRaMasYr)}, pmDec ${pmDecMasYr >= 0 ? "+" : ""}${Math.round(pmDecMasYr)} mas/a`;
       document.getElementById("overlay-date").textContent =
@@ -2574,15 +2349,15 @@ function renderCanvas() {
       document.getElementById("overlay-detector").textContent =
         `Vector: μ_α*=${pmRaMasYr.toFixed(0)} mas/a, μ_δ=${pmDecMasYr.toFixed(0)} mas/a`;
       document.getElementById("overlay-clean").textContent =
-        `Ganancia SNR teórica: ~${snrBoost}× (estrellas fijas elongadas, móvil puntual)`;
+        "Apilado visual de PNG · sin medición de SNR";
     } else if (state.viewMode === "rgb") {
-      document.getElementById("frame-counter").textContent = "Falso Color Infrarrojo RGB (3 Bandas)";
+      document.getElementById("frame-counter").textContent = state.rgbCompositeCanvas ? "Falso color RGB · tres rangos infrarrojos" : "RGB no disponible: faltan rangos infrarrojos";
       document.getElementById("overlay-date").textContent = `Compuesto tricromático (${epochs.length} recortes combinados)`;
       document.getElementById("overlay-detector").textContent = "Azul: NIR (<1.65µm) · Verde: Mid-NIR (1.65–3µm) · Rojo: MIR (>3µm)";
-      document.getElementById("overlay-clean").textContent = "Rojizo = fuente fría (enana marrón / polvo) · Azulado = estelar";
+      document.getElementById("overlay-clean").textContent = state.rgbCompositeCanvas ? "Falso color de vistas estiradas; no mide temperatura" : "Faltan recortes en uno o más de los tres rangos";
     } else if (detCoaddMeta && state.viewMode !== "diff") {
       document.getElementById("frame-counter").textContent =
-        `Suma SNR ${detCoaddMeta.detector} · ${detCoaddMeta.frame_count} exp`;
+        `Mediana ${detCoaddMeta.detector} · ${detCoaddMeta.frame_count} exp`;
       document.getElementById("overlay-date").textContent =
         `Apilado mediana por detector (${detCoaddMeta.frame_count} recortes)`;
       document.getElementById("overlay-detector").textContent =
@@ -2607,7 +2382,7 @@ function renderCanvas() {
           ? new Date((mjd - 40587) * 86400000).toISOString().replace("T", " ").slice(0, 19) + " UTC"
           : ep.obs_time || "sin fecha";
         document.getElementById("overlay-date").textContent = `Fecha: ${date}`;
-        document.getElementById("overlay-clean").textContent = `Píxeles limpios: ${ep.clean_pixels_pct}%`;
+        document.getElementById("overlay-clean").textContent = `Cobertura válida: ${ep.valid_pixels_pct ?? ep.clean_pixels_pct}%`;
         document.getElementById("overlay-detector").textContent = `Banda: ${bandLabel} | Δλ: ${Number(ep.bandwidth_um || 0).toFixed(3)} µm`;
       } else {
         const indices = state.exploreData.target_info.analysis_frame_indices;
@@ -2630,7 +2405,8 @@ function startBlinkTimer() {
   state.timerId = setInterval(() => {
     if (!state.isLoading && state.viewMode === "blink" && state.exploreData?.epochs?.length > 0) {
       if (state.selectedBand === "auto") {
-        state.currentEpochIdx = (state.currentEpochIdx + 1) % state.exploreData.epochs.length;
+        const indices = getAutoEpochIndices(state.exploreData.epochs);
+        state.currentEpochIdx = indices[(indices.indexOf(state.currentEpochIdx) + 1) % indices.length];
         document.getElementById("slider-epoch").value = state.currentEpochIdx;
         renderCanvas();
       } else if (state.selectedBand === "pair") {
@@ -2757,13 +2533,15 @@ function updateAIDetectionCardsSelection(scrollIntoView = false) {
     const isSelected = detId === state.selectedDetectionId;
     const badgeEl = card.querySelector(".selected-det-badge");
     if (isSelected) {
-      card.classList.add("ring-2", "ring-emerald-400", "bg-slate-800/90");
+      card.classList.add("is-selected");
+      card.querySelector(".detection-select")?.setAttribute("aria-pressed", "true");
       if (badgeEl) badgeEl.classList.remove("hidden");
       if (scrollIntoView) {
         card.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
     } else {
-      card.classList.remove("ring-2", "ring-emerald-400", "bg-slate-800/90");
+      card.classList.remove("is-selected");
+      card.querySelector(".detection-select")?.setAttribute("aria-pressed", "false");
       if (badgeEl) badgeEl.classList.add("hidden");
     }
   });
@@ -2773,31 +2551,45 @@ function renderAIDetectionsList(detections) {
   const container = document.getElementById("ai-detections-list");
   const badge = document.getElementById("ai-count-badge");
   container.innerHTML = "";
-  badge.textContent = `${detections.length} anomalía${detections.length === 1 ? "" : "s"}`;
-  badge.className =
-    detections.length > 0
-      ? "text-xs font-mono px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300"
-      : "text-xs font-mono px-2 py-0.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300";
+  const available = Boolean(state.exploreData?.target_info?.difference_available);
+  badge.textContent = detections.length ? `${detections.length} candidato${detections.length === 1 ? "" : "s"}` : available ? "Análisis completo" : "Sin análisis";
+  badge.dataset.status = available || detections.length ? "ready" : "pending";
+  const summary = document.getElementById("detector-summary");
+  if (summary) {
+    summary.hidden = detections.length === 0;
+    document.getElementById("detector-motion-count").textContent = detections.filter(d => d.type === "MOVING_DIPOLE").length;
+    document.getElementById("detector-variable-count").textContent = detections.filter(d => d.type !== "MOVING_DIPOLE").length;
+  }
 
   if (detections.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "text-xs text-slate-300 p-3 bg-slate-900/60 rounded-lg border border-slate-800 space-y-2";
-    const msg = document.createElement("p");
-    msg.textContent = state.exploreData?.target_info?.difference_available
-      ? "No se detectaron anomalías > 4σ en la resta temporal calibrada de este sector."
-      : state.exploreData?.target_info?.analysis_note || "Resta temporal no disponible con los recortes iniciales.";
-    empty.appendChild(msg);
-
-    if (!state.exploreData?.target_info?.difference_available) {
+    empty.className = "detector-empty";
+    empty.innerHTML = `<span class="detector-empty-icon" aria-hidden="true"><svg width="38" height="38" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="5" y="5" width="22" height="22" rx="4" opacity=".45"/><rect x="13" y="13" width="22" height="22" rx="4"/><path d="M19 24h10m-5-5v10"/></svg></span><h3></h3><p class="detector-empty-description"></p>`;
+    empty.querySelector("h3").textContent = available ? "Sin cambios detectados" : "Sin comparación válida";
+    empty.querySelector(".detector-empty-description").textContent = available
+      ? "No se encontraron candidatos por encima de 4σ en este campo. Podés explorar otra región."
+      : "Para detectar cambios necesitamos una resta temporal válida. Buscá otras observaciones de este campo.";
+    if (!available) {
       const btnTemporal = document.createElement("button");
       btnTemporal.type = "button";
-      btnTemporal.className =
-        "w-full text-xs bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 px-2.5 py-1.5 rounded font-semibold transition";
-      btnTemporal.textContent = "Buscar pares temporales en IRSA";
+      btnTemporal.className = "detector-search";
+      btnTemporal.textContent = "Buscar observaciones →";
       btnTemporal.addEventListener("click", () => {
         exploreCoordinates(state.ra, state.dec, state.fov, 24, true, true);
+        rememberDemoSettings({ maxFrames: 24 });
       });
       empty.appendChild(btnTemporal);
+    }
+    const note = state.exploreData?.target_info?.analysis_note;
+    if (note) {
+      const details = document.createElement("details");
+      details.className = "detector-analysis-details";
+      const label = document.createElement("summary");
+      label.textContent = "Detalle del análisis";
+      const msg = document.createElement("p");
+      msg.textContent = note;
+      details.append(label, msg);
+      empty.appendChild(details);
     }
     container.appendChild(empty);
     return;
@@ -2807,46 +2599,34 @@ function renderAIDetectionsList(detections) {
     const isDipole = det.type === "MOVING_DIPOLE";
     const card = document.createElement("div");
     card.dataset.detectionId = String(det.id);
-    card.className = `p-2.5 rounded-lg border transition cursor-pointer ${
-      isDipole
-        ? "bg-rose-950/25 border-rose-500/40 hover:bg-rose-900/30"
-        : "bg-amber-950/25 border-amber-500/40 hover:bg-amber-900/30"
-    }`;
+    card.className = "detection-card";
+    card.dataset.kind = isDipole ? "motion" : "variable";
     const friendlyTitle =
       det.object_category || (isDipole ? "Astro en Movimiento (Dipolo)" : "Estrella Variable (Monopolo)");
     const iauName = det.iau_designation || `SPHEREx (${det.ra.toFixed(4)}°, ${det.dec.toFixed(4)}°)`;
     card.innerHTML = `
-      <div class="flex items-center justify-between text-xs font-bold mb-1 gap-1">
-        <span class="${isDipole ? "text-rose-300" : "text-amber-300"}">
-          #${det.id} · ${isDipole ? "ASTRO EN MOVIMIENTO" : "ESTRELLA VARIABLE"}
-        </span>
-        <div class="flex items-center gap-1">
-          <span class="selected-det-badge hidden text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/25 text-emerald-300 border border-emerald-400/40">
-            ACTIVO
-          </span>
-          <span class="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-900 text-white">
-            SNR ${det.snr_score}σ
-          </span>
+      <div class="detection-card-heading">
+        <button type="button" class="detection-kind detection-select" aria-pressed="false">#${det.id} · ${isDipole ? "Movimiento" : "Variación de brillo"}</button>
+        <span class="detection-score">${det.snr_score}σ</span>
+        <span class="selected-det-badge hidden">Seleccionado</span>
+      </div>
+      <p class="detection-user-explanation"></p>
+      <details class="detection-details">
+        <summary>Datos del candidato</summary>
+        <div class="detection-details-content">
+          <div class="detection-iau"></div>
+          <div class="detection-category"></div>
+          <div class="detection-astrometry hidden"></div>
+          <div>RA ${det.ra.toFixed(5)}° · Dec ${det.dec.toFixed(5)}°<br>Píxel (${det.x_pix.toFixed(1)}, ${det.y_pix.toFixed(1)})</div>
+          <p class="detection-description"></p>
         </div>
-      </div>
-      <div class="text-[11px] font-semibold text-sky-300 mb-0.5 detection-iau"></div>
-      <div class="text-[10px] text-slate-300 mb-1 detection-category"></div>
-      <p class="detection-user-explanation text-[11px] text-slate-100 leading-snug mb-1.5 bg-slate-950/60 p-1.5 rounded border border-slate-800/80"></p>
-      <div class="detection-astrometry hidden text-[10px] font-mono bg-indigo-950/40 border border-indigo-500/30 rounded p-1.5 mb-1.5 space-y-0.5 text-indigo-200"></div>
-      <div class="text-[10px] font-mono text-slate-400 mb-1">
-        RA: ${det.ra.toFixed(5)}° | Dec: ${det.dec.toFixed(5)}° · Píxel (${det.x_pix.toFixed(1)}, ${det.y_pix.toFixed(1)})
-      </div>
-      <p class="detection-description text-[10px] text-slate-400 leading-snug"></p>
-      <div class="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-slate-800/80">
-        <button type="button" class="btn-det-diff text-[10px] px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 border border-sky-400/35 font-semibold transition">
-          Ver en Resta (ΔI)
-        </button>
-        <button type="button" class="btn-det-blink text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
-          Comparar en Flipbook
-        </button>
+      </details>
+      <div class="detection-actions">
+        <button type="button" class="btn-det-diff">Ver resta ΔI</button>
+        <button type="button" class="btn-det-blink">Comparar fechas</button>
       </div>
     `;
-    card.querySelector(".detection-iau").textContent = `Designación IA: ${iauName}`;
+    card.querySelector(".detection-iau").textContent = `Designación: ${iauName}`;
     card.querySelector(".detection-category").textContent = friendlyTitle;
     card.querySelector(".detection-user-explanation").textContent = det.user_explanation || det.description;
     card.querySelector(".detection-description").textContent = det.description;
@@ -2865,14 +2645,9 @@ function renderAIDetectionsList(detections) {
     }
 
     const sequence = state.exploreSequence;
-    card.setAttribute("role", "button");
-    card.tabIndex = 0;
-    card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        selectAndFocusAIDetection(det);
-      }
-    });
+    card.setAttribute("role", "group");
+    card.setAttribute("aria-label", `Candidato ${det.id}: ${isDipole ? "movimiento" : "variación de brillo"}`);
+    card.querySelector(".detection-select").addEventListener("click", () => selectAndFocusAIDetection(det));
 
     card.querySelector(".btn-det-diff").addEventListener("click", (event) => {
       event.stopPropagation();
@@ -2887,7 +2662,7 @@ function renderAIDetectionsList(detections) {
     if (cachedMatch || idx < 2) {
       const line = document.createElement("p");
       line.className = "detection-crossmatch-line text-[11px] text-slate-400 leading-snug mt-1.5 font-medium";
-      card.appendChild(line);
+      card.querySelector(".detection-details-content").appendChild(line);
 
       if (cachedMatch) {
         state.crossmatchByDetId[det.id] = cachedMatch;
@@ -2938,7 +2713,8 @@ function renderAIDetectionsList(detections) {
       }
     }
 
-    card.addEventListener("click", () => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("details, button, a")) return;
       selectAndFocusAIDetection(det);
     });
     container.appendChild(card);
@@ -3088,6 +2864,8 @@ function renderSpectrumOrLightCurve(data = state.lastSpectrumData) {
 async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = false, centerRaOverride = null, centerDecOverride = null) {
   if (state.isLoading) return;
   const sequence = ++state.spectrumSequence;
+  const exploreSequence = state.exploreSequence;
+  state.assistantSpectrum = null;
   state.spectrumController?.abort();
   state.spectrumController = new AbortController();
   document.getElementById("spectrum-coord-label").textContent = "Midiendo espectro de la posición seleccionada…";
@@ -3101,8 +2879,10 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
       throw new Error(error.detail || `HTTP ${res.status}`);
     }
     const data = await res.json();
-    if (sequence !== state.spectrumSequence) return;
+    if (sequence !== state.spectrumSequence || exploreSequence !== state.exploreSequence) return;
     state.lastSpectrumData = data;
+    state.assistantSpectrum = { data, exploreSequence };
+    demoAssistantUI?.refresh();
 
     if (!keepSelectedPixel) {
       state.selectedPixel = { x: data.x_pix, y: data.y_pix };
@@ -3135,7 +2915,7 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
       molContainer.appendChild(span);
     });
   } catch (err) {
-    if (err.name === "AbortError" || sequence !== state.spectrumSequence) return;
+    if (err.name === "AbortError" || sequence !== state.spectrumSequence || exploreSequence !== state.exploreSequence) return;
     console.error("Error obteniendo espectro real:", err);
     document.getElementById("spectrum-coord-label").textContent = `No se pudo medir el espectro: ${err.message}`;
     document.getElementById("diag-class").textContent = "Espectro no disponible";
@@ -3189,7 +2969,7 @@ function populateBandSelector(epochs, targetInfo, detectorCoadds = {}) {
   select.innerHTML = "";
   const auto = document.createElement("option");
   auto.value = "auto";
-  auto.textContent = `Secuencia automática · todas las exposiciones${targetInfo.best_band_clean_pct != null ? ` (mejor: ${targetInfo.best_band_clean_pct}%)` : ""}`;
+  auto.textContent = `Secuencia automática · recortes con cobertura${targetInfo.best_band_clean_pct != null ? ` (mejor: ${targetInfo.best_band_clean_pct}%)` : ""}`;
   select.appendChild(auto);
 
   const pairIndices = targetInfo.analysis_frame_indices || [];
@@ -3212,7 +2992,7 @@ function populateBandSelector(epochs, targetInfo, detectorCoadds = {}) {
       const detOpt = document.createElement("option");
       detOpt.value = `coadd:${detCode}`;
       detOpt.textContent =
-        `Suma SNR Detector ${detCode} (${dc.frame_count} exp · ` +
+        `Mediana por detector ${detCode} (${dc.frame_count} exp · ` +
         `${Number(dc.wavelength_min_um).toFixed(2)}–${Number(dc.wavelength_max_um).toFixed(2)} µm · ` +
         `${dc.clean_pixels_pct}% limpios)`;
       select.appendChild(detOpt);
@@ -3226,7 +3006,7 @@ function populateBandSelector(epochs, targetInfo, detectorCoadds = {}) {
     const wavelengthLabel = wavelength > 0 ? `${wavelength.toFixed(3)} µm` : "λ desconocida";
     const bandwidth = Number(ep.bandwidth_um);
     const bandwidthLabel = bandwidth > 0 ? `Δλ ${bandwidth.toFixed(3)} µm` : "Δλ n/a";
-    option.textContent = `${index + 1}. ${wavelengthLabel} · ${bandwidthLabel} · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% limpios`;
+    option.textContent = `${index + 1}. ${wavelengthLabel} · ${bandwidthLabel} · ${ep.detector || "detector"} · ${ep.valid_pixels_pct ?? ep.clean_pixels_pct}% válidos`;
     select.appendChild(option);
   });
 
@@ -3266,7 +3046,7 @@ function populateBandSelector(epochs, targetInfo, detectorCoadds = {}) {
       : epochs.length;
     const detCount = detEntries.length;
     summary.textContent = bestEp
-      ? `Automática: ${Number(bestEp.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(bestEp.bandwidth_um || 0).toFixed(3)} µm) · ${bestEp.detector || "detector"} · ${bestEp.clean_pixels_pct}% limpios · ${loadedBands} bandas (${detCount} detectores con suma SNR).`
+      ? `Automática: ${Number(bestEp.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(bestEp.bandwidth_um || 0).toFixed(3)} µm) · ${bestEp.detector || "detector"} · ${bestEp.valid_pixels_pct ?? bestEp.clean_pixels_pct}% válidos · ${loadedBands} bandas (${detCount} detectores con mediana).`
       : `Automática: no se pudo determinar una longitud de onda válida · ${loadedBands} bandas cargadas.`;
   }
 }
@@ -3281,18 +3061,26 @@ function syncFovPresetSelect(fovValue) {
 
 function setExploreBusy(busy) {
   state.isLoading = busy;
+  demoAssistantUI?.refresh();
   document.querySelectorAll("#coord-form input, #coord-form select, #coord-form button[type=submit], .preset-btn, .fov-pill, #btn-load-102-bands, #btn-temporal-search, #btn-irsa-sync, #select-band, #slider-epoch")
     .forEach((el) => { el.disabled = busy; });
   document.getElementById("coord-form").setAttribute("aria-busy", String(busy));
   document.getElementById("coord-form").querySelector("button[type=submit]").textContent = busy ? "Procesando…" : "Explorar Cielo";
 }
 
-async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch = false, refresh = false) {
+async function exploreCoordinates(ra, dec, fov, maxEpochs = state.frameLimit, temporalSearch = false, refresh = false) {
   ra = Number(ra); dec = Number(dec); fov = Number(fov);
   if (![ra, dec, fov].every(Number.isFinite) || ra < 0 || ra > 360 || dec < -90 || dec > 90 || fov <= 0.005 || fov > 1) {
     setExploreProgress("Revisá las coordenadas: RA 0–360°, Dec −90–90°, FoV entre 0.005° y 1°.");
     return;
   }
+  maxEpochs = Number(maxEpochs);
+  if (!Number.isInteger(maxEpochs) || maxEpochs < 1 || maxEpochs > (temporalSearch ? 32 : 102)) {
+    setExploreProgress(`Elegí entre 1 y ${temporalSearch ? 32 : 102} recortes para este modo.`);
+    return;
+  }
+  state.frameLimit = maxEpochs;
+  document.getElementById("input-max-frames").value = maxEpochs;
   const sequence = ++state.exploreSequence;
   abortBackgroundTiles();
   state.exploreController?.abort();
@@ -3332,6 +3120,7 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     releaseImagePayload(data);
     Object.assign(state, { ra, dec, fov, exploreData: data, epochImages: images, flagImages: flags,
       coaddImage: coadd, diffImage: diff, detectorCoaddImages, crossmatchByDetId: {}, temporalSearch });
+    demoStore?.rememberRegion(ra, dec, temporalSearch);
     document.getElementById("input-ra").value = ra.toFixed(6);
     document.getElementById("input-dec").value = dec.toFixed(6);
     document.getElementById("input-fov").value = fov.toFixed(4);
@@ -3353,8 +3142,9 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     document.querySelectorAll(".preset-btn").forEach((btn) => {
       btn.classList.toggle("target-btn-active", btn.dataset.target === data.target_info.matched_target_id);
     });
-    document.getElementById("badge-datasource").textContent =
-      `${data.target_info.data_source} · ${data.target_info.total_frames} recortes`;
+    const sourceBadge = document.getElementById("badge-datasource");
+    sourceBadge.textContent = `${data.target_info.data_source.startsWith("CACHE") ? "Caché local" : "Datos de IRSA"} · ${data.target_info.total_frames} recortes`;
+    sourceBadge.title = data.target_info.data_source;
     document.getElementById("analysis-note").textContent = data.target_info.analysis_note;
     document.getElementById("mode-diff").disabled = !data.target_info.difference_available;
     if (state.viewMode === "diff" && !data.target_info.difference_available) setViewMode("blink");
@@ -3422,7 +3212,7 @@ function setViewMode(mode) {
   });
   const diffLegend = document.getElementById("diff-legend");
   if (diffLegend) {
-    mode === "diff" || mode === "manual_diff"
+    mode === "diff"
       ? diffLegend.classList.remove("hidden")
       : diffLegend.classList.add("hidden");
   }
@@ -3432,14 +3222,27 @@ function setViewMode(mode) {
 document.addEventListener("DOMContentLoaded", async () => {
   const plot = document.getElementById("spectrum-plot");
   new ResizeObserver(() => {
-    if (window.Plotly && plot.data) Plotly.Plots.resize(plot);
+    if (window.Plotly && plot.data && plot.getClientRects().length) Plotly.Plots.resize(plot);
   }).observe(plot);
   const initial = getParamsFromUrl();
-  state.ra = initial.ra;
-  state.dec = initial.dec;
-  state.fov = initial.fov;
   state.embed = Boolean(initial.embed);
-  state.invertPixels = Boolean(initial.invert);
+  await initDemoProfiles();
+  const settings = applyDemoSettings();
+  const region = demoStore?.get()?.lastRegion;
+  const urlParams = new URLSearchParams(window.location.search);
+  state.ra = urlParams.has("ra") ? initial.ra : region?.ra ?? initial.ra;
+  state.dec = urlParams.has("dec") ? initial.dec : region?.dec ?? initial.dec;
+  const useUrlFov = urlParams.has("fov") && (!window.history.state?.papastronomyManagedUrl || demoStore?.get()?.overrides.fov == null);
+  state.fov = useUrlFov ? initial.fov : settings.fov;
+  state.temporalSearch = urlParams.has("temporal") ? initial.temporalSearch : region?.temporal ?? false;
+  const customFrames = demoStore?.get()?.overrides.maxFrames;
+  state.frameLimit = state.temporalSearch ? Math.min(customFrames ?? 24, 32) : settings.maxFrames;
+  state.invertPixels = urlParams.has("invert") ? Boolean(initial.invert) : settings.invertPixels;
+  document.getElementById("input-ra").value = state.ra;
+  document.getElementById("input-dec").value = state.dec;
+  document.getElementById("input-fov").value = state.fov;
+  document.getElementById("input-max-frames").value = state.frameLimit;
+  syncFovPresetSelect(state.fov);
   if (state.embed) document.body.classList.add("embedded");
   const chkInvertInit = document.getElementById("chk-invert");
   if (chkInvertInit) chkInvertInit.checked = state.invertPixels;
@@ -3459,7 +3262,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const targetId = btn.dataset.target;
       const found = state.targets.find((t) => t.id === targetId);
       if (found) {
-        exploreCoordinates(found.ra_deg, found.dec_deg, found.default_fov);
+        const configuredFov = Number(document.getElementById("input-fov").value);
+        exploreCoordinates(found.ra_deg, found.dec_deg, configuredFov || found.default_fov);
       }
     });
   });
@@ -3540,9 +3344,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (lbl) {
       lbl.textContent =
         state.stretchLinearity <= 0.05
-          ? "Asinh"
+          ? "Original"
           : state.stretchLinearity >= 0.95
-          ? "Lineal"
+          ? "Contraste"
           : `${Math.round(state.stretchLinearity * 100)}%`;
     }
     rebakeAllOpticalCanvases();
@@ -3560,21 +3364,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     const nEp = state.exploreData?.epochs?.length || 1;
     const canvas = computeShiftAndStackCanvas(pmRaMasYr, pmDecMasYr, directPixelDelta);
     if (!canvas) {
-      setExploreProgress("Cargá una región primero para ejecutar Shift & Stack.");
+      setExploreProgress("El apilado necesita recortes cargados y fechas válidas para aplicar movimiento propio.");
       return;
     }
-    const snrBoost = Math.sqrt(Math.max(1, nEp)).toFixed(2);
     state.shiftStackCanvas = canvas;
     state.shiftStackMeta = {
       pmRaMasYr,
       pmDecMasYr,
       directPixelDelta,
-      snrBoost,
       label: customLabel || `Shift & Stack activo (${nEp} épocas alineadas en movimiento)`,
     };
     setViewMode("shift_stack");
     setExploreProgress(
-      `Shift & Stack completado: μ_α*=${Math.round(pmRaMasYr)} mas/a, μ_δ=${Math.round(pmDecMasYr)} mas/a · Ganancia SNR ~${snrBoost}×.`
+      `Shift & Stack completado: μ_α*=${Math.round(pmRaMasYr)} mas/a, μ_δ=${Math.round(pmDecMasYr)} mas/a · Apilado visual de PNG; no mide SNR.`
     );
   };
 
@@ -3597,8 +3399,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       const dxEarlyToLate = dipole.x_pix - dipole.neg_x_pix;
       const dyEarlyToLate = dipole.y_pix - dipole.neg_y_pix;
       const arcsecPerPix = Math.max(0.05, (state.fov * 3600.0) / CUTOUT_NPIX);
-      let pmRaMasYr = Math.round((-dxEarlyToLate * arcsecPerPix * 1000.0) / 0.5);
-      let pmDecMasYr = Math.round((dyEarlyToLate * arcsecPerPix * 1000.0) / 0.5);
+      const baseline = state.exploreData?.target_info?.difference_quality?.baseline_years;
+      let pmRaMasYr = baseline > 0 ? Math.round((-dxEarlyToLate * arcsecPerPix * 1000.0) / baseline) : 0;
+      let pmDecMasYr = baseline > 0 ? Math.round((dyEarlyToLate * arcsecPerPix * 1000.0) / baseline) : 0;
 
       // Si hay una estrella Gaia cercana con movimiento propio medido, usar su vector exacto en la etiqueta
       const nearGaia = (state.skyView.gaiaSources || []).find(
@@ -3774,7 +3577,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const dc = state.exploreData?.detector_coadds?.[detCode];
         if (dc) {
           summary.textContent =
-            `Suma SNR ${dc.detector}: mediana de ${dc.frame_count} exposiciones ` +
+            `Mediana ${dc.detector}: mediana de ${dc.frame_count} exposiciones ` +
             `(${Number(dc.wavelength_min_um).toFixed(3)}–${Number(dc.wavelength_max_um).toFixed(3)} µm) · ${dc.clean_pixels_pct}% de píxeles limpios.`;
         }
       } else if (state.selectedBand === "pair") {
@@ -3809,7 +3612,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("btn-irsa-sync").addEventListener("click", () => {
     const currentEpochs = state.exploreData?.epochs?.length || 10;
-    const nextEpochs = Math.min(102, Math.max(currentEpochs + 6, state.temporalSearch ? 24 : 16));
+    const nextEpochs = Math.min(state.temporalSearch ? 32 : 102, Math.max(currentEpochs + 6, state.temporalSearch ? 24 : 16));
     setExploreProgress("Sincronizando nuevas entregas de IRSA para esta región…");
     exploreCoordinates(state.ra, state.dec, state.fov, nextEpochs, state.temporalSearch, true);
   });
@@ -3996,6 +3799,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 1200);
   });
 
-  await exploreCoordinates(state.ra, state.dec, state.fov, initial.temporalSearch ? 24 : 10, initial.temporalSearch);
+  demoAppReady = true;
+  if (!state.embed) demoAssistantUI = DemoAssistant.mount({
+    getContext: getAssistantContext, applySettings: applyAssistantSettings,
+    onNavigate: target => {
+      const destinations = { explorer: "input-ra", detector: "detector-title", spectrum: "spectrum-panel-title" };
+      const id = destinations[target];
+      if (!id) return;
+      const element = document.getElementById(id);
+      if (element.tagName !== "INPUT") element.setAttribute("tabindex", "-1");
+      element.scrollIntoView({ block: "start" });
+      element.focus({ preventScroll: true });
+    },
+    onExplore: () => {
+      renderCanvas();
+      renderContextSkyMap();
+      if (window.Plotly && plot.data && plot.getClientRects().length) Plotly.Plots.resize(plot);
+    },
+  });
+  await exploreCoordinates(state.ra, state.dec, state.fov, state.frameLimit, state.temporalSearch);
+  setViewMode(state.viewMode);
   startBlinkTimer();
 });

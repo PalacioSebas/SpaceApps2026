@@ -4,6 +4,16 @@
 
 ---
 
+## Acceso demo y perfil personalizable
+
+En la primera visita podés entrar con un perfil **Principiante**, **Explorador** o **Avanzado**, o continuar como invitado. El perfil aplica valores iniciales para los recortes, FPS y capas del visor; **todos los controles siguen disponibles** y los cambios manuales tienen prioridad sobre el nivel elegido.
+
+En **Mi perfil** se editan alias, experiencia, intereses y nivel de explicación. Las preferencias se guardan por cuenta demo en el mismo navegador, se recuperan al volver y se pueden restablecer con **Restaurar configuración del perfil**. El formulario ahora permite elegir directamente la cantidad de **Recortes**. Los enlaces compartidos y el modo embebido continúan funcionando.
+
+La navegación superior separa **Explorador** y **Asistente**. El asistente ocupa una sección propia con guías rápidas, contexto del campo, preguntas de seguimiento y un chat de respuestas integradas (*built-in answers*). Cambiar de sección conserva la conversación y las observaciones sin volver a descargarlas. Explica el detector y el candidato seleccionado usando el estado actual de la app, adapta el detalle al perfil y prepara ajustes editables. Usa reglas locales, sin un LLM ni llamadas a una API de IA. El chat recuerda el último tema dentro de la misma conversación, aclara preguntas ambiguas y adapta las sugerencias a los datos disponibles. Ofrece accesos al detector y al espectro, y muestra el detalle de las respuestas en un desplegable. Las respuestas incluyen fuentes numeradas: datos de la consulta, diagnósticos, fotometría o guías del método; la explicación general de SPHEREx enlaza las referencias oficiales de NASA e IRSA. Las propuestas conservan las preferencias manuales y se aplican solo al pulsar su botón; el campo y las coordenadas se mantienen.
+
+Es un acceso de demostración, sin contraseñas ni autenticación de cuentas reales. El perfil se configura mediante reglas y preferencias locales. El recorrido y el alcance están en [PERFILES_DEMO.md](docs/PERFILES_DEMO.md).
+
 ## 1. Resumen Ejecutivo
 
 El telescopio espacial **SPHEREx** de la NASA cartografía la totalidad del cielo cada 6 meses en **102 bandas espectrales infrarrojas** ($0.75\ \mu\text{m}$ a $5.00\ \mu\text{m}$) mediante Filtros Lineales Variables (LVF) distribuidos en 6 detectores (`D1` a `D6`). En ese volumen de datos, los objetos cercanos con alto movimiento propio (enanas marrones ultra-frías como **WISE 0855**, estrellas cercanas como **Barnard's Star**, objetos transneptunianos o un hipotético **Planeta X**) se desplazan entre épocas, mientras que las estrellas variables (**RW Aurigae**, **R Draconis**) experimentan variaciones drásticas de flujo infrarrojo.
@@ -21,21 +31,23 @@ El telescopio espacial **SPHEREx** de la NASA cartografía la totalidad del ciel
 
 ## 2. Estado de Funcionalidades Actuales (v2.5)
 
+Los visores muestran el norte arriba y el este a la izquierda. Cada exposición conserva sus píxeles válidos y sus huecos: no se reconstruyen núcleos saturados ni se rellenan bordes. La grilla común de 128 × 128 no agrega resolución a los FITS originales; el visor indica las dimensiones nativas de cada recorte. El contexto local es la mediana, independiente del flipbook. Los recortes sin píxeles válidos siguen accesibles en el selector, con un aviso, y se omiten de la secuencia automática. Las marcas conservan las coordenadas del catálogo; diferencias de época o movimiento propio pueden producir desplazamientos reales. Un relevamiento externo que falla muestra su estado de carga, sin sustituirse silenciosamente por SPHEREx.
+
 | Módulo / Capacidad | Estado | Implementación en el Proyecto |
 | :--- | :---: | :--- |
 | **Búsqueda por Coordenadas (Decimal y HMS/DMS) y FoV** | ✅ Operativo | Entrada de `RA` ($0^\circ\text{–}360^\circ$ o `08h55m10.831s`), `Dec` ($-90^\circ\text{–}+90^\circ$ o `-07d14m42.53s`) y `FoV` ($0.005^\circ\text{–}1.0^\circ$). |
 | **5 Objetivos Oficiales de Prueba de la NASA** | ✅ Operativo | Carga en `~1.0 s` desde caché real FITS para **WISE 0855**, **Barnard's Star**, **Epsilon Indi B**, **RW Aurigae** y **R Draconis**. |
 | **Sincronización en Vivo con SPHEREx DR1 + QR3** | ✅ Operativo | Consulta simultánea a `spherex_dr1` y `spherex_qr3` en IRSA SIA + respaldo TAP `spherex.artifact`/`spherex.plane` y botón de actualización incremental (`refresh=true`). |
 | **Reproductor Flipbook + Par Temporal (Blink A/B)** | ✅ Operativo | Animación de 1 a 6 FPS, modo dedicado **Par temporal comparable (Blink A/B)** sobre `analysis_frame_indices` y exportación de video `.webm`. |
-| **Suma SNR por Detector (`D1` a `D6`)** | ✅ Operativo | Apilado mediano independiente por cada uno de los 6 detectores de SPHEREx (`detector_coadds`) con rango $\lambda_{\min}\text{–}\lambda_{\max}$ y métricas de limpieza. |
-| **Operaciones Manuales entre Épocas ($t_A$ vs $t_B$)** | ✅ Operativo | Selectores de Época A y Época B con botones para **Restar ($B - A$)**, **Sumar ($A + B$)** y **Blink $A \leftrightarrow B$**. |
-| **Modo Falso Color Infrarrojo RGB (3 Bandas)** | ✅ Operativo | Composición tricromática infrarroja (`Azul < 1.65 µm`, `Verde 1.65–3.0 µm`, `Rojo ≥ 3.0 µm`) renderizada en el navegador. |
-| **Óptica en Vivo (0 ms · 60 FPS) estilo WiseView** | ✅ Operativo | Inversión de píxeles en negativo blanco/negro (`#chk-invert` / `&invert=1`), linealidad de transferencia continua `Asinh ↔ Lineal` (`#slider-stretch`) y ganancia radiométrica (`#slider-contrast`) en tiempo real sobre matrices `Float32Array` sin recargar del servidor. |
-| **Shift & Stack (`pmRA`, `pmDec`) + Auto-Track Dipolo IA** | ✅ Operativo | Apilado en movimiento (`computeShiftAndStackCanvas`) que desplaza bilinealmente cada época según $(\mu_{\alpha^*}, \mu_\delta)$ en `mas/año` para amplificar el SNR ($\sim\sqrt{N}$) de objetos móviles, con botón **Auto-Track Dipolo IA** (`#btn-autotrack-dipole`) y enlace directo **Comparar en WiseView ↗** (`#btn-open-wiseview`). |
+| **Mediana por detector (`D1` a `D6`)** | ✅ Operativo | Apilado mediano independiente por detector (`detector_coadds`), con rango de longitudes de onda y porcentaje de píxeles válidos. |
+| **Comparación manual de recortes A/B** | ✅ Operativo | Resta y promedio visuales de los PNG estirados, y Blink A/B. Estas vistas no miden diferencias de flujo; para eso se utiliza la resta temporal calibrada del backend. |
+| **Falso color infrarrojo RGB** | ✅ Operativo | Tres rangos: azul <1.65 µm, verde 1.65–3.0 µm y rojo ≥3.0 µm. Requiere recortes en los tres rangos y cobertura válida en cada canal. Se combinan vistas estiradas; el color no permite medir temperatura. |
+| **Ajustes de imagen** | ✅ Operativo | Inversión (`#chk-invert`, `&invert=1`), curva adicional y ganancia de brillo sobre vistas PNG. Por defecto, los píxeles de cada exposición se conservan exactamente como los entrega el backend. Las mediciones usan los FITS originales. |
+| **Shift & Stack y Auto-Track** | ✅ Vista previa | Desplazamiento bilineal y promedio visual de PNG según fechas reales y movimiento propio, o trayectoria del dipolo. Conserva los huecos y los límites de cobertura; no calcula flujo ni una ganancia de SNR. Incluye enlace a WiseView. |
 | **Resta Temporal Calibrada ($\Delta I$) + IA Astrométrica** | ✅ Operativo | Igualación de PSF (`src/difference.py`), detección $>4\sigma$ (`src/ai_detector.py`) y estimador dual **Movimiento Propio ($\mu$) vs. Distancia Planeta X (`UA`)**. |
 | **Fondos Multi-Misión (AllWISE / 2MASS / DSS2) + Gaia DR3** | ✅ Operativo | Selector de relevamiento de fondo vía CDS `hips2fits` + superposición de **Gaia DR3** (con respaldo JSON rápido vía AWS API Gateway), **AllWISE**, **SIMBAD** y exoplanetas. |
 | **Espectro 102 Bandas $F(\lambda)$ + Curva de Luz $F(t)$** | ✅ Operativo | Conmutador interactivo entre espectro infrarrojo y serie temporal por detector, con ajuste de cuerpo negro de Planck ($T_{\text{eff}}$) y bandas de $\text{H}_2\text{O}$, $\text{CH}_4$, $\text{CO}$. |
-| **Banderas de Contaminación (`FLAGS`) y Metadatos** | ✅ Operativo | Enmascarado científico de bits anómalos (preservando `MP_SOURCE` y `MP_FULLSAMPLE`), lectura de `VERSION` del `PrimaryHDU` y capa magenta conmutable. |
+| **FLAGS y cobertura** | ✅ Operativo | Enmascarado científico de bits anómalos (preservando `MP_SOURCE` y `MP_FULLSAMPLE`). Damero para píxeles no válidos o sin cobertura; capa magenta de FLAGS sobre exposiciones individuales. |
 | **URL Parametrizada Embebible + Exportación CSV/PNG** | ✅ Operativo | Sincronización `?ra=...&dec=...&fov=...&temporal=1&embed=1`, generador de `<iframe>` y descarga directa de imagen anotada `.png` y fotometría `.csv`. |
 
 > Para el detalle completo del checklist contra los objetivos del challenge, consultar [`estado actual del proyecto.md`](file:///c:/Users/Sebas/OneDrive/Desktop/Nasa/estado%20actual%20del%20proyecto.md).
@@ -161,7 +173,7 @@ pip install -r requirements.txt
 
 ## 6. Pruebas Automatizadas y Rendimiento
 
-### Ejecución de la suite de tests (88 tests unitarios y de integración)
+### Ejecución de la suite de tests (90 tests unitarios y de integración)
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
@@ -173,6 +185,8 @@ La suite verifica:
 - Funcionamiento 100% offline de los 5 casos oficiales de la NASA con apilados por detector (`detector_coadds`), resta temporal disponible y ajuste espectral de Planck (`tests/test_regressions.py`).
 - Compatibilidad multiplataforma del lanzador automático (`tests/test_launcher.py`).
 - Límites LRU por memoria, caducidad, invalidación de FITS modificados, caché HTTP y compresión sin cambios en las respuestas (`tests/test_performance.py`).
+- Integridad de PNG: conservación de cobertura, huecos saturados y orientación (`tests/test_performance.py`).
+- Regresiones JavaScript sin npm: `node scripts/check_frontend.cjs`, `node scripts/check_profiles.cjs`, `node scripts/check_images.cjs` y `node scripts/check_assistant.cjs` (píxeles, cobertura, canales RGB, A/B, apilado, coordenadas y relevamientos externos).
 
 ### Optimización e instalación liviana
 

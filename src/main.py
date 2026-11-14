@@ -174,6 +174,8 @@ def explore_sky_region(
         for idx, (ep_meta, al_img, al_flg) in enumerate(zip(cleaned_epochs, aligned_imgs, aligned_flags)):
             epoch_frames.append(
                 EpochFrame(
+                    native_shape=list(ep_meta["image"].shape),
+                    valid_pixels_pct=round(float(np.isfinite(al_img).mean()) * 100, 2),
                     index=idx,
                     epoch_id=int(ep_meta["epoch_id"]),
                     band_id=str(ep_meta["band_id"]),
@@ -237,7 +239,7 @@ def explore_sky_region(
         })
         best_band_index = max(
             range(len(cleaned_epochs)),
-            key=lambda idx: float(cleaned_epochs[idx].get("clean_pixels_pct", 0.0)),
+            key=lambda idx: epoch_frames[idx].valid_pixels_pct,
             default=None,
         )
         target_info = TargetInfo(
@@ -253,7 +255,7 @@ def explore_sky_region(
             available_bands=available_bands,
             best_band_index=best_band_index,
             best_band_clean_pct=(
-                round(float(cleaned_epochs[best_band_index].get("clean_pixels_pct", 0.0)), 2)
+                epoch_frames[best_band_index].valid_pixels_pct
                 if best_band_index is not None else None
             ),
             total_epochs=len(epoch_ids),
@@ -402,8 +404,10 @@ app.mount("/static", _STATIC_FILES, name="static")
 @app.get("/")
 def serve_frontend() -> HTMLResponse:
     html_content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    bust = (STATIC_DIR / "app.js").stat().st_mtime_ns
-    html_content = re.sub(r'/static/app\.js\?v=[^"]+', f"/static/app.js?v={bust}", html_content)
+    for script in ("demo-profiles.js", "demo-assistant.js", "app.js"):
+        bust = (STATIC_DIR / script).stat().st_mtime_ns
+        html_content = re.sub(r'/static/' + re.escape(script) + r'\?v=[^"]+',
+                              f"/static/{script}?v={bust}", html_content)
     return HTMLResponse(
         content=html_content,
         headers={

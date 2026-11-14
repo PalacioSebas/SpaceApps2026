@@ -27,7 +27,6 @@ from astropy.stats import sigma_clipped_stats
 from astropy.wcs import WCS
 from reproject import reproject_interp
 from astropy.wcs.utils import proj_plane_pixel_scales
-from scipy.ndimage import binary_dilation, distance_transform_edt, gaussian_filter, label
 
 from src.difference import prepare_difference
 from src.display_colors import colorize
@@ -368,86 +367,12 @@ def align_coadd_and_diff(
 
 
 # ----------------------------------------------------------------------------
-# Curado cosmético de núcleos saturados y bordes reproyectados (solo display)
-# ----------------------------------------------------------------------------
-def _heal_science_for_display(arr: np.ndarray) -> np.ndarray:
-    """
-    Reconstruye suavemente:
-    1) Núcleos estelares saturados (huecos NaN interiores rodeados por un halo brillante,
-       como en R Draconis) mediante un domo radial gaussiano continuo.
-    2) Huecos pequeños de rayos cósmicos / flags interiores por interpolación suave.
-    3) Esquinas exteriores sin cobertura del recorte rotado para evitar escalones
-       geométricos artificiales dentro del mosaico.
-    """
-    out = np.array(arr, dtype=np.float64, copy=True)
-    isnan = ~np.isfinite(out)
-    if not np.any(isnan) or np.all(isnan):
-        return out
-
-    finite_vals = out[~isnan]
-    p25, p50 = np.percentile(finite_vals, [25.0, 50.0])
-    mad_scale = float(np.median(np.abs(finite_vals - p50))) * 1.4826
-    sky_level = float(p25)
-
-    labeled, num_features = label(isnan)
-
-    for cid in range(1, num_features + 1):
-        comp = labeled == cid
-        touches_border = (
-            np.any(comp[0, :])
-            or np.any(comp[-1, :])
-            or np.any(comp[:, 0])
-            or np.any(comp[:, -1])
-        )
-        if touches_border:
-            continue
-
-        ring = binary_dilation(comp, iterations=2) & (~isnan)
-        if not np.any(ring):
-            continue
-        ring_vals = out[ring]
-        ring_q65 = float(np.percentile(ring_vals, 65.0))
-        ring_q90 = float(np.percentile(ring_vals, 90.0))
-        hole_size = int(np.sum(comp))
-
-        # Núcleo estelar saturado rodeado de halo brillante
-        if 3 <= hole_size <= 1200 and ring_q65 > p50 + max(1.8 * mad_scale, 0.25):
-            dist = distance_transform_edt(comp)
-            max_d = max(float(np.max(dist)), 1.0)
-            norm_d = dist / max_d
-            peak_val = max(ring_q90 * 1.35, ring_q65 + 2.5 * mad_scale)
-            profile = ring_q65 + (peak_val - ring_q65) * np.exp(-1.6 * (1.0 - norm_d) ** 2)
-            out[comp] = profile[comp]
-        else:
-            out[comp] = float(np.median(ring_vals))
-
-    # Suavizar transiciones en los parches interiores recién curados
-    interior_healed = isnan & np.isfinite(out)
-    if np.any(interior_healed):
-        _, nearest_idx = distance_transform_edt(~np.isfinite(out), return_indices=True)
-        temp_filled = out[tuple(nearest_idx)]
-        smoothed_interior = gaussian_filter(temp_filled, sigma=1.6, mode="nearest")
-        blend_zone = binary_dilation(interior_healed, iterations=1) & np.isfinite(out)
-        out[blend_zone] = 0.72 * smoothed_interior[blend_zone] + 0.28 * out[blend_zone]
-
-    # Extender suavemente el borde hacia las esquinas exteriores (fuera del FITS rotado)
-    still_nan = ~np.isfinite(out)
-    if np.any(still_nan):
-        dist_ext, nearest_idx = distance_transform_edt(still_nan, return_indices=True)
-        nearest_vals = out[tuple(nearest_idx)]
-        smooth_ext = gaussian_filter(nearest_vals, sigma=5.0, mode="nearest")
-        decay = np.exp(-dist_ext / 14.0)
-        out[still_nan] = sky_level + (smooth_ext[still_nan] - sky_level) * decay[still_nan]
-
-    return out
-
-
-# ----------------------------------------------------------------------------
 # Matriz -> PNG base64
 # ----------------------------------------------------------------------------
 def matrix_to_base64_png(matrix: np.ndarray, mode: str = "science") -> str:
     """mode: 'science' (stretch asinh), 'flags' (binario) o 'diff' (divergente, simétrico)."""
     arr = np.asarray(matrix, dtype=float)
+    arr = np.where(np.isfinite(arr), arr, np.nan)
     finite = arr[np.isfinite(arr)]
 
     if mode == "flags":
@@ -461,21 +386,18 @@ def matrix_to_base64_png(matrix: np.ndarray, mode: str = "science") -> str:
     elif mode == "diff":
         lim = float(np.percentile(np.abs(finite), 99)) if finite.size else 1.0
         lim = lim or 1.0
-        arr = np.nan_to_num(arr, nan=0.0)
         vmin, vmax = -lim, lim
     else:  # science
         if finite.size:
-            arr = _heal_science_for_display(arr)
-            healed_finite = arr[np.isfinite(arr)]
-            p10, p22, p50 = np.percentile(healed_finite, [10.0, 22.0, 50.0])
+            p10, p22, p50 = np.percentile(finite, [10.0, 22.0, 50.0])
             sky_level = float(p22)
             lower_sigma = max(float(p50 - p10) * 1.25, 0.38)
-            mad = float(np.median(np.abs(healed_finite - p50))) * 1.4826
+            mad = float(np.median(np.abs(finite - p50))) * 1.4826
             sigma = max(lower_sigma, min(mad, lower_sigma * 2.4))
             z = np.clip((arr - sky_level) / sigma + 0.55, 0.0, None)
             arr = np.clip(np.arcsinh(z / 2.2) / np.arcsinh(14.0), 0.0, 1.0)
         else:
-            arr = np.zeros_like(arr)
+            arr = np.full_like(arr, np.nan)
         vmin, vmax = 0.0, 1.0
 
     buf = BytesIO()

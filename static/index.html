@@ -34,7 +34,7 @@
       image-rendering: pixelated;
     }
     #spherex-canvas { cursor: crosshair; }
-    .astronomy-viewport { width: min(100%, 410px); aspect-ratio: 1; flex-shrink: 0; }
+    .astronomy-viewport { width: min(100%, 440px); aspect-ratio: 1; flex-shrink: 0; }
     .astronomy-viewport canvas { display: block; width: 100%; height: 100%; }
     :focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
     button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: wait; }
@@ -47,158 +47,378 @@
     /* Modo embebido (?embed=1): layout compacto para iframes */
     body.embedded .embed-hide { display: none !important; }
     body.embedded header { position: static; }
+    .demo-dialog { width: min(94vw, 720px); max-height: 90dvh; overflow-y: auto; padding: 28px;
+      color: #e2e8f0; background: #0b1424; border: 1px solid #334155; border-radius: 20px; }
+    .demo-dialog::backdrop { background: rgba(2, 6, 23, .82); backdrop-filter: blur(6px); }
+    .demo-account { position: relative; padding: 16px; border: 1px solid #334155; border-radius: 12px; text-align: left; background: #101d30; }
+    .demo-account[aria-pressed="true"] { border-color: #38bdf8; background: #0c2a42; }
+    .demo-account[aria-pressed="true"]::after { content: "✓"; position: absolute; right: 10px; top: 8px; color: #7dd3fc; font-size: 12px; }
+    .demo-account strong { padding-right: 12px; overflow-wrap: anywhere; }
+    .demo-field { width: 100%; margin-top: 6px; padding: 9px 10px; color: #e2e8f0; background: #101d30; border: 1px solid #334155; border-radius: 8px; }
+    .demo-dialog [hidden], .demo-userbar [hidden], #demo-guide[hidden] { display: none !important; }
+    .app-shell { width: min(1480px, calc(100% - 48px)); margin-left: auto; margin-right: auto; }
+    .app-header { padding: 20px 0 14px; border-width: 0 0 1px; border-radius: 0; }
+    .header-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+    .app-brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+    .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #226387; border-radius: 12px; background: #102e45; font-weight: 800; color: #7dd3fc; }
+    .app-brand h1 { font-size: 15px; font-weight: 800; letter-spacing: .06em; }
+    .app-brand h1 span { display: block; font-size: 12px; font-weight: 500; color: #7dd3fc; letter-spacing: .02em; margin-top: 1px; }
+    .app-brand p { color: #8297af; font-size: 11px; margin-top: 3px; }
+    .header-account { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 16px; min-width: 0; }
+    .source-badge { color: #77dabb; font-size: 11px; white-space: nowrap; }
+    .source-badge::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: #34d399; }
+    .demo-userbar { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+    #demo-user-label { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b2c2d6; }
+    .demo-label { font-size: 9px; letter-spacing: .08em; color: #8297af; }
+    .coordinate-fields { display: grid; grid-template-columns: minmax(140px, 1.2fr) minmax(140px, 1.2fr) minmax(90px, .7fr) minmax(80px, .6fr) minmax(185px, 1.3fr) auto; align-items: end; gap: 12px; }
+    .coordinate-field { display: block; min-width: 0; }
+    .coordinate-field > span { display: block; margin-bottom: 7px; color: #95a9c1; font-size: 11px; }
+    .coordinate-field input, .coordinate-field select { display: block; width: 100%; min-width: 0; height: 39px; padding: 8px 11px; color: #e2e8f0; font-size: 12px; background: #0b1525; border: 1px solid #2a3b52; border-radius: 8px; }
+    .coordinate-field input { font-family: ui-monospace, monospace; }
+    .primary-action { height: 39px; border: 1px solid #38bdf8; border-radius: 8px; padding: 0 22px; background: #38bdf8; color: #041222; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .primary-action:hover { background: #7dd3fc; }
+    .secondary-action { display: inline-flex; justify-content: center; align-items: center; min-height: 32px; padding: 6px 11px; border: 1px solid #293b52; border-radius: 8px; background: #101c2e; color: #bfd0e1; font-size: 11px; white-space: nowrap; }
+    .secondary-action:hover { background: #1a2b41; border-color: #46627e; }
+    .wiseview-action { color: #e9c989; }
+    .exploration-shortcuts { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-top: 16px; }
+    .target-picker { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .section-eyebrow { color: #8297af; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+    .quick-targets { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding: 2px 0; scrollbar-width: thin; }
+    .quick-targets button { flex-shrink: 0; border: 1px solid #293b52; border-radius: 7px; background: #101c2e; color: #afc0d5; padding: 6px 10px; font-size: 11px; white-space: nowrap; }
+    .quick-targets .target-btn-active { background: #0e334d; border-color: #327da5; color: #b6e6fc; box-shadow: none; }
+    .share-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .target-description { color: #8297af; font-size: 11px; margin-top: 10px; line-height: 1.5; }
+    .profile-guide { margin-top: 16px; border: 1px solid #1f3a50; border-radius: 10px; background: #0b1c2b; }
+    .profile-guide summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; cursor: pointer; list-style: none; padding: 12px 16px; font-size: 12px; }
+    .profile-guide summary::-webkit-details-marker { display: none; }
+    .profile-guide strong { color: #b5dcef; font-weight: 600; }
+    #demo-settings-status { margin-left: auto; color: #8297af; font-size: 11px; }
+    .guide-toggle { color: #94cce6; font-size: 11px; display: flex; gap: 8px; }
+    .profile-guide[open] .guide-toggle > span { transform: rotate(180deg); }
+    #demo-guide-text { border-top: 1px solid #1f3a50; color: #a3b7cc; padding: 12px 16px; font-size: 12px; line-height: 1.7; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 316px; grid-template-areas: "viewer context detections" "spectrum spectrum spectrum"; grid-template-rows: auto auto; gap: 18px; align-items: start; padding-top: 18px; padding-bottom: 28px; }
+    .workspace > section { min-width: 0; padding: 20px; }
+    .workspace .viewer-panel { grid-area: viewer; display: flex; flex-direction: column; gap: 0; }
+    .workspace .context-panel { grid-area: context; display: flex; flex-direction: column; gap: 16px; }
+    .workspace .detections-panel { grid-area: detections; position: sticky; top: 18px; padding: 0; overflow: hidden; max-height: calc(100dvh - 36px); display: flex; flex-direction: column; }
+    .detector-header { flex-shrink: 0; padding: 20px 20px 16px; border-bottom: 1px solid #243247; }
+    .detector-heading { display: flex; align-items: center; gap: 11px; }
+    .detector-icon { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #294a61; border-radius: 11px; background: #112b3d; color: #7dd3fc; flex-shrink: 0; }
+    .detector-eyebrow { color: #8297af; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 3px; }
+    .detections-panel h2 { font-size: 15px; font-weight: 650; line-height: 1.3; color: #e2e8f0; }
+    .detector-status-row { display: flex; align-items: center; gap: 7px; margin-top: 16px; }
+    #ai-count-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid #304157; border-radius: 6px; background: #132034; color: #a8bbd1; font-size: 10px; line-height: 1.4; }
+    #ai-count-badge::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    #ai-count-badge[data-status="ready"] { color: #a7d9ee; border-color: #2b4b61; background: #10283a; }
+    .detector-method { color: #70869f; font-size: 10px; }
+    .detector-body { padding: 18px; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #334b64 transparent; }
+    .detector-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    .detector-summary[hidden] { display: none; }
+    .detector-summary > span { padding: 9px 10px; border: 1px solid #27374b; border-radius: 8px; color: #91a5be; font-size: 10px; }
+    .detector-summary strong { display: block; font-size: 18px; line-height: 1.4; color: #d9e6f2; font-weight: 600; }
+    #ai-detections-list { display: grid; gap: 12px; max-height: none; scrollbar-width: thin; scrollbar-color: #334b64 transparent; }
+    #ai-detections-list:has(.detector-empty) { max-height: none; }
+    .detector-empty { display: flex; flex-direction: column; align-items: center; padding: 12px 3px 5px; text-align: center; }
+    .detector-empty-icon { display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 16px; background: #101f31; border: 1px solid #263b52; border-radius: 20px; color: #6b9bb9; }
+    .detector-empty h3 { font-size: 14px; font-weight: 600; color: #d4e0ed; }
+    .detector-empty p { margin-top: 8px; color: #8fa4bc; font-size: 12px; line-height: 1.7; }
+    .detector-search { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 39px; margin-top: 20px; padding: 9px 12px; border: 1px solid #3b8bab; border-radius: 8px; background: #163d52; color: #c5edff; font-size: 12px; font-weight: 600; }
+    .detector-search:hover { background: #1c4e66; border-color: #68b6d2; }
+    .detector-analysis-details { width: 100%; margin-top: 14px; text-align: left; }
+    .detector-analysis-details summary { color: #7f97b1; font-size: 10px; cursor: pointer; }
+    .detector-analysis-details p { font-size: 11px; line-height: 1.6; }
+    .detector-help { flex-shrink: 0; padding: 13px 20px; border-top: 1px solid #243247; background: rgba(6, 16, 29, .3); }
+    .detector-help summary { display: flex; align-items: center; justify-content: space-between; color: #92a9c1; font-size: 11px; cursor: pointer; list-style: none; }
+    .detector-help summary::-webkit-details-marker { display: none; }
+    .detector-help summary span { color: #617d9b; font-size: 15px; }
+    .detector-help[open] summary span { transform: rotate(45deg); }
+    .detector-help p { margin-top: 12px; color: #8fa4bc; font-size: 11px; line-height: 1.7; }
+    .detector-help strong { color: #bdcfe1; font-weight: 600; }
+    .detection-card { min-width: 0; border: 1px solid #2b3a4e; border-left: 2px solid #b38267; border-radius: 10px; padding: 13px; background: #101d2e; transition: border-color .15s, background .15s; }
+    .detection-card[data-kind="motion"] { border-left-color: #cc8b9c; }
+    .detection-card:hover { border-color: #52677d; }
+    .detection-card.is-selected { border-color: #499a90; background: #112c30; }
+    .detection-card-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .detection-select { text-align: left; border-radius: 3px; }
+    .detection-select:hover { text-decoration: underline; text-underline-offset: 3px; }
+    .detection-kind { font-size: 12px; font-weight: 600; color: #e0c5a7; }
+    .detection-card[data-kind="motion"] .detection-kind { color: #e9b5c3; }
+    .detection-score { font: 10px/1.4 ui-monospace, monospace; color: #99b1ca; padding: 3px 6px; background: #0b1524; border: 1px solid #28394f; border-radius: 5px; }
+    .selected-det-badge { color: #91ddc9; font-size: 9px; }
+    .detection-user-explanation { font-size: 11px; color: #b5c5d8; line-height: 1.65; }
+    .detection-details { margin-top: 12px; padding-top: 10px; border-top: 1px solid #2b3a4e; font-size: 10px; color: #8ea5bf; }
+    .detection-details summary { cursor: pointer; color: #91b6cc; }
+    .detection-details-content { display: grid; gap: 9px; padding-top: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .detection-iau { color: #c1d5e6; }
+    .detection-astrometry { border-left: 2px solid #3c5b76; padding-left: 8px; }
+    .detection-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; }
+    .detection-actions button { min-height: 33px; border: 1px solid #33475e; border-radius: 6px; color: #b6cbe0; background: #15263a; font-size: 10px; }
+    .detection-actions .btn-det-diff { color: #b6e6fb; border-color: #346078; background: #15354a; }
+    .detection-actions button:hover { filter: brightness(1.2); }
+    .image-note { margin-top: 10px; color: #8297af; font-size: 11px; line-height: 1.6; }
+    .workspace .spectrum-panel { grid-area: spectrum; }
+    .panel-heading { min-height: 120px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding-bottom: 14px; }
+    .panel-title h2 { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+    .panel-title p { font-size: 11px; color: #8297af; line-height: 1.5; margin-top: 4px; }
+    .view-modes { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid #2a3b52; border-radius: 9px; background: #0a1423; font-size: 11px; }
+    .frame-status, .catalog-status { font: 11px/1.5 ui-monospace, monospace; color: #78b8d9; overflow-wrap: anywhere; }
+    .context-toolbar { width: 100%; }
+    .context-toolbar select { max-width: 100%; height: 30px; padding: 4px 10px; background: #0a1423; border: 1px solid #2a3b52; border-radius: 8px; color: #c3d1e1; font-size: 11px; }
+    #infinite-plane-badge { margin: 9px auto 0; width: fit-content; max-width: 100%; color: #8297af; font: 10px/1.5 ui-monospace, monospace; }
+    #infinite-plane-badge.is-active { color: #7dd3fc; }
+    .demo-defaults { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 20px; }
+    .demo-defaults > span { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid #263c52; border-radius: 10px; color: #8297af; font-size: 10px; background: #0d2032; }
+    .demo-defaults strong { color: #c1e9fc; font-size: 13px; font-weight: 600; }
+    .demo-defaults-note { color: #94b5cf; font-size: 11px; line-height: 1.6; margin-top: 9px; }
+    .demo-dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; border-top: 1px solid #25354a; padding-top: 18px; margin-top: 20px; }
+    #demo-reset { order: 0; margin-right: auto; font-size: 11px; border-color: #554832; }
+    #demo-cancel { order: 1; }
+    #demo-save { order: 2; }
+    .dialog-close { position: absolute; top: 18px; right: 18px; width: 30px; height: 30px; border: 1px solid #293b52; border-radius: 8px; color: #9bb0c8; font-size: 22px; line-height: 1; }
+    .dialog-close:hover { background: #1a2b41; }
+    body.embedded .workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "viewer context"; grid-template-rows: auto; }
+    @media (max-width: 1190px) {
+      .workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "viewer context" "detections detections" "spectrum spectrum"; }
+      .workspace .detections-panel { position: static; max-height: none; }
+    }
+    @media (max-width: 1100px) {
+      .coordinate-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .header-top { align-items: flex-start; }
+      .header-account { gap: 8px; }
+      .exploration-shortcuts { flex-direction: column; align-items: stretch; gap: 10px; }
+      .share-actions { justify-content: flex-end; }
+    }
+    @media (max-width: 900px) {
+      .workspace, body.embedded .workspace { grid-template-columns: minmax(0, 1fr); grid-template-areas: "viewer" "context" "detections" "spectrum"; grid-template-rows: auto; }
+      body.embedded .workspace { grid-template-areas: "viewer" "context"; }
+      .panel-heading { min-height: 0; }
+      .workspace .context-panel { gap: 16px; }
+    }
+    @media (max-width: 600px) {
+      .app-shell { width: calc(100% - 24px); }
+      .app-header { padding-top: 14px; }
+      .header-top { flex-direction: column; gap: 12px; margin-bottom: 16px; }
+      .header-account { width: 100%; justify-content: space-between; gap: 10px; }
+      .demo-userbar { width: 100%; }
+      #demo-user-label { flex: 1; max-width: none; }
+      .coordinate-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .coordinate-field input, .coordinate-field select { font-size: 13px; }
+      .workspace { gap: 14px; padding-top: 14px; }
+      .workspace > section { padding: 16px; }
+      .share-actions { flex-wrap: wrap; justify-content: flex-start; }
+      .profile-guide summary { padding: 11px 12px; gap: 6px 10px; }
+      #demo-settings-status { display: none; }
+      .guide-toggle { margin-left: auto; }
+      .demo-dialog { padding: 20px 18px; }
+      #demo-account-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .demo-account { padding: 12px 8px; }
+      .demo-account strong { padding-right: 0; font-size: 11px; }
+      .demo-account span { display: none; }
+      .demo-account[aria-pressed="true"]::after { top: 2px; right: 4px; font-size: 9px; }
+      .demo-defaults { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .demo-dialog-actions { gap: 8px; }
+      #demo-reset { flex-basis: 100%; margin-bottom: 4px; }
+      #demo-dialog-title { padding-right: 20px; font-size: 21px; }
+    }
     @media (max-width: 1023px) { header.glass-panel { position: static; } }
-    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    .app-navigation { display: flex; gap: 6px; margin: 0 0 18px; border-bottom: 1px solid #26394d; padding-bottom: 10px; }
+    .app-navigation a { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid transparent; border-radius: 8px; color: #8fa8c1; font-size: 12px; font-weight: 600; }
+    .app-navigation a:hover { color: #c7e9fa; background: #12263a; }
+    .app-navigation a[aria-current="page"] { color: #a9dff7; background: #143149; border-color: #2f607e; }
+    body[data-section="assistant"] #explorer-tools, body[data-section="assistant"] #demo-guide { display: none !important; }
+    body[data-section="assistant"] .app-navigation { margin-bottom: 0; }
+    #explorer-section[hidden], #assistant-section[hidden] { display: none !important; }
+    .assistant-section { display: grid; grid-template-columns: 240px minmax(0, 1fr); height: max(560px, calc(100dvh - 215px)); margin: 20px 0 28px; border: 1px solid #2b455d; border-radius: 16px; background: #0d192b; overflow: hidden; }
+    .assistant-sidebar { display: flex; flex-direction: column; gap: 18px; min-width: 0; overflow-y: auto; padding: 24px 20px; border-right: 1px solid #263c53; background: #0b1626; }
+    .assistant-eyebrow { color: #6e9dbd; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .assistant-sidebar h2 { margin-top: 7px; color: #d8eaf7; font-size: 20px; font-weight: 650; }
+    .assistant-sidebar-intro { margin-top: 8px; color: #819bb4; font-size: 12px; line-height: 1.7; }
+    .assistant-sidebar #assistant-clear { width: 100%; padding: 9px 12px; border: 1px solid #375674; border-radius: 8px; color: #b7d9ee; background: #132b41; text-decoration: none; font-size: 12px; font-weight: 600; }
+    .assistant-context-card { padding: 12px; border: 1px solid #253d55; border-radius: 9px; background: #0f2033; }
+    .assistant-context-card > span { color: #7198b4; font-size: 10px; }
+    .assistant-context-card p { margin-top: 5px; color: #b1c9de; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .assistant-guide-menu summary { color: #a4bdd2; font-size: 12px; cursor: pointer; }
+    .assistant-sidebar-note { margin-top: auto; color: #7891a9; font-size: 11px; line-height: 1.7; }
+    .assistant-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+    .assistant-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 18px 20px 12px; flex-shrink: 0; }
+    .assistant-header h3 { color: #e0effa; font-size: 16px; font-weight: 650; }
+    .assistant-header p { color: #7eabc6; font-size: 10px; margin-top: 4px; }
+    .assistant-header { border-bottom: 1px solid #263a51; padding: 20px 24px; }
+    .assistant-back-link { padding: 6px 10px; border: 1px solid #304b64; border-radius: 7px; color: #a0c7df; font-size: 11px; white-space: nowrap; }
+    .assistant-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin; scrollbar-color: #35516c transparent; }
+    .assistant-message { width: min(100%, 800px); align-self: center; border: 1px solid #293f55; border-radius: 12px; padding: 12px; background: #12243a; overflow-wrap: anywhere; flex-shrink: 0; }
+    .assistant-message-user { width: min(88%, 700px); margin-left: auto; align-self: flex-end; background: #16394c; border-color: #2b566e; }
+    .assistant-typing { display: flex; align-items: center; gap: 12px; min-height: 27px; color: #93b6ce; font-size: 12px; }
+    .assistant-typing-dots { display: inline-flex; align-items: center; gap: 5px; }
+    .assistant-typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: #83c8e8; animation: assistant-dot 1s ease-in-out infinite; }
+    .assistant-typing-dots span:nth-child(2) { animation-delay: .15s; }
+    .assistant-typing-dots span:nth-child(3) { animation-delay: .3s; }
+    @keyframes assistant-dot { 0%, 75%, 100% { opacity: .3; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-4px); } }
+    .assistant-author { display: block; color: #79b9d9; font-size: 10px; font-weight: 600; margin-bottom: 5px; }
+    .assistant-message > p { color: #bccfe1; font-size: 13px; white-space: pre-line; line-height: 1.7; }
+    .assistant-footer { padding: 12px 16px 14px; border-top: 1px solid #263a51; background: #0b1626; flex-shrink: 0; }
+    .assistant-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .assistant-suggestions button { padding: 6px 8px; border: 1px solid #2a435b; border-radius: 7px; color: #9ec4da; background: #12253a; font-size: 10px; text-align: left; }
+    .assistant-suggestions button:hover { border-color: #5384a1; }
+    #assistant-form { display: flex; gap: 7px; }
+    #assistant-form input { width: 100%; min-width: 0; height: 39px; padding: 8px 10px; border: 1px solid #344d66; border-radius: 8px; background: #0b1423; color: #d4e7f4; font-size: 12px; }
+    #assistant-form button, .assistant-apply { border: 1px solid #3a89ab; border-radius: 8px; background: #1b526c; color: #d1f1ff; font-size: 11px; font-weight: 600; padding: 8px 12px; }
+    .assistant-footer-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; color: #758da7; font-size: 10px; }
+    #assistant-clear { color: #9bb7cf; text-decoration: underline; text-underline-offset: 3px; }
+    .assistant-proposal { margin-top: 12px; padding-top: 12px; border-top: 1px solid #36506a; }
+    .assistant-proposal h3 { color: #c9e7f8; font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+    .assistant-proposal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .assistant-proposal-fields label > span { display: block; margin-bottom: 5px; color: #94afc6; font-size: 10px; }
+    .assistant-proposal-fields input, .assistant-proposal-fields select { width: 100%; min-width: 0; height: 33px; padding: 5px 7px; border: 1px solid #38536e; border-radius: 6px; color: #cee4f5; background: #0d1a2b; font-size: 11px; }
+    .assistant-proposal-note, .assistant-proposal-status { margin-top: 10px; color: #8daac2; font-size: 10px; line-height: 1.6; }
+    .assistant-proposal-status { color: #9edbc7; }
+    .assistant-apply { margin-top: 12px; width: 100%; }
+    .assistant-header > div { flex: 1; min-width: 0; }
+    .assistant-topics { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+    .assistant-topics button { padding: 9px; border: 1px solid #34536d; border-radius: 7px; background: #142e43; color: #b7d6e9; font-size: 11px; text-align: left; line-height: 1.5; }
+    .assistant-topics button:hover { border-color: #6a9ebd; }
+    .assistant-citations, .assistant-followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .assistant-citations button { color: #83bcd8; font-size: 10px; text-align: left; }
+    .assistant-citations button:hover { text-decoration: underline; }
+    .assistant-sources { margin-top: 10px; border-top: 1px solid #2c455f; padding-top: 10px; color: #a0bbd2; }
+    .assistant-sources summary { font-size: 11px; cursor: pointer; }
+    .assistant-source { margin-top: 10px; padding: 10px; border: 1px solid #2f4863; background: #0d1b2d; border-radius: 8px; }
+    .assistant-source > span { color: #7899b5; font-size: 9px; }
+    .assistant-source h4 { margin-top: 3px; color: #bcdbee; font-size: 11px; font-weight: 600; }
+    .assistant-source ul { padding-left: 13px; margin-top: 7px; list-style: disc; }
+    .assistant-source li { font-size: 10px; line-height: 1.65; margin-top: 4px; }
+    .assistant-source a { display: inline-block; color: #8bc9e7; font-size: 10px; margin-top: 9px; }
+    .assistant-followups[hidden], .assistant-response-actions[hidden], .assistant-suggestions[hidden] { display: none !important; }
+    .assistant-answer-details { margin-top: 10px; color: #a5c2d9; font-size: 11px; }
+    .assistant-answer-details summary { cursor: pointer; }
+    .assistant-answer-details p { margin-top: 10px; white-space: pre-line; line-height: 1.7; color: #a5bdd3; }
+    .assistant-response-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .assistant-response-actions button { min-height: 33px; padding: 7px 11px; border: 1px solid #3d7796; border-radius: 7px; color: #bfe9ff; background: #153c55; font-size: 11px; }
+    .assistant-response-actions button:hover { background: #20536e; }
+    .assistant-choices button { border-color: #5387a5; background: #173c54; font-size: 12px; padding: 9px 12px; }
+    .assistant-followups button { padding: 5px 7px; color: #a1c7dd; border: 1px solid #314c64; border-radius: 6px; font-size: 10px; text-align: left; }
+    .assistant-followups button:hover { background: #18364c; }
+    @media (max-width: 900px) {
+      .assistant-section { grid-template-columns: 1fr; height: auto; }
+      .assistant-sidebar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 16px; gap: 12px; border-right: 0; border-bottom: 1px solid #263c53; overflow: visible; }
+      .assistant-sidebar-intro, .assistant-sidebar-note, .assistant-eyebrow { display: none; }
+      .assistant-sidebar h2 { font-size: 17px; margin-top: 0; }
+      .assistant-context-card, .assistant-guide-menu { grid-column: 1 / -1; }
+      .assistant-chat { height: max(560px, calc(100dvh - 220px)); }
+      .assistant-topics { display: grid; grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 600px) {
+      .assistant-header { padding: 15px 16px; }
+      .assistant-header h3 { font-size: 14px; }
+      .assistant-back-link { font-size: 10px; padding: 6px; }
+      .assistant-messages { padding: 12px; }
+      .assistant-section { margin-top: 14px; }
+      .app-navigation a { flex: 1; justify-content: center; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } .assistant-typing-dots span { animation: none; opacity: .7; } }
   </style>
 </head>
 <body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
 
-  <!-- BARRA SUPERIOR: Controles de Coordenadas, URL Embebible y 5 Botones Obligatorios -->
-  <header class="glass-panel sticky top-0 z-30 px-4 py-3 border-b border-slate-800">
-    <div class="max-w-[1600px] mx-auto flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-      
-      <!-- Identidad del Proyecto -->
-      <div class="flex items-center gap-3 embed-hide">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center font-black text-lg shadow-lg shadow-sky-500/20">
-          PX
+  <dialog id="demo-profile-dialog" class="demo-dialog" aria-labelledby="demo-dialog-title" aria-describedby="demo-dialog-description">
+    <form id="demo-profile-form">
+      <button id="demo-close" type="button" class="dialog-close" aria-label="Cerrar perfil">×</button>
+      <span class="text-xs font-semibold uppercase tracking-wider text-sky-400">Papastronomy · acceso demo</span>
+      <h2 id="demo-dialog-title" class="text-2xl font-bold mt-2">Tu punto de partida en el cielo</h2>
+      <p id="demo-dialog-description" class="text-sm text-slate-400 mt-2">Elegí un perfil para empezar. Todos los controles estarán disponibles y podés cambiar cualquier parámetro.</p>
+      <div id="demo-account-choices" class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-5" role="group" aria-label="Cuentas de demostración">
+        <button type="button" class="demo-account" data-demo-account="principiante" aria-pressed="true"><strong class="block text-sm">Principiante</strong><span class="block text-xs text-slate-400 mt-1">Una primera mirada al cielo</span></button>
+        <button type="button" class="demo-account" data-demo-account="explorador" aria-pressed="false"><strong class="block text-sm">Explorador</strong><span class="block text-xs text-slate-400 mt-1">Compará y conocé los datos</span></button>
+        <button type="button" class="demo-account" data-demo-account="avanzado" aria-pressed="false"><strong class="block text-sm">Avanzado</strong><span class="block text-xs text-slate-400 mt-1">Profundizá en el análisis</span></button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5 text-sm">
+        <label>Nombre o alias<input id="demo-alias" class="demo-field" maxlength="40" required autocomplete="nickname" /></label>
+        <label>Experiencia declarada<select id="demo-level" class="demo-field"><option value="principiante">Principiante</option><option value="explorador">Explorador</option><option value="avanzado">Avanzado</option></select></label>
+        <label>Interés principal<select id="demo-interest" class="demo-field"><option value="aprender">Aprender astronomía</option><option value="objetos">Explorar objetos</option><option value="analisis">Analizar observaciones</option></select></label>
+        <label>Explicaciones preferidas<select id="demo-explanations" class="demo-field"><option value="simple">Simples</option><option value="equilibrada">Equilibradas</option><option value="tecnica">Técnicas</option></select></label>
+      </div>
+      <div id="demo-defaults-preview" class="demo-defaults"></div><p id="demo-defaults-note" class="demo-defaults-note"></p>
+      <p class="text-xs text-slate-400 mt-3">Son cuentas de demostración. El perfil y las preferencias se guardan solo en este navegador.</p>
+      <p id="demo-storage-notice" class="text-xs text-amber-300 mt-2" role="status" hidden>El navegador no permite guardar preferencias. Podés seguir usando la app durante esta visita.</p>
+      <div class="demo-dialog-actions">
+        <button id="demo-save" type="submit" class="bg-sky-400 hover:bg-sky-300 text-slate-950 rounded-lg px-4 py-2 text-sm font-bold">Entrar al explorador</button>
+        <button id="demo-cancel" type="button" class="border border-slate-600 rounded-lg px-4 py-2 text-sm">Continuar como invitado</button>
+        <button id="demo-reset" type="button" class="text-amber-200 border border-amber-700 rounded-lg px-4 py-2 text-sm" hidden>Restaurar configuración del perfil</button>
+      </div>
+    </form>
+  </dialog>
+
+  <header class="app-header glass-panel">
+    <div class="app-shell">
+      <div class="header-top embed-hide">
+        <div class="app-brand">
+          <div class="brand-mark" aria-hidden="true">PX</div>
+          <div><h1>PAPASTRONOMY <span>SPHEREx Explorer</span></h1><p>Una ventana al cielo infrarrojo</p></div>
         </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <h1 class="text-base md:text-lg font-bold tracking-tight text-white">
-              PAPASTRONOMY <span class="text-sky-400 font-normal">· SPHEREx & Planet X Explorer</span>
-            </h1>
-            <span id="badge-datasource" class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              Esperando observaciones
-            </span>
+        <div class="header-account">
+          <span id="badge-datasource" class="source-badge">Esperando observaciones</span>
+          <div class="demo-userbar">
+            <span class="demo-label">DEMO</span><span id="demo-user-label">Exploración como invitado</span>
+            <button id="btn-demo-profile" type="button" class="secondary-action">Entrar con un perfil</button>
+            <button id="btn-demo-logout" type="button" class="secondary-action" hidden>Salir</button>
           </div>
-          <p class="text-xs text-slate-400">
-            Misión NASA SPHEREx · 102 Bandas Infrarrojas (0.75–5.00 μm) · Alineación WCS, Resta Temporal e IA
-          </p>
         </div>
       </div>
-
-      <!-- Formulario de Búsqueda por Coordenadas (RA, Dec, FoV) + Botón Compartir URL -->
-      <form id="coord-form" class="flex flex-wrap items-center gap-2">
-        <div class="flex items-center bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1">
-          <label for="input-ra" class="text-[11px] uppercase tracking-wider text-slate-400 mr-1.5">RA (°):</label>
-          <input id="input-ra" type="text" required autocomplete="off" inputmode="decimal"
-            title="Grados decimales (133.795) o sexagesimal: 08h55m10.831s · 08:55:10.8 · 08 55 10.8"
-            placeholder="133.795 o 08h55m10.8s"
-            class="bg-transparent text-xs font-mono text-white w-40 focus:outline-none" value="133.795129" />
+      <nav class="app-navigation embed-hide" aria-label="Secciones de la aplicación">
+        <a id="nav-explorer" href="#explorador" aria-current="page">Explorador</a>
+        <a id="btn-open-assistant" href="#asistente">Asistente</a>
+      </nav>
+      <div id="explorer-tools">
+      <form id="coord-form" class="exploration-form">
+        <div class="coordinate-fields">
+          <label class="coordinate-field" for="input-ra"><span>Ascensión recta · RA</span><input id="input-ra" type="text" required autocomplete="off" inputmode="decimal" title="Grados decimales o sexagesimal: 133.795129 · 08h55m10.831s" placeholder="133.795129 o 08h55m10.8s" value="133.795129" /></label>
+          <label class="coordinate-field" for="input-dec"><span>Declinación · Dec</span><input id="input-dec" type="text" required autocomplete="off" inputmode="decimal" title="Grados decimales o sexagesimal: -7.245147 · -07d14m42.53s" placeholder="-7.245147 o -07d14m42.5s" value="-7.245147" /></label>
+          <label class="coordinate-field" for="input-fov"><span>Campo · FoV (°)</span><input id="input-fov" type="number" step="0.005" min="0.01" max="1" required value="0.05" /></label>
+          <label class="coordinate-field" for="input-max-frames"><span>Recortes</span><input id="input-max-frames" type="number" min="1" max="102" step="1" required value="10" title="Cantidad máxima de exposiciones; la cobertura puede ser menor" /></label>
+          <label class="coordinate-field" for="select-fov-preset"><span>Escala del campo</span><select id="select-fov-preset" aria-label="Escala de campo de visión" title="Un campo más amplio muestra más contexto y puede requerir mayor descarga"><option value="0.03">Cerrado · 0.03° (1.8′)</option><option value="0.05" selected>Balanceado · 0.05° (3′)</option><option value="0.1">Amplio · 0.10° (6′)</option><option value="0.2">Panorámico · 0.20° (12′)</option><option value="custom">Personalizado</option></select></label>
+          <button type="submit" class="primary-action">Explorar Cielo</button>
         </div>
-        <div class="flex items-center bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1">
-          <label for="input-dec" class="text-[11px] uppercase tracking-wider text-slate-400 mr-1.5">Dec (°):</label>
-          <input id="input-dec" type="text" required autocomplete="off" inputmode="decimal"
-            title="Grados decimales (-7.245) o sexagesimal: -07d14m42.53s · -07:14:42.5 · +04d41m36.11s"
-            placeholder="-7.245 o -07d14m42.5s"
-            class="bg-transparent text-xs font-mono text-white w-40 focus:outline-none" value="-7.245147" />
-        </div>
-        <div class="flex items-center bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1">
-          <label for="input-fov" class="text-[11px] uppercase tracking-wider text-slate-400 mr-1.5">FoV (°):</label>
-          <input id="input-fov" type="number" step="0.005" min="0.01" max="1" required
-            class="bg-transparent text-xs font-mono text-white w-16 focus:outline-none" value="0.05" />
-        </div>
-        <!-- Lista descriptiva de escalas de campo de visión (FoV) -->
-        <div class="flex items-center bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1 gap-1.5">
-          <label for="select-fov-preset" class="text-[11px] uppercase tracking-wider text-slate-400 whitespace-nowrap">Escala FoV:</label>
-          <select id="select-fov-preset" aria-label="Escala de campo de visión (FoV)"
-            title="Elegí el tamaño de la región del cielo: más campo permite rastrear objetos rápidos, a cambio de mayor descarga de datos"
-            class="bg-slate-900 text-xs text-slate-200 focus:outline-none cursor-pointer max-w-[270px] truncate">
-            <option value="0.03">1.8′ arcmin (0.03°) — Cerrado: descarga rápida (astro puntual)</option>
-            <option value="0.05" selected>3.0′ arcmin (0.05°) — Balanceado: resolución y contexto óptimos</option>
-            <option value="0.1">6.0′ arcmin (0.10°) — Amplio: más estrellas y movimiento visible</option>
-            <option value="0.2">12.0′ arcmin (0.20°) — Panorámico: rastreo rápido (mayor descarga)</option>
-            <option value="custom">Personalizado — según valor manual en FoV (°)</option>
-          </select>
-        </div>
-        <button type="submit"
-          class="px-3.5 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition shadow">
-          Explorar Cielo
-        </button>
-        <button type="button" id="btn-share-url"
-          class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition flex items-center gap-1.5">
-          <span>Copiar URL Embebible</span>
-        </button>
-        <button type="button" id="btn-copy-iframe"
-          title="Copia un código HTML <iframe> con las coordenadas actuales para incrustar este visor en cualquier página web"
-          class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition flex items-center gap-1.5">
-          <span>Copiar código para incrustar (&lt;iframe&gt;)</span>
-        </button>
-        <button type="button" id="btn-open-wiseview"
-          title="Abre la coordenada y campo actuales en WiseView (Backyard Worlds / NASA) para comparar las 2 bandas WISE (2010–2024) contra las 102 bandas SPHEREx"
-          class="px-3 py-1.5 rounded-lg bg-amber-950/70 hover:bg-amber-900/80 text-amber-200 border border-amber-500/40 text-xs transition flex items-center gap-1.5">
-          <span>Comparar en WiseView ↗</span>
-        </button>
       </form>
-    </div>
-
-    <!-- Barra de los 5 Objetos Obligatorios de la Consigna -->
-    <div class="max-w-[1600px] mx-auto mt-2.5 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 embed-hide">
-      <div class="flex flex-wrap items-center gap-1.5">
-        <span class="text-[11px] font-semibold uppercase tracking-wider text-amber-400 mr-1">
-          5 Casos Oficiales NASA:
-        </span>
-        <button type="button" data-target="wise_0855"
-          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
-          1. WISE 0855 (Enana Marrón Rápida)
-        </button>
-        <button type="button" data-target="barnards_star"
-          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
-          2. Barnard's Star (Máx. Mov. Propio)
-        </button>
-        <button type="button" data-target="epsilon_indi_b"
-          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
-          3. Epsilon Indi B (Binaria T1+T6)
-        </button>
-        <button type="button" data-target="rw_aurigae"
-          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
-          4. RW Aurigae (Variable T Tauri)
-        </button>
-        <button type="button" data-target="r_draconis"
-          class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/90 hover:bg-slate-700 border border-slate-700 transition">
-          5. R Draconis (Variable Tipo Mira)
-        </button>
+      <div class="exploration-shortcuts embed-hide">
+        <div class="target-picker"><span class="section-eyebrow">Objetivos</span><div class="quick-targets" aria-label="Objetivos precargados">
+          <button type="button" data-target="wise_0855" class="preset-btn" title="WISE 0855 · enana marrón de alto movimiento propio">WISE 0855</button>
+          <button type="button" data-target="barnards_star" class="preset-btn" title="Barnard's Star · estrella de alto movimiento propio">Barnard's Star</button>
+          <button type="button" data-target="epsilon_indi_b" class="preset-btn" title="Epsilon Indi B · sistema de enanas marrones">Epsilon Indi B</button>
+          <button type="button" data-target="rw_aurigae" class="preset-btn" title="RW Aurigae · estrella variable T Tauri">RW Aurigae</button>
+          <button type="button" data-target="r_draconis" class="preset-btn" title="R Draconis · estrella variable Mira">R Draconis</button>
+        </div></div>
+        <div class="share-actions">
+          <button type="button" id="btn-share-url" class="secondary-action" title="Copiar el enlace a la región actual"><span>Copiar enlace</span></button>
+          <button type="button" id="btn-copy-iframe" class="secondary-action" title="Copiar el código iframe para insertar este visor en otra página"><span>Incrustar visor</span></button>
+          <button type="button" id="btn-open-wiseview" class="secondary-action wiseview-action" title="Comparar la región actual con observaciones WISE en WiseView"><span>Abrir WiseView ↗</span></button>
+        </div>
       </div>
-      <div id="target-banner-desc" role="status" aria-live="polite" class="text-xs text-sky-300 font-medium truncate">
-        Elegí uno de los cinco objetivos oficiales o ingresá RA, Dec y FoV para comenzar.
+      <p id="target-banner-desc" role="status" aria-live="polite" class="target-description embed-hide">Elegí un objetivo o ingresá sus coordenadas para comenzar.</p>
       </div>
     </div>
   </header>
 
+  <details id="demo-guide" class="app-shell profile-guide embed-hide" hidden>
+    <summary><strong id="demo-guide-title"></strong><span id="demo-settings-status" role="status"></span><span class="guide-toggle" aria-hidden="true">Leer guía <span>⌄</span></span></summary>
+    <p id="demo-guide-text"></p>
+  </details>
+
   <!-- CONTENIDO PRINCIPAL: 3 Paneles Superiores + Espectro y Tabla IA -->
-  <main class="max-w-[1600px] w-full mx-auto flex-1 p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+  <main class="app-shell app-main">
+    <div id="explorer-section" class="workspace">
 
     <!-- PANEL IZQUIERDO (5 col): El Flipbook Temporal + Diferencia de Épocas + Coadd + Flags -->
-    <section class="lg:col-span-5 glass-panel rounded-xl p-4 flex flex-col justify-between">
+    <section class="viewer-panel glass-panel rounded-xl p-4">
       <div>
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div>
-            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <span>Visor Multi-Época SPHEREx</span>
-              <span id="frame-counter" class="text-xs font-mono text-sky-400 bg-sky-950/80 px-2 py-0.5 rounded">
-                Época 1/8
-              </span>
-            </h2>
-            <p class="text-[11px] text-slate-400">
-              Sección solicitada · Tocá una fuente para su espectro o activá el Mapa Global para descargar sectores vecinos
-            </p>
+        <div class="panel-heading">
+          <div class="panel-title"><h2>Visor SPHEREx</h2><p>Recorré las exposiciones o seleccioná una fuente para medir su espectro.</p></div>
+          <div class="view-modes" aria-label="Modo de visualización">
+            <button type="button" id="mode-blink" class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold">Flipbook</button>
+            <button type="button" id="mode-diff" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">Resta (ΔI)</button>
+            <button type="button" id="mode-coadd" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">Mediana</button>
+            <button type="button" id="mode-rgb" title="Compuesto visual en falso color de tres bandas infrarrojas" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">Falso color RGB</button>
           </div>
-
-          <!-- Selector de Modo de Imagen -->
-          <div class="inline-flex flex-wrap rounded-lg bg-slate-900 p-0.5 border border-slate-700 text-xs">
-            <button type="button" id="mode-blink" class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold">
-              Flipbook
-            </button>
-            <button type="button" id="mode-diff" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
-              Resta (ΔI)
-            </button>
-            <button type="button" id="mode-coadd" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
-              Mediana
-            </button>
-            <button type="button" id="mode-rgb" title="Compuesto en falso color infrarrojo de 3 bandas SPHEREx (Azul: NIR corto, Verde: NIR medio, Rojo: MIR)" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
-              Falso Color RGB
-            </button>
-          </div>
+          <p id="frame-counter" class="frame-status">Esperando exposiciones</p>
         </div>
 
         <!-- Contenedor del Canvas Astronómico Interactivo -->
@@ -212,17 +432,14 @@
             <div id="overlay-clean" class="text-emerald-400">Píxeles limpios: --%</div>
           </div>
 
-          <!-- Indicador de precarga del plano infinito sincronizado -->
-          <div id="infinite-plane-badge" class="absolute top-2.5 right-2.5 bg-slate-950/85 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-mono text-sky-300 pointer-events-none">
-            Sección única · Mapa global inactivo
-          </div>
-
           <!-- Leyenda en Modo Resta -->
           <div id="diff-legend" class="hidden absolute bottom-2.5 left-2.5 right-2.5 bg-slate-950/90 border border-slate-800 rounded-md px-2.5 py-1 text-[11px] flex items-center justify-between pointer-events-none">
             <span class="text-sky-400">Negativo · flujo menor</span>
             <span class="text-rose-400">Positivo · flujo mayor</span>
           </div>
         </div>
+        <p id="image-integrity-note" class="image-note">Norte arriba · este a la izquierda. Damero: sin datos válidos; magenta: FLAGS.</p>
+        <p id="infinite-plane-badge" class="map-status">Sección única · mapa global inactivo</p>
       </div>
 
       <!-- Controles del Reproductor Blink Comparator + Capas -->
@@ -278,7 +495,7 @@
               </button>
               <button type="button" id="btn-manual-sum" title="Suma / promedia las Épocas A y B elegidas abajo para resaltar fuentes débiles"
                 class="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-200 text-[11px] font-semibold transition">
-                Sumar (A + B)
+                Promediar A y B
               </button>
               <button type="button" id="btn-manual-blink" title="Alterna el Flipbook exclusivamente entre la Época A y la Época B seleccionadas"
                 class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] transition">
@@ -292,10 +509,10 @@
           </div>
         </div>
 
-        <!-- Óptica en Vivo (60 FPS) + Shift & Stack (Apilado por Movimiento Propio) -->
+        <!-- Ajustes de brillo y apilado visual de vistas PNG -->
         <div class="bg-slate-900/75 border border-slate-800 rounded-lg p-2 space-y-2 text-xs">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-[11px] font-semibold text-sky-300">Óptica en Vivo (0 ms · 60 FPS) &amp; Shift-Stack:</span>
+            <span class="text-[11px] font-semibold text-sky-300">Ajustes de imagen y apilado visual:</span>
             <label class="inline-flex items-center gap-1.5 cursor-pointer select-none" title="Invierte el brillo de los píxeles (fuentes oscuras sobre fondo blanco, estilo WiseView invert=1)">
               <input type="checkbox" id="chk-invert" class="accent-sky-400 rounded" />
               <span class="text-[11px] text-slate-200 font-medium">Invertir (Negativo B/N)</span>
@@ -303,16 +520,16 @@
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
             <div class="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 rounded px-2 py-1">
-              <label for="slider-stretch" class="text-slate-400 shrink-0">Stretch:</label>
+              <label for="slider-stretch" class="text-slate-400 shrink-0">Curva:</label>
               <input id="slider-stretch" type="range" min="0" max="1" step="0.05" value="0"
-                title="Transición continua entre transferencia Asinh (0.0, resalta fuentes débiles) y Lineal (1.0)"
+                title="Curva de visualización adicional sobre el PNG: original (0) a mayor contraste (1)"
                 class="flex-1 accent-sky-400 cursor-pointer" />
-              <span id="lbl-stretch-val" class="font-mono text-sky-300 w-12 text-right">Asinh</span>
+              <span id="lbl-stretch-val" class="font-mono text-sky-300 w-12 text-right">Original</span>
             </div>
             <div class="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 rounded px-2 py-1">
               <label for="slider-contrast" class="text-slate-400 shrink-0">Ganancia:</label>
               <input id="slider-contrast" type="range" min="0.4" max="2.5" step="0.05" value="1.0"
-                title="Ajusta la ganancia radiométrica en tiempo real sobre las matrices Float32 en memoria"
+                title="Modifica el brillo de los PNG de vista previa; las mediciones conservan el flujo FITS original"
                 class="flex-1 accent-sky-400 cursor-pointer" />
               <span id="lbl-contrast-val" class="font-mono text-sky-300 w-9 text-right">1.0×</span>
             </div>
@@ -329,7 +546,7 @@
                 class="bg-transparent text-[11px] font-mono text-white w-16 focus:outline-none" />
             </div>
             <button type="button" id="btn-shift-stack"
-              title="Desplaza cada época según el vector de movimiento propio (pmRA, pmDec) y las co-adiciona para amplificar el SNR de objetos en movimiento"
+              title="Apilado visual de PNG según el movimiento propio y las fechas reales; no calcula flujo ni SNR calibrado"
               class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold transition">
               Shift &amp; Stack
             </button>
@@ -374,30 +591,17 @@
     </section>
 
     <!-- PANEL CENTRAL (4 col): Contexto Multi-Catálogo + Superposición Gaia DR3 y AllWISE -->
-    <section class="lg:col-span-4 glass-panel rounded-xl p-4 flex flex-col justify-between">
+    <section class="context-panel glass-panel rounded-xl p-4">
       <div>
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div>
-            <h2 class="text-sm font-bold text-white uppercase tracking-wider">
-              Contexto infrarrojo y catálogos
-            </h2>
-            <p class="text-[11px] text-slate-400">
-              Posiciones de Gaia DR3 y AllWISE consultadas en IRSA o CDS
-            </p>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <select id="select-context-survey" aria-label="Relevamiento de fondo"
-              title="Cambia la imagen de fondo entre el compuesto local SPHEREx y relevamientos astronómicos externos (CDS HiPS2FITS)"
-              class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200">
-              <option value="spherex" selected>Fondo: SPHEREx IR (Local)</option>
-              <option value="allwise">Fondo: AllWISE Color (CDS HiPS)</option>
-              <option value="2mass">Fondo: 2MASS JHK (CDS HiPS)</option>
-              <option value="dss2">Fondo: DSS2 Óptico (CDS HiPS)</option>
+        <div class="panel-heading">
+          <div class="panel-title"><h2>Contexto y catálogos</h2><p>Compará el campo con Gaia DR3, AllWISE y otros relevamientos.</p></div>
+          <div class="context-toolbar">
+            <label for="select-context-survey" class="sr-only">Relevamiento de fondo</label>
+            <select id="select-context-survey" aria-label="Relevamiento de fondo" title="Cambiar la imagen de fondo">
+              <option value="spherex" selected>SPHEREx · mediana local</option><option value="allwise">AllWISE · infrarrojo</option><option value="2mass">2MASS · J/H/Ks</option><option value="dss2">DSS2 · óptico</option>
             </select>
-            <span id="aladin-catalog-badge" class="text-[11px] font-mono text-amber-300 bg-amber-950/60 border border-amber-500/30 px-2 py-0.5 rounded">
-              Sin consulta
-            </span>
           </div>
+          <p id="aladin-catalog-badge" class="catalog-status">Sin consulta</p>
         </div>
 
         <!-- Visor Multi-Catálogo Interactivo (Canvas + HUD astrométrico limpio) -->
@@ -423,6 +627,8 @@
           </div>
         </div>
       </div>
+
+      <p class="image-note">El fondo local muestra la mediana, aunque cambies la exposición de la izquierda. Las posiciones de catálogo conservan sus coordenadas; la época del catálogo puede diferir de la observación.</p>
 
       <!-- Controles de Capas de Catálogos e Identificador de Estrellas/Planetas -->
       <div class="mt-3 pt-2.5 border-t border-slate-800 space-y-2 text-xs">
@@ -476,34 +682,32 @@
       </div>
     </section>
 
-    <!-- PANEL DERECHO (3 col): Alertas del Detector IA (Dipolos y Estrellas Variables) -->
-    <section class="lg:col-span-3 glass-panel rounded-xl p-4 flex flex-col justify-between embed-hide">
-      <div class="flex-1 flex flex-col min-h-0">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-sm font-bold text-white uppercase tracking-wider">
-            Detecciones IA en ΔI
-          </h2>
-          <span id="ai-count-badge" class="text-xs font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-            0 anomalías
-          </span>
+    <!-- Detector de cambios: estado del análisis y candidatos revisables -->
+    <section class="detections-panel glass-panel rounded-xl embed-hide" aria-labelledby="detector-title">
+      <div class="detector-header">
+        <div class="detector-heading">
+          <span class="detector-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3M12 7v10m-5-5h10"/><circle cx="12" cy="12" r="3"/></svg></span>
+          <div><p class="detector-eyebrow">Análisis temporal</p><h2 id="detector-title">Detector de cambios</h2></div>
         </div>
-        <p class="text-[11px] text-slate-400 mb-3">
-          Objetos que se movieron o cambiaron de brillo entre fechas. Tocá uno para analizarlo:
-        </p>
-
-        <div id="ai-detections-list" class="space-y-2 overflow-y-auto max-h-[380px] pr-1">
-          <!-- Tarjetas inyectadas dinámicamente por app.js -->
+        <div class="detector-status-row"><span id="ai-count-badge" role="status">Esperando datos</span><span class="detector-method">Resta calibrada · ΔI</span></div>
+      </div>
+      <div class="detector-body">
+        <div id="detector-summary" class="detector-summary" hidden>
+          <span><strong id="detector-motion-count">0</strong>Movimiento</span>
+          <span><strong id="detector-variable-count">0</strong>Variación de brillo</span>
         </div>
+        <div id="ai-detections-list" aria-label="Candidatos del detector"></div>
       </div>
-
-      <div class="mt-3 pt-3 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
-        <div><span class="text-rose-400 font-semibold">Astro en Movimiento (Dipolo):</span> Cambió de posición entre 2 fechas (estrella cercana, enana marrón o planeta).</div>
-        <div><span class="text-amber-400 font-semibold">Estrella Variable (Monopolo):</span> Permaneció fija pero subió o bajó su brillo (&gt;4σ).</div>
-      </div>
+      <details class="detector-help">
+        <summary>Cómo leer los resultados <span aria-hidden="true">+</span></summary>
+        <p><strong>Movimiento · dipolo</strong><br>Dos lóbulos opuestos pueden indicar un cambio de posición entre fechas.</p>
+        <p><strong>Variación · monopolo</strong><br>Un residuo de brillo mayor a 4σ puede indicar una fuente variable.</p>
+        <p>Son candidatos para revisar: también pueden ser artefactos de la observación.</p>
+      </details>
     </section>
 
     <!-- PANEL INFERIOR COMPLETO (12 col): Espectro Infrarrojo de 102 Bandas + Diagnóstico Molecular IA -->
-    <section class="lg:col-span-12 glass-panel rounded-xl p-4 embed-hide">
+    <section class="spectrum-panel glass-panel rounded-xl p-4 embed-hide">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
         
         <!-- Gráfico Plotly.js de las 102 Bandas y Curva de Luz (8 col) -->
@@ -578,9 +782,30 @@
       </div>
     </section>
 
+    </div>
+    <section id="assistant-section" class="assistant-section embed-hide" aria-labelledby="assistant-title" hidden>
+      <aside class="assistant-sidebar" aria-label="Guías y contexto del asistente">
+        <div><p class="assistant-eyebrow">Asistente del explorador</p><h2 id="assistant-title">Tu guía del cielo</h2><p class="assistant-sidebar-intro">Entendé las observaciones y prepará tu próxima exploración.</p></div>
+        <button id="assistant-clear" type="button">+ Nueva charla</button>
+        <div class="assistant-context-card"><span>Contexto actual</span><p id="assistant-context">Sin campo cargado</p></div>
+        <details id="assistant-guide-menu" class="assistant-guide-menu" open><summary>Guías rápidas</summary><div id="assistant-topics" class="assistant-topics"></div></details>
+        <p class="assistant-sidebar-note">Las respuestas usan el campo y la selección del explorador. Podés volver a las observaciones en cualquier momento.</p>
+      </aside>
+      <div class="assistant-chat">
+        <div class="assistant-header"><div><h3>Conversación</h3><p id="assistant-disclosure">Respuestas integradas · sin LLM</p></div><a id="assistant-close" class="assistant-back-link" href="#explorador">← Ver observaciones</a></div>
+        <div id="assistant-messages" class="assistant-messages" role="log" aria-label="Conversación del asistente" aria-live="polite" aria-relevant="additions"></div>
+        <div class="assistant-footer">
+          <div id="assistant-suggestions" class="assistant-suggestions" aria-label="Consultas sugeridas"></div>
+          <form id="assistant-form"><label for="assistant-input" class="sr-only">Tu consulta</label><input id="assistant-input" type="text" maxlength="400" required autocomplete="off" placeholder="Ej.: ¿por qué no hay detecciones?" /><button type="submit">Enviar</button></form>
+          <div class="assistant-footer-meta"><span>Conversación solo durante esta visita</span></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- Script Principal de Aplicación -->
+  <script src="/static/demo-profiles.js?v=1"></script>
+  <script src="/static/demo-assistant.js?v=1"></script>
   <script src="/static/app.js?v=2.5"></script>
 </body>
 </html>

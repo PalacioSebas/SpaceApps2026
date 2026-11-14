@@ -47,6 +47,8 @@ class TargetInfo(BaseModel):
 
 
 class EpochFrame(BaseModel):
+    valid_pixels_pct: Optional[float] = Field(None, description="Porcentaje de píxeles válidos en la grilla reproyectada del visor")
+    native_shape: List[int] = Field(default_factory=list, description="Dimensiones [alto, ancho] del recorte FITS original, antes de reproyectar")
     index: int
     epoch_id: int = Field(0, description="Índice temporal agrupado por instante de observación")
     band_id: str = Field("", description="Identificador estable de detector y banda espectral")

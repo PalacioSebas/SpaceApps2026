@@ -215,6 +215,8 @@ class ApiTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 200, response.text[:200])
                     data = response.json()
                     self.assertEqual(len(data["epochs"]), 10)
+                    self.assertTrue(all(len(ep["native_shape"]) == 2 for ep in data["epochs"]))
+                    self.assertTrue(all(0 <= ep["valid_pixels_pct"] <= 100 for ep in data["epochs"]))
                     self.assertTrue(all(ep["bandwidth_um"] > 0 for ep in data["epochs"]))
                     self.assertGreater(len(data["detector_coadds"]), 0)
                     for det in data["ai_detections"]:
@@ -237,6 +239,13 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("/static/app.js?v=2.5", response.text)
         self.assertRegex(response.text, r'/static/app\.js\?v=\d+')
+        self.assertRegex(response.text, r'/static/demo-profiles\.js\?v=\d+')
+        self.assertIn('id="demo-profile-dialog"', response.text)
+        self.assertRegex(response.text, r'/static/demo-assistant\.js\?v=\d+')
+        self.assertIn('id="assistant-section"', response.text)
+        self.assertIn('href="#asistente"', response.text)
+        self.assertNotIn('id="assistant-dialog"', response.text)
+        self.assertNotIn('/static/demo-assistant.js?v=1"', response.text)
         for element_id in (
             "mode-rgb",
             "select-epoch-a",
