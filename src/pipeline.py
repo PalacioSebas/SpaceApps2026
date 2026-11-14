@@ -8,24 +8,17 @@ Contrato esperado por main.py:
   matrix_to_base64_png(matrix, mode)                    -> str base64 (mode: science | flags | diff)
   extract_real_spectrum_at_coord(ra, dec, frames_meta, target_wcs) -> (x_pix, y_pix, puntos)
 
-Dependencias: astropy, numpy, matplotlib, reproject
-    pip install astropy reproject matplotlib numpy
+Dependencias: astropy, numpy, Pillow, scipy, reproject
 (NO instalar el paquete "fits" de PyPI: es otra cosa. Se usa astropy.io.fits).
 """
 
 import base64
 import logging
 import re
-import threading
-from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import matplotlib
-
-matplotlib.use("Agg")  # backend sin GUI: necesario dentro de un servidor
-from matplotlib import colormaps
 import numpy as np
 from PIL import Image
 from astropy.io import fits
@@ -37,6 +30,8 @@ from astropy.wcs.utils import proj_plane_pixel_scales
 from scipy.ndimage import binary_dilation, distance_transform_edt, gaussian_filter, label
 
 from src.difference import prepare_difference
+from src.display_colors import colorize
+from src.memory_cache import MemoryCache, budget_bytes
 
 logger = logging.getLogger("spherex.pipeline")
 
@@ -221,15 +216,19 @@ def _read_frame(path: Path) -> Dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=256)
-def _read_frame_cached(path_str: str, mtime: float) -> Dict[str, Any]:
-    return _read_frame(Path(path_str))
+_FRAME_CACHE = MemoryCache(budget_bytes("PAPASTRONOMY_FITS_CACHE_MB", 64))
 
 
 def _get_frame(path: Path) -> Dict[str, Any]:
     """Lee un FITS una sola vez (se invalida si el archivo cambia). NO modificar los arrays devueltos."""
-    p = Path(path)
-    return _read_frame_cached(str(p), p.stat().st_mtime)
+    p = Path(path).resolve()
+    stat = p.stat()
+    key = (str(p), stat.st_mtime_ns, stat.st_size)
+    frame = _FRAME_CACHE.get(key)
+    if frame is None:
+        frame = _read_frame(p)
+        _FRAME_CACHE.put(key, frame)
+    return frame
 
 
 def load_and_clean_real_fits(fits_files: List[Path], ra: float | None = None,
@@ -284,9 +283,7 @@ def load_and_clean_real_fits(fits_files: List[Path], ra: float | None = None,
     }
 
 
-_REPROJECT_CACHE: Dict[Tuple[Any, ...], Tuple[np.ndarray, np.ndarray]] = {}
-_REPROJECT_CACHE_MAX = 256
-_REPROJECT_LOCK = threading.Lock()
+_REPROJECT_CACHE = MemoryCache(budget_bytes("PAPASTRONOMY_REPROJECT_CACHE_MB", 16))
 
 
 # ----------------------------------------------------------------------------
@@ -317,10 +314,13 @@ def align_coadd_and_diff(
 
     for ep in cleaned_epochs:
         local_path = ep.get("local_path")
-        cache_key = (local_path, wcs_sig) if (local_path and not is_mock_reproject) else None
+        cache_key = None
+        if local_path and not is_mock_reproject:
+            source = Path(local_path).resolve()
+            stat = source.stat()
+            cache_key = (str(source), stat.st_mtime_ns, stat.st_size, wcs_sig)
         if cache_key is not None:
-            with _REPROJECT_LOCK:
-                cached_pair = _REPROJECT_CACHE.get(cache_key)
+            cached_pair = _REPROJECT_CACHE.get(cache_key)
             if cached_pair is not None:
                 aligned_imgs.append(cached_pair[0])
                 aligned_flags.append(cached_pair[1])
@@ -343,10 +343,7 @@ def align_coadd_and_diff(
         al_img.setflags(write=False)
         al_flg.setflags(write=False)
         if cache_key is not None:
-            with _REPROJECT_LOCK:
-                if len(_REPROJECT_CACHE) >= _REPROJECT_CACHE_MAX:
-                    _REPROJECT_CACHE.pop(next(iter(_REPROJECT_CACHE)))
-                _REPROJECT_CACHE[cache_key] = (al_img, al_flg)
+            _REPROJECT_CACHE.put(cache_key, (al_img, al_flg))
         aligned_imgs.append(al_img)
         aligned_flags.append(al_flg)
 
@@ -465,7 +462,7 @@ def matrix_to_base64_png(matrix: np.ndarray, mode: str = "science") -> str:
         lim = float(np.percentile(np.abs(finite), 99)) if finite.size else 1.0
         lim = lim or 1.0
         arr = np.nan_to_num(arr, nan=0.0)
-        cmap_name, vmin, vmax = "RdBu_r", -lim, lim
+        vmin, vmax = -lim, lim
     else:  # science
         if finite.size:
             arr = _heal_science_for_display(arr)
@@ -479,13 +476,11 @@ def matrix_to_base64_png(matrix: np.ndarray, mode: str = "science") -> str:
             arr = np.clip(np.arcsinh(z / 2.2) / np.arcsinh(14.0), 0.0, 1.0)
         else:
             arr = np.zeros_like(arr)
-        cmap_name, vmin, vmax = "gray", 0.0, 1.0
-
-    cmap = colormaps[cmap_name].with_extremes(bad=(0.0, 0.0, 0.0, 0.0))
+        vmin, vmax = 0.0, 1.0
 
     buf = BytesIO()
-    normalized = np.ma.masked_invalid(np.clip((arr - vmin) / (vmax - vmin), 0, 1))
-    rgba = cmap(normalized, bytes=True)
+    normalized = np.clip((arr - vmin) / (vmax - vmin), 0, 1)
+    rgba = colorize(normalized, divergent=mode == "diff")
     Image.fromarray(np.flipud(rgba)).save(buf, format="PNG")
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
 

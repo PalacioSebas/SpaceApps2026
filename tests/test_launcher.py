@@ -69,6 +69,14 @@ class LauncherTests(unittest.TestCase):
                 run.assert_not_called()
             self.assertFalse(directory.exists())
 
+    def test_reload_is_opt_in_for_development(self):
+        with patch.object(launcher, "ensure_environment", return_value=Path(sys.executable)), \
+             patch.object(launcher, "run", return_value=0) as run:
+            launcher.main(["--no-install"])
+            self.assertNotIn("--reload", run.call_args.args[0])
+            launcher.main(["--no-install", "--reload"])
+            self.assertEqual(run.call_args.args[0].count("--reload"), 1)
+
     def test_interpreter_can_be_inspected_without_project_dependencies(self):
         version = launcher.inspect_interpreter(Path(sys.executable))
         self.assertEqual(tuple(version[:2]), tuple(sys.version_info[:2]))

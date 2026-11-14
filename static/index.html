@@ -9,7 +9,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Plotly.js para el Espectro Infrarrojo de 102 Bandas -->
-  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-basic-2.32.0.min.js"></script>
 
   <style>
     body {
@@ -47,6 +47,7 @@
     /* Modo embebido (?embed=1): layout compacto para iframes */
     body.embedded .embed-hide { display: none !important; }
     body.embedded header { position: static; }
+    @media (max-width: 1023px) { header.glass-panel { position: static; } }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>

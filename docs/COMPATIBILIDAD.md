@@ -1,5 +1,7 @@
 # Compatibilidad de arranque y Python · 2026-11-05
 
+> Registro histórico de la validación del 5 de noviembre. Desde el 14 de noviembre se retiraron Pandas, Matplotlib, scikit-image y Astroquery del conjunto directo; las versiones vigentes están en [requirements.txt](../requirements.txt) y las nuevas mediciones en [OPTIMIZACION.md](OPTIMIZACION.md). Las cifras y tablas siguientes describen la revisión original.
+
 ## Alcance antes del merge
 
 Se recomienda CPython 3.12 y se admite el rango 3.10–3.14. No hace falta usar la misma versión menor en todo el equipo. Python 3.9 o anterior queda fuera del soporte: el backend original ya utilizaba anotaciones que requieren 3.10.

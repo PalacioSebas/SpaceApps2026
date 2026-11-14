@@ -10,6 +10,8 @@ const TILE_STEP_PIX = 96.0;
 const TILE_MARGIN_PIX = (CUTOUT_NPIX - TILE_STEP_PIX) / 2;
 const DEFAULT_SKY_ZOOM = +(CUTOUT_NPIX / TILE_STEP_PIX).toFixed(4);
 const MAX_CONCURRENT_TILE_FETCHES = 1;
+const MAX_SURVEY_IMAGES = 6;
+const MAX_CACHED_TILES = 32;
 
 const state = {
   ra: 133.795129,
@@ -775,6 +777,32 @@ function mergeTileDetections(newDetections) {
   }
 }
 
+function releaseImagePayload(data) {
+  // Las imágenes decodificadas y los canvas ya viven por separado de los metadatos.
+  for (const epoch of data.epochs || []) {
+    delete epoch.image_base64;
+    delete epoch.flags_base64;
+  }
+  for (const detector of Object.values(data.detector_coadds || {})) delete detector.image_base64;
+  delete data.coadd_image_base64;
+  delete data.diff_image_base64;
+}
+
+function trimTileCache() {
+  if (state.tileGrid.size <= MAX_CACHED_TILES) return;
+  const { gxMin, gxMax, gyMin, gyMax, centerGx, centerGy } = getVisibleTileBounds(384);
+  const candidates = [...state.tileGrid.values()].filter((tile) =>
+    tile.key !== "0,0" && tile.status !== "loading" &&
+    !(tile.aiDetections || []).some((det) => det.id === state.selectedDetectionId) &&
+    (tile.gx < gxMin - 1 || tile.gx > gxMax + 1 || tile.gy < gyMin - 1 || tile.gy > gyMax + 1)
+  ).sort((a, b) => Math.hypot(b.gx - centerGx, b.gy - centerGy) - Math.hypot(a.gx - centerGx, a.gy - centerGy));
+  for (const tile of candidates) {
+    if (state.tileGrid.size <= MAX_CACHED_TILES) break;
+    state.tileGrid.delete(tile.key);
+  }
+  state.tileQueue = state.tileQueue.filter((tile) => state.tileGrid.has(`${tile.gx},${tile.gy}`));
+}
+
 async function fetchSingleBackgroundTile(gx, gy, sequence) {
   const key = `${gx},${gy}`;
   const entry = state.tileGrid.get(key);
@@ -805,6 +833,7 @@ async function fetchSingleBackgroundTile(gx, gy, sequence) {
       loadImagePromise(data.diff_image_base64),
     ]);
     if (sequence !== state.exploreSequence) return;
+    releaseImagePayload(data);
 
     const mappedDetections = mapDetectionsToGlobalPlane(data.ai_detections || [], false);
     const visuals = createTileVisualCanvases(coadd, images, gx, gy);
@@ -820,6 +849,7 @@ async function fetchSingleBackgroundTile(gx, gy, sequence) {
 
     rebakeTileNeighborhood(gx, gy);
     mergeTileDetections(mappedDetections);
+    trimTileCache();
     updateInfinitePlaneBadge();
     renderCanvas();
     renderContextSkyMap();
@@ -938,6 +968,16 @@ function scheduleInfinitePrefetch() {
   }, 260);
 }
 
+let planeRenderFrame = null;
+function schedulePlaneRender() {
+  if (planeRenderFrame !== null) return;
+  planeRenderFrame = requestAnimationFrame(() => {
+    planeRenderFrame = null;
+    renderContextSkyMap();
+    renderCanvas();
+  });
+}
+
 function bindSynchronizedPlaneEvents(canvas) {
   if (!canvas || canvas.dataset.infiniteBound === "1") return;
   canvas.dataset.infiniteBound = "1";
@@ -966,8 +1006,7 @@ function bindSynchronizedPlaneEvents(canvas) {
       state.skyView.centerDec = centerCoords.dec;
 
       scheduleInfinitePrefetch();
-      renderContextSkyMap();
-      renderCanvas();
+      schedulePlaneRender();
     },
     { passive: false }
   );
@@ -1015,8 +1054,7 @@ function bindSynchronizedPlaneEvents(canvas) {
       }
 
       scheduleInfinitePrefetch();
-      renderContextSkyMap();
-      renderCanvas();
+      schedulePlaneRender();
       return;
     }
 
@@ -1995,11 +2033,24 @@ function ensureExternalSurveyImage(survey, ra, dec, fov) {
   const key = `${survey}|${Number(ra).toFixed(5)}|${Number(dec).toFixed(5)}|${Number(fov).toFixed(4)}`;
   const cached = state.externalSurveyCache.get(key);
   if (cached) {
+    state.externalSurveyCache.delete(key);
+    state.externalSurveyCache.set(key, cached);
     return cached.status === "ready" ? cached.img : null;
+  }
+  while (state.externalSurveyCache.size >= MAX_SURVEY_IMAGES) {
+    const oldestKey = state.externalSurveyCache.keys().next().value;
+    const oldest = state.externalSurveyCache.get(oldestKey);
+    if (oldest.status === "loading" && oldest.img) {
+      oldest.img.onload = null;
+      oldest.img.onerror = null;
+      oldest.img.removeAttribute("src");
+    }
+    state.externalSurveyCache.delete(oldestKey);
   }
   const entry = { status: "loading", img: null };
   state.externalSurveyCache.set(key, entry);
   const img = new Image();
+  entry.img = img;
   img.crossOrigin = "anonymous";
   img.onload = () => {
     entry.status = "ready";
@@ -2570,7 +2621,10 @@ function renderCanvas() {
 }
 
 function startBlinkTimer() {
-  if (state.timerId) clearInterval(state.timerId);
+  if (state.timerId) {
+    clearInterval(state.timerId);
+    state.timerId = null;
+  }
   if (!state.isPlaying) return;
   const intervalMs = Math.round(1000 / state.fps);
   state.timerId = setInterval(() => {
@@ -3275,6 +3329,7 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     detEntries.forEach(([detCode], idx) => {
       detectorCoaddImages[detCode] = detImgs[idx];
     });
+    releaseImagePayload(data);
     Object.assign(state, { ra, dec, fov, exploreData: data, epochImages: images, flagImages: flags,
       coaddImage: coadd, diffImage: diff, detectorCoaddImages, crossmatchByDetId: {}, temporalSearch });
     document.getElementById("input-ra").value = ra.toFixed(6);
@@ -3790,13 +3845,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     const savedMode = state.viewMode;
     const savedBand = state.selectedBand;
     const savedEpochIdx = state.currentEpochIdx;
-    if (state.blinkTimer) {
-      clearInterval(state.blinkTimer);
-      state.blinkTimer = null;
+    if (state.timerId) {
+      clearInterval(state.timerId);
+      state.timerId = null;
     }
     state.viewMode = "blink";
+    let stream = null;
     try {
-      const stream = canvas.captureStream(0);
+      stream = canvas.captureStream(0);
       const track = stream.getVideoTracks()[0];
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
         ? "video/webm;codecs=vp9"
@@ -3830,6 +3886,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
       setExploreProgress(`No se pudo exportar el WebM: ${err.message}`);
     } finally {
+      if (stream) stream.getTracks().forEach((track) => track.stop());
       state.viewMode = savedMode;
       state.selectedBand = savedBand;
       state.currentEpochIdx = savedEpochIdx;

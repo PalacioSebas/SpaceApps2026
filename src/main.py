@@ -5,14 +5,14 @@ Servidor FastAPI v2.0 conectado 100% a NASA/IPAC IRSA TAP/IBE y CDS Gaia/AllWISE
 import logging
 import re
 import time
-import threading
 import warnings
 from pathlib import Path
 from typing import Dict, Any, List
 
 import numpy as np
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -40,6 +40,7 @@ from src.irsa_client import (
     query_named_objects_field,
 )
 from src.analysis import observation_mjd, rank_analysis_groups
+from src.memory_cache import MemoryCache, budget_bytes
 from src.temporal_search import obtain_temporal_fits_for_coordinates
 from src.pipeline import (
     build_common_target_wcs,
@@ -54,9 +55,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("spherex.api")
 
 # Caché en memoria de respuestas /api/explore (misma región = respuesta instantánea)
-_EXPLORE_CACHE: Dict[tuple, Any] = {}
-_EXPLORE_CACHE_MAX = 16
-_EXPLORE_CACHE_LOCK = threading.Lock()
+_EXPLORE_CACHE = MemoryCache(budget_bytes("PAPASTRONOMY_RESPONSE_CACHE_MB", 16), max_entries=16, ttl=300)
 
 app = FastAPI(
     title="Papastronomy v2.0 - NASA SPHEREx & IRSA Live Discovery API",
@@ -71,6 +70,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 
 
 @app.get("/api/targets")
@@ -94,10 +94,11 @@ def explore_sky_region(
     calcula `coadd` y `diff`, y detecta dipolos/variables cruzándolos con Gaia DR3 y AllWISE.
     """
     cache_key = (ra, dec, fov, max_epochs, temporal_search)
-    with _EXPLORE_CACHE_LOCK:
-        if not refresh and cache_key in _EXPLORE_CACHE:
+    if not refresh:
+        cached_response = _EXPLORE_CACHE.get(cache_key)
+        if cached_response is not None:
             logger.info("explore: respuesta servida desde caché en memoria %s", cache_key)
-            return _EXPLORE_CACHE[cache_key]
+            return cached_response
 
     t0 = time.perf_counter()
     try:
@@ -278,10 +279,7 @@ def explore_sky_region(
             "explore %s tiempos(s): IRSA/caché-disco=%.2f carga FITS=%.2f alineación=%.2f PNGs=%.2f IA+catálogos=%.2f TOTAL=%.2f",
             cache_key, t_irsa - t0, t_load - t_irsa, t_align - t_load, t_png - t_align, t_ai - t_png, t_ai - t0,
         )
-        with _EXPLORE_CACHE_LOCK:
-            if cache_key not in _EXPLORE_CACHE and len(_EXPLORE_CACHE) >= _EXPLORE_CACHE_MAX:
-                _EXPLORE_CACHE.pop(next(iter(_EXPLORE_CACHE)))
-            _EXPLORE_CACHE[cache_key] = response
+        _EXPLORE_CACHE.put(cache_key, response)
         return response
     except HTTPException:
         raise
@@ -387,21 +385,18 @@ def get_point_spectrum(
     )
 
 
+_STATIC_FILES = StaticFiles(directory=str(STATIC_DIR))
+
+
 @app.get("/static/app.js")
-def serve_app_js() -> Response:
-    js_content = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    return Response(
-        content=js_content,
-        media_type="application/javascript; charset=utf-8",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
+async def serve_app_js(request: Request) -> Response:
+    response = await _STATIC_FILES.get_response("app.js", request.scope)
+    # ETag/Last-Modified permiten responder 304; el HTML ya cambia ?v= al editar JS.
+    response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+    return response
 
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/static", _STATIC_FILES, name="static")
 
 
 @app.get("/")
