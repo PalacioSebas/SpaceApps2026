@@ -2,6 +2,8 @@
 **NASA Space Apps Challenge 2026 · Challenge: "Planet X and SPHEREx"**  
 **Equipo:** Papastronomy (Inteligencia Artificial + Ingeniería en Sistemas)
 
+Para continuar el desarrollo desde otra PC o una nueva conversación con Codex, leer [Contexto y continuidad del MVP](docs/CONTEXTO_CODEX.md).
+
 ---
 
 ## Acceso demo y perfil personalizable
