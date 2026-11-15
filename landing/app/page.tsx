@@ -1,3 +1,4 @@
+import { LanguageProvider } from "@/lib/i18n";
 import { SiteHeader } from "@/components/site-header";
 import { Hero } from "@/components/hero";
 import { Challenge } from "@/components/challenge";
@@ -10,7 +11,7 @@ import { SiteFooter } from "@/components/site-footer";
 
 export default function Home() {
   return (
-    <>
+    <LanguageProvider>
       <SiteHeader />
       <main>
         <Hero />
@@ -22,6 +23,6 @@ export default function Home() {
         <FinalCta />
       </main>
       <SiteFooter />
-    </>
+    </LanguageProvider>
   );
 }

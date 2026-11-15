@@ -52,6 +52,9 @@
 </head>
 <body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
 
+  <papastronomy-workspace id="personal-workspace"></papastronomy-workspace>
+  <div id="explorer-root">
+
   <!-- BARRA SUPERIOR: Controles de Coordenadas, URL Embebible y 5 Botones Obligatorios -->
   <header class="glass-panel sticky top-0 z-30 px-4 py-3 border-b border-slate-800">
     <div class="max-w-[1600px] mx-auto flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -673,7 +676,15 @@
     </section>
 
   </main>
+  </div>
 
+  <!-- Módulos portables. Solo el adaptador conoce el explorador actual. -->
+  <script src="/static/modules/access/model.js"></script>
+  <script src="/static/modules/access/access.js"></script>
+  <script src="/static/modules/assistant/rules.js"></script>
+  <script src="/static/modules/assistant/assistant.js"></script>
+  <script src="/static/modules/workspace.js"></script>
+  <script src="/static/integrations/explorer-modules.js"></script>
   <!-- Script Principal de Aplicación -->
   <script src="/static/app.js?v=3.0"></script>
 </body>

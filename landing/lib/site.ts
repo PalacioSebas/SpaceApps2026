@@ -1,7 +1,10 @@
+const explorerUrl = process.env.NEXT_PUBLIC_EXPLORER_URL || "http://127.0.0.1:8000";
+
 export const site = {
   name: "Papastronomy",
-  // Placeholder: point this at the deployed Papastronomy Explorer once it is live.
-  appUrl: "#explore",
+  // Set the public Explorer URL before building for another environment.
+  appUrl: explorerUrl,
+  learning3dUrl: new URL("/static/learn-3d/index.html", explorerUrl).href,
   githubUrl: "https://github.com/PalacioSebas/SpaceApps2026",
   challengeUrl: "https://www.spaceappschallenge.org/",
 };

@@ -1,8 +1,11 @@
+"use client";
+
 import Image from "next/image";
 import { Crosshair, FileText, Layers, Play, Search, SkipBack, SkipForward, Waves } from "lucide-react";
 import { Reveal } from "./reveal";
 import { SectionHeading } from "./section-heading";
 import { spectrumPath } from "@/lib/spectrum";
+import { useLanguage } from "@/lib/i18n";
 
 const header = [
   ["SIMPLE", "T"],
@@ -23,12 +26,7 @@ const sources = [
 
 const epochs = ["E1", "E2", "E3", "E4", "E5", "E6"];
 
-const features = [
-  { icon: FileText, title: "FITS-native", body: "Reads observation headers, units and masks without discarding astronomical context." },
-  { icon: Crosshair, title: "WCS-aware", body: "Every pixel maps to sky coordinates, so sources stay anchored across images." },
-  { icon: Waves, title: "Spectral view", body: "Inspect how a source behaves across SPHEREx's infrared channels." },
-  { icon: Layers, title: "Epoch comparison", body: "Blink and difference observations to look for change over time." },
-];
+const featureIcons = [FileText, Crosshair, Waves, Layers] as const;
 
 function Panel({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -40,10 +38,12 @@ function Panel({ title, children, className = "" }: { title: string; children: R
 }
 
 function AppMockup() {
+  const { t } = useLanguage();
+
   return (
     <div
       role="img"
-      aria-label="Illustration of the Papastronomy Explorer interface showing a sky image with source markers, a FITS header panel, a spectrum chart and an epoch timeline. All values are placeholders."
+      aria-label={t.showcase.mockupAria}
       className="relative overflow-hidden rounded-2xl border border-line-strong bg-navy shadow-[0_40px_120px_-40px_rgba(85,214,255,0.35)]"
     >
       <div aria-hidden="true">
@@ -59,20 +59,20 @@ function AppMockup() {
             <span className="truncate">RA 000.0000° · Dec +00.0000° · FoV 0.10°</span>
           </div>
           <span className="hidden rounded-full border border-violet/40 bg-violet/10 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-violet sm:inline">
-            Sample data
+            {t.showcase.sampleData}
           </span>
         </div>
 
         <div className="grid grid-cols-12 gap-3 p-3">
           {/* Left sidebar */}
           <div className="col-span-3 hidden flex-col gap-3 lg:flex">
-            <Panel title="Target">
+            <Panel title={t.showcase.targetPanel}>
               <div className="space-y-2 font-mono text-[10px]">
                 {[
                   ["RA", "000.0000°"],
                   ["Dec", "+00.0000°"],
                   ["FoV", "0.10°"],
-                  ["Frame", "ICRS"],
+                  [t.showcase.frameLabel, "ICRS"],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between rounded border border-line bg-navy/80 px-2 py-1.5">
                     <span className="text-muted">{k}</span>
@@ -81,7 +81,7 @@ function AppMockup() {
                 ))}
               </div>
             </Panel>
-            <Panel title="Observations" className="flex-1">
+            <Panel title={t.showcase.observationsPanel} className="flex-1">
               <ul className="space-y-1.5 font-mono text-[10px]">
                 {epochs.slice(0, 5).map((e, i) => (
                   <li
@@ -111,7 +111,7 @@ function AppMockup() {
             <div className="coord-grid absolute inset-0 opacity-60 [background-size:12.5%_12.5%]" />
             <div className="absolute inset-x-0 top-0 flex justify-between px-2 py-1 font-mono text-[8px] text-muted">
               <span>RA ←</span>
-              <span>TAN projection</span>
+              <span>{t.showcase.projection}</span>
               <span>N ↑</span>
             </div>
             {sources.map((s) => (
@@ -144,7 +144,7 @@ function AppMockup() {
 
           {/* Right panels */}
           <div className="col-span-12 grid grid-cols-2 gap-3 md:col-span-4 md:grid-cols-1 lg:col-span-3">
-            <Panel title="FITS header">
+            <Panel title={t.showcase.fitsHeaderPanel}>
               <dl className="space-y-1 font-mono text-[9.5px]">
                 {header.map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-2">
@@ -154,7 +154,7 @@ function AppMockup() {
                 ))}
               </dl>
             </Panel>
-            <Panel title="Spectrum · S-02">
+            <Panel title={t.showcase.spectrumPanel}>
               <svg viewBox="0 0 200 90" className="h-20 w-full">
                 {[0, 1, 2, 3].map((i) => (
                   <line key={i} x1="0" x2="200" y1={i * 30} y2={i * 30} stroke="rgba(243,245,250,0.06)" />
@@ -166,19 +166,19 @@ function AppMockup() {
                 <span>5.00 µm</span>
               </div>
             </Panel>
-            <Panel title="Analysis" className="col-span-2 md:col-span-1">
+            <Panel title={t.showcase.analysisPanel} className="col-span-2 md:col-span-1">
               <ul className="space-y-1.5 font-mono text-[9.5px]">
                 <li className="flex justify-between">
-                  <span className="text-muted">Candidates</span>
+                  <span className="text-muted">{t.showcase.candidates}</span>
                   <span className="text-stellar">—</span>
                 </li>
                 <li className="flex justify-between">
-                  <span className="text-muted">Difference</span>
+                  <span className="text-muted">{t.showcase.difference}</span>
                   <span className="text-cyan">E3 − E1</span>
                 </li>
                 <li className="flex justify-between">
-                  <span className="text-muted">Status</span>
-                  <span className="text-violet">For review</span>
+                  <span className="text-muted">{t.showcase.status}</span>
+                  <span className="text-violet">{t.showcase.forReview}</span>
                 </li>
               </ul>
             </Panel>
@@ -206,7 +206,7 @@ function AppMockup() {
                 </span>
               ))}
             </div>
-            <span className="hidden font-mono text-[9px] text-muted sm:inline">Epoch 3 / 6</span>
+            <span className="hidden font-mono text-[9px] text-muted sm:inline">{t.showcase.epochCount}</span>
           </div>
         </div>
       </div>
@@ -215,6 +215,8 @@ function AppMockup() {
 }
 
 export function ProductShowcase() {
+  const { t } = useLanguage();
+
   return (
     <section id="platform" aria-labelledby="platform-title" className="relative overflow-hidden py-28 md:py-40">
       <div aria-hidden="true" className="coord-grid absolute inset-0 -z-10 [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_70%)]" />
@@ -227,24 +229,27 @@ export function ProductShowcase() {
           id="platform-title"
           align="center"
           index="02"
-          eyebrow="Introducing Papastronomy"
-          title="From raw observations to scientific insight."
-          description="A focused research interface that brings FITS images, sky coordinates, spectra and multi-epoch comparisons into a single, coherent view."
+          eyebrow={t.showcase.eyebrow}
+          title={t.showcase.title}
+          description={t.showcase.description}
         />
         <Reveal className="mt-16 md:mt-20" delay={120}>
           <AppMockup />
           <p className="mt-4 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
-            Interface preview · values shown are illustrative placeholders
+            {t.showcase.previewCaption}
           </p>
         </Reveal>
         <ul className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-          {features.map((f, i) => (
-            <Reveal as="li" key={f.title} delay={i * 80} className="border-t border-line pt-6">
-              <f.icon aria-hidden="true" className="h-5 w-5 text-cyan" strokeWidth={1.5} />
-              <h3 className="mt-4 text-base font-medium text-stellar">{f.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted">{f.body}</p>
-            </Reveal>
-          ))}
+          {t.showcase.features.map((f, i) => {
+            const Icon = featureIcons[i];
+            return (
+              <Reveal as="li" key={i} delay={i * 80} className="border-t border-line pt-6">
+                <Icon aria-hidden="true" className="h-5 w-5 text-cyan" strokeWidth={1.5} />
+                <h3 className="mt-4 text-base font-medium text-stellar">{f.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted">{f.body}</p>
+              </Reveal>
+            );
+          })}
         </ul>
       </div>
     </section>

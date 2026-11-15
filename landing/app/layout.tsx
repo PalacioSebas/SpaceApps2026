@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   title: "Papastronomy — Exploring SPHEREx observations · NASA Space Apps 2026",
   description:
     "Papastronomy is an astronomical exploration platform that processes SPHEREx FITS observations, analyzes spectra across 102 infrared bands, and compares epochs to surface candidates for further scientific analysis.",
