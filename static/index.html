@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/aladin-reference/reference.css" />
+  <link rel="stylesheet" href="/static/observatory/observatory.css" />
 
   <!-- Tailwind CSS (para las tarjetas y píldoras generadas dinámicamente por app.js) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -415,6 +416,123 @@
 
   <main id="workspace" class="coord-grid">
     <div class="wrap">
+
+      <!-- ================= 1. OBSERVATORIO · CONTEXTO INFRARROJO Y CATÁLOGOS ================= -->
+      <section id="observatory" class="obs-frame" aria-labelledby="h-aladin">
+        <div class="obs-bar">
+          <span class="obs-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button id="obs-search-pill" type="button" class="obs-pill" title="Cambiar coordenadas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <span id="obs-pill-text">RA --° · Dec --° · FoV --°</span>
+          </button>
+          <span id="obs-mode-chip" class="obs-chip">Sin datos</span>
+        </div>
+
+        <div class="obs-grid">
+          <!-- Columna izquierda: objetivo + observaciones -->
+          <div class="obs-col obs-col-left">
+            <div class="obs-card">
+              <h3 class="obs-card-title">Objetivo</h3>
+              <dl class="obs-fields">
+                <div><dt>RA</dt><dd id="obs-ra">--</dd></div>
+                <div><dt>Dec</dt><dd id="obs-dec">--</dd></div>
+                <div><dt>FoV</dt><dd id="obs-fov">--</dd></div>
+                <div><dt>Marco</dt><dd>ICRS</dd></div>
+              </dl>
+            </div>
+            <div class="obs-card obs-grow">
+              <h3 class="obs-card-title">Observaciones <span id="obs-epoch-count" class="obs-count"></span></h3>
+              <ol id="obs-epoch-list" class="obs-list" aria-label="Recortes cargados; elegí uno para verlo" data-empty="Esperando observaciones…"></ol>
+            </div>
+          </div>
+
+          <!-- Centro: mapa de contexto -->
+          <div class="obs-center">
+            <div class="obs-map-head">
+              <h2 id="h-aladin">Contexto Infrarrojo y Catálogos</h2>
+              <div class="obs-map-tools">
+                <select id="select-context-survey" class="field" aria-label="Relevamiento de fondo">
+                  <option value="spherex" selected>Fondo: SPHEREx IR (Local)</option>
+                  <option value="allwise">Fondo: AllWISE Color (CDS HiPS)</option>
+                  <option value="2mass">Fondo: 2MASS JHK (CDS HiPS)</option>
+                  <option value="dss2">Fondo: DSS2 Óptico (CDS HiPS)</option>
+                </select>
+                <span id="aladin-catalog-badge" class="badge badge-amber">Sin consulta</span>
+              </div>
+            </div>
+            <div id="aladin-lite-div">
+              <canvas id="aladin-canvas" width="384" height="384" aria-label="Contexto infrarrojo y posiciones de catálogos consultados"></canvas>
+              <div class="hud-stack hud-tl">
+                <span id="aladin-hud-survey" class="hud hidden">Compuesto visual</span>
+                <span id="aladin-hud-coords" class="hud">RA: --° | Dec: --°</span>
+                <span id="aladin-hud-fov" class="hud">FoV: 3.00' (1.0x)</span>
+              </div>
+              <span class="hud obs-hud-tc" aria-hidden="true">Proyección TAN</span>
+              <span class="hud hud-tr obs-hud-compass" aria-hidden="true">N ↑ · E ←</span>
+              <span id="aladin-hud-selection" class="hud hud-bl">Pasá el cursor sobre un astro para ver su nombre</span>
+              <span id="obs-map-lambda" class="hud hud-br">λ -- µm · MJy/sr</span>
+              <div class="zoom-ctrl">
+                <button id="aladin-zoom-in" type="button" title="Acercar vista" aria-label="Acercar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button id="aladin-zoom-out" type="button" title="Alejar vista" aria-label="Alejar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                <button id="btn-recenter-aladin" type="button" title="Centrar vista" aria-label="Recentrar en el objetivo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+              </div>
+            </div>
+            <div class="pill-row obs-layers" role="group" aria-label="Capas de catálogo">
+              <label class="pill-toggle"><input id="chk-gaia" type="checkbox" checked /><span class="dot" style="background:var(--cyan)"></span>Gaia DR3</label>
+              <label id="lbl-pm-vectors" class="pill-toggle"><input id="chk-pm-vectors" type="checkbox" checked />Mov. propio Gaia</label>
+              <label class="pill-toggle"><input id="chk-wise" type="checkbox" checked /><span class="dot" style="background:var(--amber)"></span>AllWISE</label>
+              <label class="pill-toggle"><input id="chk-named-objects" type="checkbox" />Fijar nombres</label>
+              <label class="pill-toggle"><input id="chk-temporal-trail" type="checkbox" checked /><span class="dot" style="background:#fb7185"></span>Rastro temporal</label>
+            </div>
+          </div>
+
+          <!-- Columna derecha: cabecera FITS + espectro + análisis -->
+          <div class="obs-col obs-col-right">
+            <div class="obs-card">
+              <h3 class="obs-card-title">Cabecera FITS <span id="obs-fits-epoch" class="obs-count"></span></h3>
+              <p id="obs-fits-hint" class="obs-hint"></p>
+              <dl id="obs-fits-header" class="obs-kv" data-empty="Esperando un recorte…"></dl>
+            </div>
+            <div class="obs-card obs-grow">
+              <h3 class="obs-card-title">Espectro <span id="obs-spectrum-label" class="obs-count"></span></h3>
+              <p id="obs-spectrum-hint" class="obs-hint"></p>
+              <div class="obs-spectrum">
+                <span class="obs-y-label mono" aria-hidden="true">Brillo ↑</span>
+                <div id="obs-spectrum-mini" role="img" aria-label="Espectro medido del objeto seleccionado"></div>
+                <p id="obs-spectrum-empty" class="obs-empty">Midiendo el espectro del objetivo…</p>
+              </div>
+              <div class="obs-axis mono"><span>0.75 µm</span><span id="obs-axis-mid">Longitud de onda →</span><span>5.00 µm</span></div>
+              <p id="obs-spectrum-reading" class="obs-reading" aria-live="polite"></p>
+            </div>
+            <div class="obs-card">
+              <h3 class="obs-card-title">Análisis</h3>
+              <p id="obs-analysis-hint" class="obs-hint"></p>
+              <dl class="obs-kv obs-analysis">
+                <dt id="obs-an-candidates-term">Candidatos</dt><dd id="obs-an-candidates">--</dd>
+                <dt id="obs-an-diff-term">Diferencia</dt><dd id="obs-an-diff" class="is-cyan">--</dd>
+                <dt id="obs-an-status-term">Estado</dt><dd id="obs-an-status" class="is-violet">--</dd>
+              </dl>
+              <p id="obs-analysis-reading" class="obs-reading" aria-live="polite"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Barra de épocas: reutiliza la secuencia sincronizada de app.js -->
+        <div class="obs-timeline" role="group" aria-label="Secuencia de épocas">
+          <button id="obs-prev" type="button" class="obs-tl-btn" aria-label="Época anterior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 5v14"/><path d="m18 6-8 6 8 6z"/></svg></button>
+          <button id="obs-play" type="button" class="obs-tl-play" aria-label="Reproducir secuencia" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+          <button id="obs-next" type="button" class="obs-tl-btn" aria-label="Época siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 5v14"/><path d="m6 6 8 6-8 6z"/></svg></button>
+          <div class="obs-track">
+            <div class="obs-track-line"><span id="obs-track-fill"></span></div>
+            <div id="obs-track-dots" class="obs-track-dots"></div>
+          </div>
+          <div class="obs-tl-label">
+            <span id="obs-epoch-label" class="mono">Época -- / --</span>
+            <span id="obs-epoch-caption" class="mono muted"></span>
+          </div>
+        </div>
+      </section>
+
       <div class="bento">
 
         <!-- ================= B1. SPHEREx VIEWPORT (5) ================= -->
@@ -536,44 +654,13 @@
           </div>
         </section>
 
-        <!-- ================= B2. CATALOG & SKY CONTEXT (4) ================= -->
-        <section class="panel glass col-4" aria-labelledby="h-aladin">
+        <!-- ================= B2. ASTROS IDENTIFICADOS (4) ================= -->
+        <section class="panel glass col-4 embed-hide" aria-labelledby="h-named-objects">
           <div class="panel-head">
-            <div class="panel-title"><h2 id="h-aladin">Contexto Infrarrojo y Catálogos</h2></div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="select-context-survey" class="field" aria-label="Relevamiento de fondo">
-                <option value="spherex" selected>Fondo: SPHEREx IR (Local)</option>
-                <option value="allwise">Fondo: AllWISE Color (CDS HiPS)</option>
-                <option value="2mass">Fondo: 2MASS JHK (CDS HiPS)</option>
-                <option value="dss2">Fondo: DSS2 Óptico (CDS HiPS)</option>
-              </select>
-              <span id="aladin-catalog-badge" class="badge badge-amber">Sin consulta</span>
-            </div>
+            <div class="panel-title"><h2 id="h-named-objects">Astros identificados</h2></div>
+            <span class="eyebrow">SIMBAD · Gaia · AllWISE</span>
           </div>
           <div class="panel-body">
-            <div id="aladin-lite-div">
-              <canvas id="aladin-canvas" width="384" height="384" aria-label="Contexto infrarrojo y posiciones de catálogos consultados"></canvas>
-              <div class="hud-stack hud-tl">
-                <span id="aladin-hud-survey" class="hud hidden">Compuesto visual</span>
-                <span id="aladin-hud-coords" class="hud">RA: --° | Dec: --°</span>
-                <span id="aladin-hud-fov" class="hud">FoV: 3.00' (1.0x)</span>
-              </div>
-              <span id="aladin-hud-selection" class="hud hud-bl">Pasá el cursor sobre un astro para ver su nombre</span>
-              <div class="zoom-ctrl">
-                <button id="aladin-zoom-in" type="button" title="Acercar vista" aria-label="Acercar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-                <button id="aladin-zoom-out" type="button" title="Alejar vista" aria-label="Alejar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg></button>
-                <button id="btn-recenter-aladin" type="button" title="Centrar vista" aria-label="Recentrar en el objetivo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
-              </div>
-            </div>
-
-            <div class="pill-row" role="group" aria-label="Capas de catálogo">
-              <label class="pill-toggle"><input id="chk-gaia" type="checkbox" checked /><span class="dot" style="background:var(--cyan)"></span>Gaia DR3</label>
-              <label id="lbl-pm-vectors" class="pill-toggle"><input id="chk-pm-vectors" type="checkbox" checked />Mov. propio Gaia</label>
-              <label class="pill-toggle"><input id="chk-wise" type="checkbox" checked /><span class="dot" style="background:var(--amber)"></span>AllWISE</label>
-              <label class="pill-toggle"><input id="chk-named-objects" type="checkbox" />Fijar nombres</label>
-              <label class="pill-toggle"><input id="chk-temporal-trail" type="checkbox" checked /><span class="dot" style="background:#fb7185"></span>Rastro temporal</label>
-            </div>
-
             <div id="named-objects-panel">
               <div class="np-head">
                 <span>Astros identificados</span>
@@ -756,6 +843,7 @@
   <script src="/static/integrations/explorer-modules.js"></script>
   <!-- Script Principal de Aplicación -->
   <script src="/static/aladin-reference/reference.js"></script>
-  <script src="/static/app.js?v=3.0"></script>
+  <script src="/static/app.js?v=3.1"></script>
+  <script src="/static/observatory/observatory.js"></script>
 </body>
 </html>

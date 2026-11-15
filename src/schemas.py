@@ -58,6 +58,10 @@ class EpochFrame(BaseModel):
     image_base64: str
     flags_base64: str
     clean_pixels_pct: float
+    fits_header: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Claves principales de la cabecera FITS original del recorte, en orden de lectura",
+    )
 
 
 class AIDetection(BaseModel):

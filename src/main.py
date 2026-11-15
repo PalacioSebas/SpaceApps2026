@@ -194,6 +194,7 @@ def explore_sky_region(
                     image_base64=matrix_to_base64_png(al_img, mode="science"),
                     flags_base64=matrix_to_base64_png(al_flg, mode="flags"),
                     clean_pixels_pct=ep_meta["clean_pixels_pct"],
+                    fits_header=ep_meta.get("fits_header") or {},
                 )
             )
 

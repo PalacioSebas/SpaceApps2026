@@ -566,6 +566,8 @@ def build_spherex_adql_query(ra_deg: float, dec_deg: float, fov_deg: float, max_
 # Candado global para serializar consultas TAP a IRSA y evitar bloqueos 503 / WinError 10054 por concurrencia
 _IRSA_TAP_LOCK = threading.Lock()
 _IRSA_503_UNTIL: float = 0.0
+# Último fallo de red contra IRSA (instante, detalle): distingue "IRSA caído" de "sin cobertura".
+_IRSA_LAST_FAILURE: Tuple[float, str] = (0.0, "")
 
 
 def _query_spherex_sia(ra_deg: float, dec_deg: float, fov_deg: float = 0.05, max_rec: int = 24, timeout: float = 10.0) -> List[Dict[str, Any]]:
@@ -622,7 +624,7 @@ def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05,
     (`spherex_dr1` + `spherex_qr3`, ~1.5 s) y utilizando TAP (`spherex.artifact + spherex.plane`)
     como respaldo con circuit-breaker ante HTTP 503 o timeouts.
     """
-    global _IRSA_503_UNTIL
+    global _IRSA_503_UNTIL, _IRSA_LAST_FAILURE
     primary_adql = build_spherex_adql_query(ra_deg, dec_deg, fov_deg, max_rec=max_rec)
 
     # Vía rápida indexada vía IRSA SIA (spherex_dr1 + spherex_qr3, ~1.5 s) cuando _tap_service no está mockeado en tests
@@ -635,6 +637,7 @@ def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05,
                 return sia_records, primary_adql, "IRSA_SPHEREX_SIA"
         except Exception as exc:
             logger.warning("Consulta SPHEREx SIA falló: %s", exc)
+            _IRSA_LAST_FAILURE = (time.time(), str(exc))
 
     if time.time() >= _IRSA_503_UNTIL:
         for attempt in range(1, 3):
@@ -660,6 +663,7 @@ def query_spherex_tap_live(ra_deg: float, dec_deg: float, fov_deg: float = 0.05,
             except Exception as exc:
                 err_str = str(exc)
                 logger.warning("Intento %d/2 en spherex.artifact falló (%s).", attempt, exc)
+                _IRSA_LAST_FAILURE = (time.time(), err_str)
                 if "503" in err_str or "Service Unavailable" in err_str or "timed out" in err_str.lower() or "timeout" in err_str.lower():
                     _IRSA_503_UNTIL = time.time() + 30.0
                     break
@@ -880,15 +884,28 @@ def _build_fallback_fits_from_local_cache(
     ra_deg: float, dec_deg: float, fov_deg: float, target_dir: Path,
     max_epochs: int, tap_query: str,
 ) -> Tuple[List[Dict[str, Any]], str]:
-    """Usa solo la caché original de esta región; nunca modifica la astrometría."""
-    manifest_path = target_dir / "manifest.json"
-    if manifest_path.exists():
+    """Usa solo la caché original de esta región; nunca modifica la astrometría.
+
+    Además de la caché propia, acepta la de la búsqueda temporal (`temporal_search`) cuando
+    es exactamente el mismo centro y FoV: son recortes originales de IRSA de la misma región.
+    """
+    temporal_name = f"temporal_{ra_deg:.6f}_{dec_deg:.6f}_{fov_deg:.6f}".replace("-", "m").replace(".", "p")
+    for manifest_path in (target_dir / "manifest.json", CACHE_DIR / temporal_name / "manifest.json"):
+        if not manifest_path.exists():
+            continue
         try:
             frames, manifest = _read_cached_manifest(manifest_path, (ra_deg, dec_deg, fov_deg))
             if frames:
                 return frames[:max_epochs], f"CACHE_REAL_FITS ({manifest.get('original_source', 'IRSA')}; parcial)"
         except (OSError, ValueError, KeyError) as exc:
             logger.warning("Caché no utilizable %s: %s", manifest_path, exc)
+    failed_at, failure = _IRSA_LAST_FAILURE
+    if time.time() - failed_at < 120:
+        raise NoCoverageError(
+            f"El archivo NASA/IPAC IRSA no está respondiendo ({failure[:80]}) y no hay caché de "
+            f"RA={ra_deg:.5f}, Dec={dec_deg:.5f}, FoV={fov_deg}°. Es una caída externa: probá un "
+            "objetivo precargado o reintentá en unos minutos."
+        )
     raise NoCoverageError(
         f"IRSA no devolvió recortes utilizables para RA={ra_deg:.5f}, Dec={dec_deg:.5f}, "
         f"FoV={fov_deg}°. No hay caché original de esta región. Probá un objetivo precargado o reintentá."

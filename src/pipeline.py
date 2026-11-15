@@ -229,6 +229,7 @@ def _read_frame(path: Path) -> Dict[str, Any]:
                 break
         detector = str(img_hdu.header.get("DETECTOR", hdul[0].header.get("DETECTOR", "")) or "")
         version = str(hdul[0].header.get("VERSION", img_hdu.header.get("VERSION", "")) or "")
+        fits_header = _summarize_fits_header(hdul, img_hdu)
 
     good = ~bad
     if good.any():
@@ -253,7 +254,37 @@ def _read_frame(path: Path) -> Dict[str, Any]:
         "spectral_wcs": spectral_wcs,
         "flux_unit": flux_unit,
         "psf_fwhm_arcsec": psf_fwhm_arcsec,
+        "fits_header": fits_header,
     }
+
+
+# Claves de la cabecera original que se muestran en el visor, en este orden.
+FITS_HEADER_KEYS: Tuple[str, ...] = (
+    "SIMPLE", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "CTYPE1", "CTYPE2",
+    "CRVAL1", "CRVAL2", "BUNIT", "TELESCOP", "INSTRUME", "DETECTOR", "DATE-OBS", "MJD-OBS",
+)
+
+
+def _summarize_fits_header(hdul: fits.HDUList, img_hdu) -> Dict[str, str]:
+    """Copia literal de las claves principales de la cabecera, tal como vienen en el archivo.
+
+    SIMPLE solo existe en la HDU primaria; el resto se toma de la HDU de imagen y,
+    si falta ahí, de la primaria.
+    """
+    summary: Dict[str, str] = {}
+    for key in FITS_HEADER_KEYS:
+        for hdr in ((hdul[0].header,) if key == "SIMPLE" else (img_hdu.header, hdul[0].header)):
+            if key not in hdr:
+                continue
+            value = hdr[key]
+            if isinstance(value, bool):
+                summary[key] = "T" if value else "F"
+            elif isinstance(value, str):
+                summary[key] = f"'{value.strip()}'"
+            else:
+                summary[key] = str(value)
+            break
+    return summary
 
 
 @lru_cache(maxsize=256)
@@ -315,6 +346,7 @@ def load_and_clean_real_fits(fits_files: List[Path], ra: float | None = None,
         "flux_unit": frame["flux_unit"],
         "psf_fwhm_arcsec": frame["psf_fwhm_arcsec"],
         "clean_pixels_pct": clean_pct,
+        "fits_header": dict(frame.get("fits_header") or {}),
         "local_path": str(path),
     }
 

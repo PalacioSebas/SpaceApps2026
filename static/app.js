@@ -3269,7 +3269,16 @@ function renderCanvas() {
  * Renderiza las píldoras interactivas de la Secuencia Histórica Sincronizada
  * reemplazando el antiguo selector de solo 2 épocas (A vs B).
  */
+/**
+ * Avisa a la vista del observatorio (static/observatory/observatory.js) que el estado cambió.
+ * El receptor agrupa los avisos por cuadro de animación, así que llamarlo seguido es barato.
+ */
+function notifyLayoutUpdate(reason) {
+  document.dispatchEvent(new CustomEvent("papastronomy:update", { detail: { reason } }));
+}
+
 function renderMultiEpochStepsBar() {
+  notifyLayoutUpdate("frame");
   const bar = document.getElementById("multi-epoch-steps-bar");
   if (!bar) return;
   const sync = getSynchronizedTemporalState();
@@ -3324,6 +3333,7 @@ function syncPlayPauseButtonsUI() {
   if (tlBtn) {
     tlBtn.textContent = state.isPlaying ? "⏸ Pausar" : "▶ Reproducir";
   }
+  notifyLayoutUpdate("playback");
 }
 
 function setUnifiedPlaybackState(playing) {
@@ -3488,6 +3498,7 @@ function updateAIDetectionCardsSelection(scrollIntoView = false) {
 }
 
 function renderAIDetectionsList(detections) {
+  notifyLayoutUpdate("detections");
   const container = document.getElementById("ai-detections-list");
   const badge = document.getElementById("ai-count-badge");
   container.innerHTML = "";
@@ -5332,6 +5343,7 @@ function exportTimelineCsv() {
 }
 
 function renderSpectrumOrLightCurve(data = state.lastSpectrumData) {
+  notifyLayoutUpdate("spectrum");
   const titleEl = document.getElementById("spectrum-panel-title");
   const btnSpec = document.getElementById("btn-plot-spectrum");
   const btnLc = document.getElementById("btn-plot-lightcurve");
@@ -5482,6 +5494,7 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
     document.getElementById("diag-summary").textContent = "Reintentá seleccionando una fuente del recorte.";
     document.getElementById("diag-molecules").replaceChildren();
     if (window.Plotly) Plotly.purge("spectrum-plot");
+    notifyLayoutUpdate("spectrum");
   }
 }
 
@@ -5639,6 +5652,7 @@ function setExploreBusy(busy) {
   document.getElementById("coord-form").setAttribute("aria-busy", String(busy));
   document.getElementById("coord-form").querySelector("button[type=submit]").textContent = busy ? "Procesando…" : "Explorar Cielo";
   window.PapastronomyIntegration?.refresh();
+  notifyLayoutUpdate("loading");
 }
 
 async function exploreCoordinates(ra, dec, fov, maxEpochs = state.frameLimit, temporalSearch = false, refresh = false) {
