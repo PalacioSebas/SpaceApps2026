@@ -14,13 +14,32 @@ los siete archivos de `tests/`; no modifica la landing ni el explorador.
 Los ajustes locales de pruebas se guardaron sin reaplicar en un stash con
 el mensaje `Respaldo ajustes de tests antes de main f4c8527`.
 No hacer `stash pop` de ese respaldo sin revisar: intentaría recuperar
-archivos eliminados por main. Los ajustes de arranque y landing siguen locales.
+archivos eliminados por main. Los ajustes de arranque y landing se incluyen
+en el checkpoint descrito a continuación.
 
 La versión anterior se conserva íntegra en la rama local
 `backup/user-friendly-before-main-20261114`, commit `c0f1bf9`. También estaba
-publicada en `origin/feature/user-friendly`. No hacer un pull de esa rama remota
-sin revisar la divergencia: volvería a mezclar la implementación anterior.
-No se autorizó un push forzado.
+publicada en `origin/feature/user-friendly`. El historial divergente se reunió
+después sin reintroducir su código anterior ni forzar el push.
+
+## Checkpoint del 15 de noviembre
+
+- `12c0704`: módulos de acceso/perfil/chat, visor 3D con idiomas, traducciones
+  de la landing, integración y documentación.
+- `8332bed`: reúne el historial anterior de `feature/user-friendly` con una
+  estrategia de conservación del árbol actual. Los hashes del árbol antes
+  y después coinciden (`10c076109a200a3fbded6cb0ede75089358c30c0`). No recupera
+  el antiguo explorador ni sus cambios científicos.
+- Rama de trabajo y destino del respaldo: `feature/user-friendly`. No se
+  modifica ni se publica `main`; no se usa push forzado.
+- La base científica sigue en `f4c8527`. Al consultar las referencias remotas,
+  `origin/main` ya apuntaba a `26b1a3f`; sus cambios posteriores no se incluyeron
+  en este checkpoint. Revisarlos cuando se integre el restyling del compañero.
+
+Para continuar desde otra PC con el árbol limpio: `git fetch origin`,
+`git switch feature/user-friendly` y `git pull --ff-only`. Si hay cambios
+locales, conservarlos antes de actualizar. Los stashes son locales: no se
+transfieren al hacer push; el código anterior sí está en la historia de la rama.
 
 ## Material recuperable
 
@@ -94,7 +113,8 @@ Validación de esta integración: chequeos `static/modules/access/check.cjs`,
 está pendiente. Scripts con sintaxis válida y página principal, demo y todos
 los assets nuevos con HTTP 200. La comprobación visual del diálogo y chat
 en un navegador real sigue pendiente. No se modificó el backend científico,
-no se ejecutaron nuevas descargas de FITS ni se hizo commit/push.
+no se ejecutaron nuevas descargas de FITS. El trabajo se conserva en el
+checkpoint Git descrito al inicio.
 
 El visor ahora permite alternar **Español / English** desde el encabezado.
 `i18n.js` contiene la interfaz y `content.js` los dos catálogos educativos
@@ -146,7 +166,7 @@ válida. Los hashes Git de `viewer.js`, `content.js` y `page.js` coinciden con
 el respaldo. La landing volvió a compilar con TypeScript aprobado y su HTML
 contiene el nuevo acceso; los seis recursos del visor responden HTTP 200.
 No se pudo revisar visualmente: el host de acceso al navegador no está
-disponible. Los cambios de esta integración siguen locales, sin commit/push.
+disponible. Los cambios de esta integración se incluyen en el checkpoint.
 
 Después de agregar idiomas se repitieron las pruebas del módulo (paridad ES/EN,
 estado manual y recorrido conservados, preferencia, enlaces y almacenamiento
