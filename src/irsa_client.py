@@ -1136,7 +1136,7 @@ def _obtain_real_fits_impl(
     download_id = uuid.uuid4().hex[:12]
 
     if candidates_to_download:
-        DOWNLOAD_BUDGET_S = 30.0
+        DOWNLOAD_BUDGET_S = 20.0
         n_total = len(candidates_to_download)
         executor = ThreadPoolExecutor(max_workers=8)
         try:

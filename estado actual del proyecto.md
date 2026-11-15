@@ -65,6 +65,7 @@ Relevamiento completo contrastando el código actual del proyecto contra los **O
    - Combina 3 rangos espectrales de SPHEREx en una sola imagen tricromática: **Azul** = NIR corto ($<1.65\,\mu\text{m}$), **Verde** = NIR medio ($1.65\text{–}3.0\,\mu\text{m}$), **Rojo** = MIR ($\ge 3.0\,\mu\text{m}$). Los objetos ultrafríos (**WISE 0855**, **Epsilon Indi B**) o con discos de polvo (**RW Aurigae**) resaltan en tonos rojizos/ámbar frente a las estrellas calientes azuladas.
 - [x] **2. Curva de Luz Temporal $F(t)$ junto al Espectro $F(\lambda)$ (`#btn-plot-spectrum` / `#btn-plot-lightcurve`, `renderSpectrumOrLightCurve` en `static/app.js`)**:
    - Conmutador interactivo en el panel inferior que permite alternar el gráfico Plotly entre **Espectro $F(\lambda)$** (flujo vs longitud de onda con bandas moleculares) y **Curva de Luz Temporal $F(t)$** (flujo vs fecha UTC agrupado por detector `D1`–`D6` con barras de error).
+   - **Actualización 2026-11-14:** la *Curva de Luz $F(t)$* unía en una misma línea exposiciones de longitudes de onda distintas (el filtro LVF cambia de color con la posición), por lo que un cambio de color podía leerse como un cambio en el tiempo. Fue **reemplazada por la pestaña «Línea histórica»** (ver sección 5).
 - [x] **3. Estimador Astrométrico "Planeta X / TNO vs Estrella Cercana" en cada Dipolo (`src/schemas.py`, `src/ai_detector.py`, `static/app.js`)**:
    - Cada detección `MOVING_DIPOLE` calcula y muestra en su tarjeta tanto el desplazamiento angular (`shift_arcsec`) y movimiento propio lineal ($\mu$ en `″/año`, hipótesis estrella cercana / enana marrón) como la distancia heliocéntrica equivalente por paralaje (`heliocentric_dist_au_est` en `UA`, hipótesis Planeta X / cuerpo transneptuniano).
 - [x] **4. Descarga científica en 1 clic (`Exportar CSV` + `Exportar PNG`) (`#btn-export-csv`, `#btn-export-png` en `static/index.html` y `static/app.js`)**:
@@ -77,10 +78,37 @@ Relevamiento completo contrastando el código actual del proyecto contra los **O
 
 ---
 
-## 🧪 5. Estado de Verificación Integral (2026-11-13)
+## 🕰️ 5. Línea Histórica del lugar seleccionado (*"quickly see how they change over time"*)
 
-- **Suite de pruebas automatizadas (`python -m unittest discover -s tests`)**: **79 tests ejecutados, 0 fallos, 0 errores (OK)**.
-  - Incluye pruebas de fotometría diferencial (`test_difference.py`), verificación de dipolos/monopolos (`test_dipoles.py`), selección temporal (`test_temporal_search.py`), catálogos en vivo y cachés (`test_catalogs.py`), lanzador multiplataforma (`test_launcher.py`) y regresiones de API/física (`test_regressions.py`).
+- [x] **Pestaña «Línea histórica» en el panel inferior (`static/index.html`, `static/app.js`, `src/timeline.py`, `GET /api/timeline`)**:
+   - **Titular en lenguaje claro** con su estado: *Se movió*, *Se mudó de lugar*, *Cambió su brillo*, *Posible cambio*, *Sin cambios*, *Señal muy débil* o *Faltan fechas*. Los datos técnicos (MJy/sr, MJD, λ, detector, σ) quedan en subtítulos y tooltips.
+   - **Tira de miniaturas con mira fija**: primero los hitos históricos **DSS2 (~1984–2000)**, **2MASS (1997–2001)** y **AllWISE (2010–2011)** vía CDS `hips2fits`, rotulados *"otro telescopio · solo posición"*; después una miniatura por visita de **SPHEREx**, norte arriba y con escala de brillo común por detector.
+   - **Curva de brillo sincronizada** (pasar el mouse o hacer clic resalta la miniatura y viceversa; el clic lleva el visor principal a esa fecha), con selector de detector / color infrarrojo.
+   - **Solo compara la misma banda**: serie estricta con $\Delta\lambda/\lambda \le 3\,\%$; si no alcanza, respaldo con longitudes de onda cercanas del mismo detector, rotulado *"Estimación aproximada"* y sin afirmar cambios.
+   - **Astros de alto movimiento propio**: campo histórico adaptativo con la trayectoria prevista, posición esperada en cada relevamiento y botón **«Ir a su posición actual»**; en la posición actual la apertura acompaña al objeto.
+   - **Indicador siempre visible**: aun en la pestaña *Espectro*, un botón resume la línea histórica del punto (*"Línea histórica · Sin cambios: …"*).
+   - **Compartir y exportar**: parámetro `&timeline=1` en la URL y **Exportar CSV** con la serie de brillo y las posiciones por visita.
+   - **DSS1 (~1950)** no se agregó: el CDS no publica un HiPS de DSS1/POSS-I (solo `CDS/P/DSS2/*`).
+- [x] **Más cobertura temporal por defecto**: el visor carga **20 exposiciones** (antes 10) y el presupuesto de descargas nuevas de IRSA baja a **20 s** (antes 30 s). La línea histórica usa además **todos** los recortes ya guardados en la caché de la región (hasta 84, elegidos por separación temporal dentro de cada detector).
+- [x] **Resultados reales verificados (2026-11-14)**:
+   - `Barnard's Star` en su posición actual (RA 269.44612°, Dec +4.77001°, descargada en vivo de IRSA): 10 fechas entre ago-2025 y sep-2026 · **corrimiento medido por SPHEREx 10,0″ (4,0σ) ≈ 9,1″/año**, frente a 10,4″/año de catálogo · brillo estable.
+   - `Barnard's Star`, `WISE 0855` y `Epsilon Indi B` en sus coordenadas oficiales: *"ya no está en este punto: se mudó"* (4,6′, 1,6′ y 2,0′ respectivamente) con botón a la posición actual.
+   - `RW Aurigae` y `R Draconis`: *"No se ven cambios medibles"*; se aclara que las fechas disponibles abarcan solo 7 días y, en R Draconis, que el centro está saturado y se mide el resplandor.
+
+### ⚠️ Limitaciones conocidas de la línea histórica
+
+- **Coordenadas oficiales de los 3 astros veloces**: corresponden a épocas 2000–2014, por lo que hoy el astro cae fuera (o al borde) del recorte de 3′ centrado en ellas. No se modificaron las coordenadas ni la caché de los 5 objetivos; la línea histórica lo explica y lleva a la posición actual.
+- **WISE 0855** es demasiado débil para las exposiciones individuales de SPHEREx: en su posición actual informa *"señal muy débil"* (no se inventa una detección).
+- **RW Aurigae / R Draconis**: la caché cubre ~7 días; para ver su variabilidad real (R Draconis tiene un período de ~245 días) hay que sumar fechas con «Buscar pares temporales» / «Sincronizar nuevas entregas IRSA».
+- **Precisión fotométrica**: ~8 % por exposición (medida sobre estrellas del campo de RW Aurigae); cambios menores a ~8–10 % no se informan.
+- **Fechas de los relevamientos históricos**: son rangos aproximados (los mosaicos combinan placas de varias fechas).
+
+---
+
+## 🧪 6. Estado de Verificación Integral (2026-11-14)
+
+- **Suite de pruebas automatizadas (`python -m unittest discover -s tests`)**: **98 tests ejecutados, 0 fallos, 0 errores (OK)**.
+  - Incluye pruebas de fotometría diferencial (`test_difference.py`), verificación de dipolos/monopolos (`test_dipoles.py`), selección temporal (`test_temporal_search.py`), catálogos en vivo y cachés (`test_catalogs.py`), lanzador multiplataforma (`test_launcher.py`), regresiones de API/física (`test_regressions.py`) y línea histórica (`test_timeline.py`, 19 tests).
 - **Sintaxis Frontend (`node --check static/app.js`)**: **OK (sin errores de sintaxis)**.
 - **Lanzador multiplataforma (`python start_project.py --check`)**: **OK (`Python 3.12.0 | win32`)**.
 - **Verificación de extremo a extremo sobre los 5 objetivos oficiales NASA (`/api/explore` + `/api/spectrum`)**:

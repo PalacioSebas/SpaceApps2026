@@ -136,3 +136,122 @@ class SpectrumResponse(BaseModel):
     spectrum: List[SpectrumPoint]
     reference_molecules: List[MoleculeBand]
     ai_diagnosis: SpectralDiagnosis
+
+
+# ----------------------------------------------------------------------------
+# Línea histórica (/api/timeline)
+# ----------------------------------------------------------------------------
+class TimelineVisit(BaseModel):
+    visit_id: int
+    mjd_start: float
+    mjd_end: float
+    mjd_mid: float
+    date_iso: str
+    label: str = Field(..., description="Fecha corta legible, p. ej. '12 may 2025'")
+    n_exposures: int
+    detectors: List[str]
+
+
+class TimelineSeriesPoint(BaseModel):
+    visit_id: int
+    mjd: float
+    date_iso: str
+    label: str
+    flux_mjy_sr: float
+    flux_uncertainty: float
+    n_exposures: int
+    wavelength_um: float
+    cutout_url: str = ""
+
+
+class TimelineSeries(BaseModel):
+    detector: str
+    mode: str = Field(..., description="'strict' (λ casi idéntica) o 'approx' (respaldo declarado)")
+    photometry: str = Field("aperture", description="'aperture' o 'halo' (núcleo saturado)")
+    reference_wavelength_um: float
+    wavelength_span_pct: float
+    n_visits: int
+    baseline_days: float
+    points: List[TimelineSeriesPoint]
+    note: str = ""
+    status: str = Field(..., description="variable | possible | stable | faint | insufficient")
+    change_pct: Optional[float] = None
+    change_sigma: Optional[float] = None
+    amplitude_pct: Optional[float] = None
+    variability_p_value: Optional[float] = None
+    median_snr: float = 0.0
+
+
+class TimelinePosition(BaseModel):
+    visit_id: int
+    mjd: float
+    east_arcsec: float
+    north_arcsec: float
+    uncertainty_arcsec: float
+    n_exposures: int
+
+
+class TimelineMotion(BaseModel):
+    status: str = Field(..., description="moved | static | unknown")
+    shift_arcsec: Optional[float] = None
+    shift_sigma: Optional[float] = None
+    baseline_days: Optional[float] = None
+    pm_arcsec_yr: Optional[float] = None
+    pm_ra_mas_yr: Optional[float] = None
+    pm_dec_mas_yr: Optional[float] = None
+    positions: List[TimelinePosition] = Field(default_factory=list)
+
+
+class TimelineKnownMotion(BaseModel):
+    name: str
+    pm_ra_mas_yr: float
+    pm_dec_mas_yr: float
+    pm_total_arcsec_yr: float
+    ref_epoch_year: float
+    ref_ra: float
+    ref_dec: float
+    source: str
+    current_ra: float
+    current_dec: float
+    current_epoch_year: float
+    offset_now_arcsec: float
+
+
+class TimelineStamp(BaseModel):
+    visit_id: int
+    detector: str
+    mjd: float
+    date_iso: str
+    label: str
+    wavelength_um: float
+    cutout_url: str = ""
+    image_base64: str
+    centroid_east_arcsec: Optional[float] = None
+    centroid_north_arcsec: Optional[float] = None
+
+
+class TimelineHeadline(BaseModel):
+    status: str = Field(
+        ..., description="moved | moved_away | brightness_changed | possible_change | stable | faint | insufficient"
+    )
+    title: str
+    detail: str
+    period: str = ""
+    notes: List[str] = Field(default_factory=list)
+    technical: str = ""
+
+
+class TimelineResponse(BaseModel):
+    ra: float
+    dec: float
+    total_exposures: int
+    baseline_days: float
+    visits: List[TimelineVisit]
+    series: List[TimelineSeries]
+    default_detector: Optional[str] = None
+    motion: TimelineMotion
+    known_motion: Optional[TimelineKnownMotion] = None
+    tracking_applied: bool = Field(False, description="La apertura acompañó al objeto según su movimiento de catálogo")
+    stamps: List[TimelineStamp]
+    stamp_fov_deg: float
+    headline: TimelineHeadline

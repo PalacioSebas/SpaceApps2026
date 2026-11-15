@@ -32,6 +32,7 @@ from src.schemas import (
     SpectrumPoint,
     MoleculeBand,
     SpectralDiagnosis,
+    TimelineResponse,
 )
 from src.irsa_client import (
     obtain_real_fits_for_coordinates,
@@ -48,6 +49,7 @@ from src.pipeline import (
     matrix_to_base64_png,
     extract_real_spectrum_at_coord,
 )
+from src.timeline import collect_cached_frames, compute_timeline
 from src.ai_detector import detect_anomalies_on_diff, classify_spectrum_molecules, _crossmatch_cached
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -57,6 +59,11 @@ logger = logging.getLogger("spherex.api")
 _EXPLORE_CACHE: Dict[tuple, Any] = {}
 _EXPLORE_CACHE_MAX = 16
 _EXPLORE_CACHE_LOCK = threading.Lock()
+
+# Caché en memoria de /api/timeline (la fotometría de ~100 recortes tarda varios segundos en frío)
+_TIMELINE_CACHE: Dict[tuple, Any] = {}
+_TIMELINE_CACHE_MAX = 32
+_TIMELINE_CACHE_LOCK = threading.Lock()
 
 app = FastAPI(
     title="Papastronomy v2.0 - NASA SPHEREx & IRSA Live Discovery API",
@@ -385,6 +392,49 @@ def get_point_spectrum(
         reference_molecules=[MoleculeBand(**m) for m in REFERENCE_MOLECULES],
         ai_diagnosis=SpectralDiagnosis(**diagnosis_raw),
     )
+
+
+@app.get("/api/timeline", response_model=TimelineResponse)
+def get_point_timeline(
+    ra: float = Query(..., ge=0.0, le=360.0),
+    dec: float = Query(..., ge=-90.0, le=90.0),
+    center_ra: float | None = Query(None, ge=0, le=360),
+    center_dec: float | None = Query(None, ge=-90, le=90),
+    fov: float = Query(DEFAULT_FOV_DEG, gt=0.005, le=1.0),
+    max_epochs: int = Query(20, ge=1, le=102),
+    temporal_search: bool = False,
+) -> TimelineResponse:
+    """
+    Línea histórica del punto (ra, dec): visitas de SPHEREx, serie de brillo comparable
+    (misma banda), corrimiento del centroide, miniaturas centradas y resumen en lenguaje claro.
+    Usa todos los recortes .FITS reales ya presentes en la caché de la región; no descarga nada nuevo.
+    """
+    ref_ra = center_ra if center_ra is not None else ra
+    ref_dec = center_dec if center_dec is not None else dec
+    try:
+        obtain = obtain_temporal_fits_for_coordinates if temporal_search else obtain_real_fits_for_coordinates
+        frames_meta, _, _, _ = obtain(ref_ra, ref_dec, fov_deg=fov, max_epochs=max_epochs)
+    except NoCoverageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not frames_meta:
+        raise HTTPException(status_code=503, detail="No hay observaciones de esta región")
+
+    all_frames = collect_cached_frames(ref_ra, ref_dec, fov, frames_meta)
+    cache_key = (round(ra, 6), round(dec, 6), round(ref_ra, 6), round(ref_dec, 6), round(fov, 5),
+                 len(all_frames), str(all_frames[-1].get("cutout_url", "")) if all_frames else "")
+    with _TIMELINE_CACHE_LOCK:
+        if cache_key in _TIMELINE_CACHE:
+            return _TIMELINE_CACHE[cache_key]
+    try:
+        result = TimelineResponse(**compute_timeline(ra, dec, all_frames, fov_deg=fov))
+    except Exception as exc:
+        logger.exception("Error calculando la línea histórica:")
+        raise HTTPException(status_code=502, detail=f"No se pudo calcular la línea histórica: {exc}") from exc
+    with _TIMELINE_CACHE_LOCK:
+        if len(_TIMELINE_CACHE) >= _TIMELINE_CACHE_MAX:
+            _TIMELINE_CACHE.pop(next(iter(_TIMELINE_CACHE)))
+        _TIMELINE_CACHE[cache_key] = result
+    return result
 
 
 @app.get("/static/app.js")

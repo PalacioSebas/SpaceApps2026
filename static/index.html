@@ -266,28 +266,31 @@
           La secuencia comenzará en la imagen con mayor cobertura válida.
         </div>
 
-        <!-- Operación Manual entre 2 Épocas Arbitrarias (A vs B) -->
+        <!-- Secuencia Histórica Multi-Época Sincronizada (Visor SPHEREx + Contexto y Catálogos) -->
         <div class="bg-slate-900/75 border border-slate-800 rounded-lg p-2 space-y-1.5 text-xs">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-[11px] font-semibold text-slate-300">Comparación Manual de Épocas (A vs B):</span>
+            <span id="multi-epoch-seq-title" class="text-[11px] font-semibold text-slate-200">
+              Secuencia Histórica Sincronizada (todas las fotos seleccionadas):
+            </span>
             <div class="flex flex-wrap items-center gap-1">
-              <button type="button" id="btn-manual-diff" title="Resta píxel a píxel la Época B menos la Época A elegidas abajo"
+              <button type="button" id="btn-manual-blink" title="Recorre todas las épocas seleccionadas en simultáneo en ambos mapas dejando el rastro temporal"
+                class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold transition">
+                Secuencia Activa
+              </button>
+              <button type="button" id="btn-manual-diff" title="Calcula el contraste diferencial acumulado (ΔI) entre el final y el inicio de las épocas seleccionadas"
                 class="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 text-[11px] font-semibold transition">
-                Restar (B − A)
+                Contraste ΔI Secuencia
               </button>
-              <button type="button" id="btn-manual-sum" title="Suma / promedia las Épocas A y B elegidas abajo para resaltar fuentes débiles"
+              <button type="button" id="btn-manual-sum" title="Apila todas las épocas seleccionadas de la secuencia para amplificar fuentes débiles"
                 class="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-200 text-[11px] font-semibold transition">
-                Sumar (A + B)
-              </button>
-              <button type="button" id="btn-manual-blink" title="Alterna el Flipbook exclusivamente entre la Época A y la Época B seleccionadas"
-                class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] transition">
-                Blink A ↔ B
+                Apilar Secuencia (SNR)
               </button>
             </div>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            <select id="select-epoch-a" aria-label="Época A" class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200"></select>
-            <select id="select-epoch-b" aria-label="Época B" class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200"></select>
+          <div id="multi-epoch-steps-bar" class="flex flex-wrap items-center gap-1 pt-0.5"></div>
+          <div class="hidden" aria-hidden="true">
+            <select id="select-epoch-a" aria-label="Época inicial"></select>
+            <select id="select-epoch-b" aria-label="Época final"></select>
           </div>
         </div>
 
@@ -446,6 +449,10 @@
               <input type="checkbox" id="chk-named-objects" class="accent-emerald-400" />
               <span class="text-emerald-300 font-medium">Fijar nombres</span>
             </label>
+            <label class="inline-flex items-center gap-1.5 cursor-pointer" title="Va dejando el rastro temporal acumulado de cómo se fue moviendo la estrella a través de todas las fotos seleccionadas (DSS2 ~1990 → 2MASS ~1999 → AllWISE 2010 → visitas SPHEREx)">
+              <input type="checkbox" id="chk-temporal-trail" checked class="accent-rose-400" />
+              <span class="text-rose-300 font-medium">Rastro temporal</span>
+            </label>
           </div>
           <button type="button" id="btn-recenter-aladin"
             class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-slate-200 transition">
@@ -518,23 +525,111 @@
             </div>
             <div class="flex flex-wrap items-center gap-2 text-[11px]">
               <div class="inline-flex rounded-lg bg-slate-900 p-0.5 border border-slate-700">
-                <button type="button" id="btn-plot-spectrum" class="px-2 py-0.5 rounded bg-sky-500 text-slate-950 font-semibold">
+                <button type="button" id="btn-plot-lightcurve" title="Cómo cambió este lugar con el tiempo: comparador intermitente Antes/Después y curva de brillo"
+                  class="px-2 py-0.5 rounded bg-sky-500 text-slate-950 font-semibold">
+                  Línea histórica (Intermitente)
+                </button>
+                <button type="button" id="btn-plot-spectrum" class="px-2 py-0.5 rounded text-slate-300 hover:text-white">
                   Espectro F(λ)
                 </button>
-                <button type="button" id="btn-plot-lightcurve" class="px-2 py-0.5 rounded text-slate-300 hover:text-white">
-                  Curva de Luz F(t)
-                </button>
               </div>
-              <button type="button" id="btn-export-csv" title="Descarga la fotometría medida (espectro y tiempos) en formato CSV"
+              <button type="button" id="btn-timeline-badge" title="Abrir la línea histórica de este punto"
+                class="hidden max-w-[340px] truncate px-2 py-0.5 rounded border border-slate-700 bg-slate-900 text-slate-200 hover:border-sky-500/60 transition">
+              </button>
+              <button type="button" id="btn-export-csv" title="Descarga la fotometría medida (espectro o línea histórica) en formato CSV"
                 class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
                 Exportar CSV
               </button>
-              <span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">Bandas H₂O</span>
-              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Bandas CH₄</span>
-              <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Banda CO</span>
+              <span class="spectrum-only hidden px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">Bandas H₂O</span>
+              <span class="spectrum-only hidden px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Bandas CH₄</span>
+              <span class="spectrum-only hidden px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Banda CO</span>
             </div>
           </div>
-          <div id="spectrum-plot" class="w-full h-[270px] bg-slate-950/70 rounded-lg border border-slate-800"></div>
+          <div id="spectrum-plot" class="hidden w-full h-[270px] bg-slate-950/70 rounded-lg border border-slate-800"></div>
+
+          <!-- Línea histórica: titular claro + comparador intermitente Antes/Después + tira de miniaturas + curva de brillo comparable -->
+          <div id="timeline-view" class="space-y-2.5">
+            <div id="timeline-headline"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+              <!-- Comparador Intermitente de Movimiento (Blink A ↔ B en el mismo cuadro) -->
+              <div id="timeline-blink-panel" class="md:col-span-4 bg-slate-950/85 border border-slate-800 rounded-lg p-2.5 space-y-2">
+                <div class="flex flex-wrap items-center justify-between gap-1">
+                  <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">
+                    Secuencia Histórica
+                  </span>
+                  <div class="inline-flex rounded bg-slate-900 p-0.5 border border-slate-700 text-[10px]">
+                    <button type="button" id="btn-tl-mode-all" title="Por defecto selecciona automáticamente todas las fotos mostradas (DSS2 ~1990 → 2MASS ~1999 → AllWISE 2010 → todas las visitas SPHEREx) y va dejando el rastro temporal"
+                      class="px-1.5 py-0.5 rounded bg-sky-500 text-slate-950 font-semibold">
+                      Todas
+                    </button>
+                    <button type="button" id="btn-tl-mode-spherex" title="Recorre todas las fechas disponibles de SPHEREx en el mismo detector"
+                      class="px-1.5 py-0.5 rounded text-slate-300 hover:text-white">
+                      SPHEREx
+                    </button>
+                    <button type="button" id="btn-tl-mode-historic" title="Recorre las imágenes históricas (DSS2 ~1990 → 2MASS ~1999 → AllWISE 2010) en la misma escala"
+                      class="px-1.5 py-0.5 rounded text-slate-300 hover:text-white">
+                      Décadas
+                    </button>
+                  </div>
+                </div>
+
+                <div id="timeline-blink-stage" class="relative w-full max-w-[220px] mx-auto overflow-hidden rounded-lg border border-slate-700 bg-black select-none" style="aspect-ratio:1/1">
+                  <img id="timeline-blink-img" alt="Comparador intermitente temporal" class="absolute inset-0 w-full h-full object-cover" crossorigin="anonymous" />
+                  <div id="timeline-blink-fallback" class="hidden absolute inset-0 flex items-center justify-center text-center text-[11px] text-slate-400 p-3">
+                    Imagen no disponible ahora
+                  </div>
+                  <svg id="timeline-blink-svg" class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100"></svg>
+                  <div class="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1 pointer-events-none">
+                    <span id="timeline-blink-badge" class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-slate-950/85 text-slate-200 border border-slate-700 truncate">
+                      SECUENCIA…
+                    </span>
+                    <span id="timeline-blink-step-badge" class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-950/85 text-slate-200 border border-slate-700">
+                      1/5
+                    </span>
+                  </div>
+                  <div id="timeline-blink-caption" class="absolute bottom-1.5 left-1.5 right-1.5 bg-slate-950/90 border border-slate-800 rounded px-2 py-0.5 text-[10px] font-mono text-slate-200 truncate pointer-events-none">
+                    Alternando fechas…
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
+                  <button type="button" id="btn-tl-play"
+                    class="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold transition">
+                    ⏸ Pausar
+                  </button>
+                  <button type="button" id="btn-tl-step" title="Avanzar al siguiente punto temporal seleccionado y dejar su huella en el rastro"
+                    class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
+                    ⏭ Siguiente foto
+                  </button>
+                  <select id="select-tl-fps" aria-label="Velocidad de parpadeo" class="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-slate-200">
+                    <option value="1.2">Lento</option>
+                    <option value="2" selected>Normal</option>
+                    <option value="3.5">Rápido</option>
+                  </select>
+                </div>
+                <p id="timeline-blink-hint" class="text-[10px] text-slate-400 leading-snug">
+                  Por defecto selecciona todas las fotos mostradas y deja el rastro temporal acumulado del movimiento en el Contexto infrarrojo y catálogos.
+                </p>
+              </div>
+
+              <!-- Tira de miniaturas sincronizada + Curva de brillo comparable -->
+              <div class="md:col-span-8 space-y-2 min-w-0">
+                <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                  <span title="Cada miniatura mostrada entra automáticamente en la secuencia histórica (✓ #1, #2…). Tocá el badge ✓ de cualquier foto para incluirla o quitarla.">
+                    Fotos seleccionadas automáticamente en la secuencia (✓) · el borde resalta el paso activo
+                  </span>
+                  <label class="flex items-center gap-1" title="Cada detector de SPHEREx mira un color infrarrojo distinto. La curva solo compara mediciones del mismo color.">
+                    <span>Color infrarrojo:</span>
+                    <select id="select-timeline-detector" class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-slate-200 text-[11px]"></select>
+                  </label>
+                </div>
+                <div id="timeline-strip" class="flex items-stretch gap-2 overflow-x-auto pb-1.5"></div>
+                <div id="timeline-plot" class="w-full h-[185px] bg-slate-950/70 rounded-lg border border-slate-800"></div>
+              </div>
+            </div>
+            <p id="timeline-technical" class="text-[10px] font-mono text-slate-500 leading-snug"></p>
+          </div>
         </div>
 
         <!-- Asistente Espectral Inteligente TUIA (4 col) -->
@@ -580,6 +675,6 @@
   </main>
 
   <!-- Script Principal de Aplicación -->
-  <script src="/static/app.js?v=2.5"></script>
+  <script src="/static/app.js?v=3.0"></script>
 </body>
 </html>

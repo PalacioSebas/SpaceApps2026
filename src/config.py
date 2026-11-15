@@ -38,6 +38,9 @@ MANDATORY_TARGETS: List[Dict[str, Any]] = [
         "ra_deg": 133.795129,
         "dec_deg": -7.245147,
         "default_fov": 0.05,
+        # Movimiento propio de catálogo (μα·cosδ, μδ) y época de la coordenada listada.
+        "proper_motion": {"pm_ra_mas_yr": -8118.0, "pm_dec_mas_yr": 680.0, "ref_epoch_year": 2014.3,
+                          "source": "Luhman 2014 (WISE + Spitzer)"},
     },
     {
         "id": "barnards_star",
@@ -49,6 +52,8 @@ MANDATORY_TARGETS: List[Dict[str, Any]] = [
         "ra_deg": 269.452075,
         "dec_deg": 4.693364,
         "default_fov": 0.05,
+        "proper_motion": {"pm_ra_mas_yr": -802.8, "pm_dec_mas_yr": 10362.5, "ref_epoch_year": 2000.0,
+                          "source": "Gaia DR3"},
     },
     {
         "id": "epsilon_indi_b",
@@ -60,6 +65,8 @@ MANDATORY_TARGETS: List[Dict[str, Any]] = [
         "ra_deg": 331.043833,
         "dec_deg": -56.782694,
         "default_fov": 0.05,
+        "proper_motion": {"pm_ra_mas_yr": 3960.0, "pm_dec_mas_yr": -2540.0, "ref_epoch_year": 1999.9,
+                          "source": "aprox. sistema Epsilon Indi (Gaia DR3 / 2MASS)"},
     },
     {
         "id": "rw_aurigae",

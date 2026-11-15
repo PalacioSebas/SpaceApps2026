@@ -41,8 +41,27 @@ const state = {
   contrastGain: 1.0,
   shiftStackCanvas: null,
   shiftStackMeta: null,
-  spectrumPlotMode: "spectrum",
+  pairBlinkPhase: 0,
+  pairMeta: null,
+  spectrumPlotMode: "timeline",
   lastSpectrumData: null,
+  timelineData: null,
+  timelineLoading: false,
+  timelineError: null,
+  timelineDetector: null,
+  timelineSelectedVisit: null,
+  timelinePoint: null,
+  timelineController: null,
+  timelineSequence: 0,
+  timelineBlinkMode: "all",
+  timelineSelectedKeys: null,
+  timelineBlinkPlaying: true,
+  timelineBlinkFps: 2,
+  timelineBlinkTimerId: null,
+  timelineBlinkStep: 0,
+  timelineBlinkFrames: [],
+  timelineEnhancedStamps: new Map(),
+  forceCenterSelection: false,
   contextSurvey: "spherex",
   externalSurveyCache: new Map(),
   exploreController: null,
@@ -58,6 +77,7 @@ const state = {
   showGaiaCat: true,
   showWiseCat: true,
   showPmVectors: true,
+  showTemporalTrail: true,
   embed: false,
   crossmatchByDetId: {},
   tileGrid: new Map(),
@@ -155,6 +175,7 @@ function getParamsFromUrl() {
     temporalSearch: params.get("temporal") === "1",
     embed: params.get("embed") === "1",
     invert: params.get("invert") === "1",
+    timeline: params.get("timeline") !== "0",
   };
 }
 
@@ -169,6 +190,8 @@ function syncUrlParams(ra, dec, fov, temporalSearch = false) {
   else url.searchParams.delete("embed");
   if (state.invertPixels) url.searchParams.set("invert", "1");
   else url.searchParams.delete("invert");
+  if (state.spectrumPlotMode === "timeline") url.searchParams.set("timeline", "1");
+  else url.searchParams.delete("timeline");
   window.history.replaceState({}, "", url);
 }
 
@@ -1339,6 +1362,356 @@ function computeShiftAndStackCanvas(pmRaMasYr, pmDecMasYr, directPixelDelta = nu
   return c;
 }
 
+/**
+ * Construye dos lienzos co-adicionados ("ANTES" vs "DESPUÉS") a partir de las exposiciones
+ * comparables de la misma banda (analysis_frame_indices) para que el parpadeo intermitente
+ * alterne estrictamente 1 a 1 sin quedarse más tiempo en una fecha que en otra.
+ * Además refuerza suavemente los píxeles con diferencia temporal significativa (dipolos o variables)
+ * mientras mantiene las estrellas de fondo completamente estáticas.
+ */
+function buildComparablePairCanvases() {
+  const grids = state.originVisualGrids;
+  const epochs = state.exploreData?.epochs || [];
+  const pairIndices = state.exploreData?.target_info?.analysis_frame_indices || [];
+  if (!grids || !grids.epochs || pairIndices.length < 2) return null;
+
+  const parseMjd = (obsTime) => {
+    const num = Number(obsTime);
+    if (obsTime !== "" && obsTime != null && Number.isFinite(num) && num > 10000) return num;
+    const parsed = Date.parse(String(obsTime || ""));
+    return Number.isFinite(parsed) ? parsed / 86400000 + 40587 : NaN;
+  };
+
+  const validIndices = pairIndices.filter((i) => i >= 0 && i < grids.epochs.length);
+  if (validIndices.length < 2) return null;
+
+  const mjds = validIndices.map((i) => parseMjd(epochs[i]?.obs_time));
+  const finiteMjds = mjds.filter(Number.isFinite);
+  let earlyIndices = [];
+  let lateIndices = [];
+
+  if (finiteMjds.length >= 2 && Math.max(...finiteMjds) - Math.min(...finiteMjds) > 1e-4) {
+    const midMjd = 0.5 * (Math.min(...finiteMjds) + Math.max(...finiteMjds));
+    earlyIndices = validIndices.filter((idx) => {
+      const m = parseMjd(epochs[idx]?.obs_time);
+      return Number.isFinite(m) && m <= midMjd;
+    });
+    lateIndices = validIndices.filter((idx) => {
+      const m = parseMjd(epochs[idx]?.obs_time);
+      return Number.isFinite(m) && m > midMjd;
+    });
+  }
+  if (!earlyIndices.length || !lateIndices.length) {
+    const half = Math.max(1, Math.floor(validIndices.length / 2));
+    earlyIndices = validIndices.slice(0, half);
+    lateIndices = validIndices.slice(half);
+  }
+
+  const w = 128;
+  const h = 128;
+  const earlyGrid = new Float32Array(w * h);
+  const lateGrid = new Float32Array(w * h);
+
+  for (let pIdx = 0; pIdx < w * h; pIdx++) {
+    let eSum = 0;
+    for (let i = 0; i < earlyIndices.length; i++) {
+      eSum += grids.epochs[earlyIndices[i]][pIdx];
+    }
+    let lSum = 0;
+    for (let i = 0; i < lateIndices.length; i++) {
+      lSum += grids.epochs[lateIndices[i]][pIdx];
+    }
+    earlyGrid[pIdx] = eSum / earlyIndices.length;
+    lateGrid[pIdx] = lSum / lateIndices.length;
+  }
+
+  const makePhaseCanvas = (isLate) => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    const imgData = ctx.createImageData(w, h);
+    for (let pIdx = 0; pIdx < w * h; pIdx++) {
+      const eVal = earlyGrid[pIdx];
+      const lVal = lateGrid[pIdx];
+      const diff = lVal - eVal;
+      const absDiff = Math.abs(diff);
+      // Refuerzo diferencial suave solo donde hay cambio real (|ΔSNR| > 0.65);
+      // las estrellas fijas tienen diff ≈ 0 y permanecen 100% inmóviles.
+      const boost = absDiff > 0.65 ? Math.tanh((absDiff - 0.65) / 2.0) * 2.3 : 0.0;
+      let val = isLate ? lVal : eVal;
+      if (isLate) {
+        val += diff > 0 ? boost * 1.45 : -boost * 0.45;
+      } else {
+        val += diff < 0 ? boost * 1.45 : -boost * 0.45;
+      }
+      const g = snrToGrayscaleByte(val);
+      const i = pIdx * 4;
+      imgData.data[i] = g;
+      imgData.data[i + 1] = g;
+      imgData.data[i + 2] = g;
+      imgData.data[i + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return c;
+  };
+
+  const earlyIdx = earlyIndices[0];
+  const lateIdx = lateIndices[lateIndices.length - 1];
+  const earlyEp = epochs[earlyIdx] || {};
+  const lateEp = epochs[lateIdx] || {};
+  const fmtShortDate = (obsTime) => {
+    const m = parseMjd(obsTime);
+    if (Number.isFinite(m)) {
+      return new Date((m - 40587) * 86400000).toISOString().slice(0, 10);
+    }
+    return String(obsTime || "").slice(0, 10) || "sin fecha";
+  };
+
+  return {
+    earlyCanvas: makePhaseCanvas(false),
+    lateCanvas: makePhaseCanvas(true),
+    earlyGrid,
+    lateGrid,
+    validIndices,
+    stepCache: new Map(),
+    earlyIndices,
+    lateIndices,
+    earlyIdx,
+    lateIdx,
+    earlyDate: fmtShortDate(earlyEp.obs_time),
+    lateDate: fmtShortDate(lateEp.obs_time),
+    detector: earlyEp.detector || lateEp.detector || "detector",
+    wlUm: Number(earlyEp.wavelength_center_um || lateEp.wavelength_center_um || 0),
+  };
+}
+
+/**
+ * Devuelve el estado temporal unificado entre el Visor Multi-Época SPHEREx (#spherex-canvas),
+ * el mapa de Contexto infrarrojo y catálogos (#aladin-canvas) y la Línea histórica.
+ */
+function getSynchronizedTemporalState() {
+  const epochs = state.exploreData?.epochs || [];
+  const pairIndices = state.exploreData?.target_info?.analysis_frame_indices || [];
+  let seqFrames = state.timelineBlinkFrames;
+
+  if (!seqFrames || seqFrames.length < 2) {
+    const activeIndices =
+      state.selectedBand === "manual_pair" && (state.manualPairIndices || []).length >= 2
+        ? state.manualPairIndices
+        : pairIndices.length >= 2
+        ? pairIndices
+        : epochs.map((_, idx) => idx);
+    const spxSteps = activeIndices.slice(0, Math.max(2, Math.min(6, activeIndices.length || 2)));
+    seqFrames = [
+      { frameKey: "hist:dss2", kind: "historic", shortTag: "DSS2 ~92", title: "DSS2 (~1984–2000)", year: 1992.0, epochIdx: spxSteps[0] ?? 0 },
+      { frameKey: "hist:twomass", kind: "historic", shortTag: "2MASS 99", title: "2MASS (1997–2001)", year: 1999.0, epochIdx: spxSteps[0] ?? 0 },
+      { frameKey: "hist:allwise", kind: "historic", shortTag: "WISE 10", title: "AllWISE (2010–2011)", year: 2010.5, epochIdx: spxSteps[0] ?? 0 },
+      ...spxSteps.map((epIdx, j) => {
+        const ep = epochs[epIdx] || {};
+        return {
+          frameKey: `spx:${epIdx}`,
+          kind: "spherex",
+          shortTag: `SPX #${j + 1}`,
+          title: `SPHEREx #${epIdx + 1} (${Number(ep.wavelength_center_um || 0).toFixed(2)}µm)`,
+          year: 2025.3 + j * 0.02,
+          epochIdx: epIdx,
+        };
+      }),
+    ];
+  }
+
+  const K = Math.max(2, seqFrames.length);
+  const activeStep = ((state.timelineBlinkStep || 0) % K + K) % K;
+  const stepFrac = K > 1 ? activeStep / (K - 1) : 1;
+  const activeFrame = seqFrames[activeStep] || seqFrames[0];
+
+  const candidateIndices =
+    state.selectedBand === "manual_pair" && (state.manualPairIndices || []).length >= 2
+      ? state.manualPairIndices
+      : pairIndices.length >= 2
+      ? pairIndices
+      : epochs.map((_, i) => i);
+  const mappedPoolPos = candidateIndices.length > 0
+    ? Math.min(candidateIndices.length - 1, Math.floor(stepFrac * candidateIndices.length))
+    : 0;
+  const correspondingEpochIdx =
+    Number.isInteger(activeFrame?.epochIdx) && activeFrame.epochIdx >= 0 && activeFrame.epochIdx < epochs.length
+      ? activeFrame.epochIdx
+      : candidateIndices[mappedPoolPos] ?? 0;
+
+  return {
+    seqFrames,
+    K,
+    activeStep,
+    stepFrac,
+    activeFrame,
+    correspondingEpochIdx,
+  };
+}
+
+/**
+ * Construye (con caché) un cuadro de 128×128 píxeles para el paso `stepIdx` de `totalSteps`
+ * donde las estrellas de fondo permanecen 100% estáticas y el cambio temporal (movimiento
+ * o variación de brillo de la estrella) se muestra con alta nitidez tanto en el Visor
+ * Multi-Época SPHEREx (`isContextColor = false`) como en el Contexto infrarrojo (`isContextColor = true`).
+ */
+function getMultiEpochStepCanvas(stepIdx, totalSteps, isContextColor = false) {
+  const pm = state.pairMeta;
+  if (!pm || !pm.earlyGrid || !pm.lateGrid) return null;
+  const K = Math.max(2, totalSteps || 2);
+  const step = Math.max(0, Math.min(K - 1, stepIdx || 0));
+  if (!pm.stepCache) pm.stepCache = new Map();
+
+  const cacheKey = `${isContextColor ? "ctx" : "spx"}:${step}:${K}:${state.invertPixels ? 1 : 0}:${state.stretchLinearity.toFixed(2)}:${state.contrastGain.toFixed(2)}:${state.selectedDetectionId || 0}`;
+  if (pm.stepCache.has(cacheKey)) {
+    return pm.stepCache.get(cacheKey);
+  }
+
+  const w = 128;
+  const h = 128;
+  const t = K > 1 ? step / (K - 1) : 1;
+  const earlyGrid = pm.earlyGrid;
+  const lateGrid = pm.lateGrid;
+
+  const detections = (state.allAiDetections?.length
+    ? state.allAiDetections
+    : state.exploreData?.ai_detections || []
+  ).filter((d) => d.type === "MOVING_DIPOLE" && d.neg_x_pix != null && d.neg_y_pix != null);
+
+  // Pre-calcular posiciones interpoladas y huellas previas de cada dipolo móvil en coordenadas de imagen (px, py con py = h - 1 - y_pix)
+  const dipoleSpots = detections.map((d) => {
+    const x0 = Number(d.neg_x_pix);
+    const y0 = h - 1 - Number(d.neg_y_pix);
+    const x1 = Number(d.x_pix);
+    const y1 = h - 1 - Number(d.y_pix);
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dist = Math.hypot(dx, dy);
+    const ux = dist > 0.2 ? dx / dist : 0;
+    const uy = dist > 0.2 ? dy / dist : 0;
+    // Extender levemente la línea visual si el salto sub-píxel es corto para que cada paso se distinga con nitidez
+    const midX = 0.5 * (x0 + x1);
+    const midY = 0.5 * (y0 + y1);
+    const effSpan = Math.max(dist, 3.4);
+    const sx0 = midX - ux * (effSpan * 0.5);
+    const sy0 = midY - uy * (effSpan * 0.5);
+    const sx1 = midX + ux * (effSpan * 0.5);
+    const sy1 = midY + uy * (effSpan * 0.5);
+
+    const trail = [];
+    for (let j = 0; j <= step; j++) {
+      const tj = K > 1 ? j / (K - 1) : 1;
+      trail.push({
+        x: sx0 + (sx1 - sx0) * tj,
+        y: sy0 + (sy1 - sy0) * tj,
+        isCurrent: j === step,
+        ageFrac: step > 0 ? j / step : 1,
+      });
+    }
+    return { x0, y0, x1, y1, sx0, sy0, sx1, sy1, trail };
+  });
+
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  const imgData = ctx.createImageData(w, h);
+  const inv = state.invertPixels;
+
+  for (let py = 0; py < h; py++) {
+    // Coordenada FITS vertical (Norte arriba: fila 0 del canvas corresponde a yFits = h - 1 - py o directa según grillas)
+    for (let px = 0; px < w; px++) {
+      const pIdx = py * w + px;
+      const eVal = earlyGrid[pIdx];
+      const lVal = lateGrid[pIdx];
+      const diff = lVal - eVal;
+      const absDiff = Math.abs(diff);
+
+      // Fondo estático libre de parpadeo donde |ΔSNR| es pequeño
+      const staticVal = 0.5 * (eVal + lVal);
+      // Suprimir lóbulos estáticos en los extremos del dipolo para que la PSF sintetizada se desplace limpia paso a paso
+      let baseVal = absDiff > 0.65 ? Math.min(eVal, lVal) * 0.82 : staticVal;
+
+      // Interpolación progresiva de fuentes variables o cambios de brillo
+      const boost = absDiff > 0.65 ? Math.tanh((absDiff - 0.65) / 1.85) * 2.5 : 0.0;
+      const interpSignal = eVal * (1 - t) + lVal * t + (2 * t - 1) * boost * 0.9;
+
+      // Contribución PSF nítida de los objetos en movimiento en el paso actual + persistencia leve de pasos previos
+      let spotSnr = 0;
+      let trailGlow = 0;
+      for (let dIdx = 0; dIdx < dipoleSpots.length; dIdx++) {
+        const dp = dipoleSpots[dIdx];
+        for (let sIdx = 0; sIdx < dp.trail.length; sIdx++) {
+          const pt = dp.trail[sIdx];
+          const r2 = (px - pt.x) * (px - pt.x) + (py - pt.y) * (py - pt.y);
+          if (pt.isCurrent) {
+            if (r2 < 14.0) {
+              spotSnr = Math.max(spotSnr, 8.5 * Math.exp(-r2 / 2.35));
+            }
+          } else if (r2 < 6.5) {
+            trailGlow = Math.max(trailGlow, (1.8 + 1.4 * pt.ageFrac) * Math.exp(-r2 / 1.55));
+          }
+        }
+      }
+
+      const finalSnr = spotSnr > 0.15 || trailGlow > 0.15
+        ? baseVal + spotSnr + trailGlow * 0.65
+        : interpSignal;
+
+      const i = pIdx * 4;
+      if (!isContextColor) {
+        const g = snrToGrayscaleByte(finalSnr);
+        imgData.data[i] = g;
+        imgData.data[i + 1] = g;
+        imgData.data[i + 2] = g;
+        imgData.data[i + 3] = 255;
+      } else {
+        // Paleta infrarroja profunda para Contexto infrarrojo y catálogos (#aladin-canvas) con realce nítido del paso temporal
+        const gByte = snrToGrayscaleByte(finalSnr);
+        const rawNorm = inv ? 1.0 - gByte / 255.0 : gByte / 255.0;
+        const n = Math.pow(Math.max(0, rawNorm), 1.08);
+        let r = Math.min(255, Math.round(4 + 215 * Math.pow(n, 1.32) + 36 * Math.pow(n, 3.0)));
+        let g = Math.min(255, Math.round(9 + 188 * Math.pow(n, 1.08) + 58 * Math.pow(n, 2.4)));
+        let b = Math.min(255, Math.round(22 + 165 * Math.pow(n, 0.86) + 68 * Math.pow(n, 2.0)));
+
+        // Si el píxel pertenece al pulso activo o al rastro de pasos visitados, darle nitidez cromática distintiva
+        if (spotSnr > 0.35) {
+          const wSpot = Math.min(1, spotSnr / 6.5);
+          // Pulso actual brillante (núcleo blanco-esmeralda/ámbar de alto contraste)
+          r = Math.min(255, Math.round(r * (1 - wSpot * 0.45) + 180 * wSpot));
+          g = Math.min(255, Math.round(g * (1 - wSpot * 0.65) + 255 * wSpot));
+          b = Math.min(255, Math.round(b * (1 - wSpot * 0.5) + 225 * wSpot));
+        } else if (trailGlow > 0.25) {
+          const wTrail = Math.min(1, trailGlow / 3.0);
+          // Huellas previas en tono cian luminoso
+          r = Math.min(255, Math.round(r * (1 - wTrail * 0.4) + 56 * wTrail));
+          g = Math.min(255, Math.round(g * (1 - wTrail * 0.5) + 198 * wTrail));
+          b = Math.min(255, Math.round(b * (1 - wTrail * 0.6) + 248 * wTrail));
+        } else if (absDiff > 0.85) {
+          // Fuente variable puntual: realce cálido según fase temporal
+          const wVar = Math.min(1, (absDiff - 0.85) / 4.0) * t;
+          r = Math.min(255, Math.round(r + 65 * wVar));
+          g = Math.min(255, Math.round(g + 45 * wVar));
+        }
+
+        imgData.data[i] = inv ? 255 - r : r;
+        imgData.data[i + 1] = inv ? 255 - g : g;
+        imgData.data[i + 2] = inv ? 255 - b : b;
+        imgData.data[i + 3] = 255;
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  if (pm.stepCache.size > 48) {
+    const firstKey = pm.stepCache.keys().next().value;
+    pm.stepCache.delete(firstKey);
+  }
+  pm.stepCache.set(cacheKey, c);
+  return c;
+}
+
 function rebakeAllOpticalCanvases() {
   if (state.tileGrid && state.tileGrid.size > 0) {
     state.tileGrid.forEach((tile) => {
@@ -1360,6 +1733,7 @@ function rebakeAllOpticalCanvases() {
     state.skyView.colorSkyCanvas = baked.colorCanvas;
   }
   state.rgbCompositeCanvas = buildThreeBandRgbCanvas();
+  state.pairMeta = buildComparablePairCanvases();
   if ((state.viewMode === "manual_diff" || state.viewMode === "manual_sum") && state.manualOpMeta) {
     state.manualOpCanvas = computeManualEpochPairCanvas(
       state.manualOpMeta.idxA,
@@ -1385,6 +1759,8 @@ function buildCatalogSourcesFromField() {
   if (visuals.healedCoaddCanvas) state.coaddImage = visuals.healedCoaddCanvas;
   if (visuals.normalizedEpochs?.length) state.epochImages = visuals.normalizedEpochs;
   state.rgbCompositeCanvas = buildThreeBandRgbCanvas();
+  state.pairMeta = buildComparablePairCanvases();
+  state.pairBlinkPhase = 0;
   state.manualOpCanvas = null;
   state.manualOpMeta = null;
   state.shiftStackCanvas = null;
@@ -1588,6 +1964,28 @@ function clearNamedObjectSelection() {
   if (state.selectedNamedObjectId === null) return;
   state.selectedNamedObjectId = null;
   renderNamedObjectsPanel();
+}
+
+function isFitsPixelInReadyTile(xPix, yPix) {
+  if (!Number.isFinite(xPix) || !Number.isFinite(yPix)) return false;
+  if (xPix >= 0 && xPix <= CUTOUT_NPIX && yPix >= 0 && yPix <= CUTOUT_NPIX) {
+    return true;
+  }
+  if (!state.infinitePlaneEnabled || !state.tileGrid) return false;
+  const prefGx = Math.floor((xPix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const prefGy = Math.floor((yPix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
+  const prefTile = state.tileGrid.get(`${prefGx},${prefGy}`);
+  if (prefTile && prefTile.status === "ready") return true;
+  for (const tile of state.tileGrid.values()) {
+    if (tile.status === "ready") {
+      const lx = xPix - tile.gx * TILE_STEP_PIX;
+      const ly = yPix - tile.gy * TILE_STEP_PIX;
+      if (lx >= 0 && lx <= CUTOUT_NPIX && ly >= 0 && ly <= CUTOUT_NPIX) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function findBestTileForGlobalPixel(rawX, rawY) {
@@ -2043,6 +2441,10 @@ function renderContextSkyMap() {
   }
 
   // 1. Dibujar todos los sectores del mosaico continuo infrarrojo visibles en pantalla
+  const syncTemporal =
+    state.contextSurvey === "spherex" && state.viewMode === "blink"
+      ? getSynchronizedTemporalState()
+      : null;
   ctx.save();
   ctx.imageSmoothingEnabled = state.contextSurvey !== "spherex";
   for (let gy = gyMin; gy <= gyMax; gy++) {
@@ -2054,8 +2456,20 @@ function renderContextSkyMap() {
         isOrigin && state.contextSurvey !== "spherex"
           ? ensureExternalSurveyImage(state.contextSurvey, state.ra, state.dec, state.fov)
           : null;
+      const dynamicOriginSky =
+        isOrigin && syncTemporal
+          ? getMultiEpochStepCanvas(syncTemporal.activeStep, syncTemporal.K, true)
+          : null;
+      const neighborBlinkImg =
+        !isOrigin && syncTemporal && tile && tile.status === "ready" && tile.epochImages?.length
+          ? tile.epochImages[syncTemporal.activeStep % tile.epochImages.length]
+          : null;
       const colorImg = extSurveyImg
         ? extSurveyImg
+        : dynamicOriginSky
+        ? dynamicOriginSky
+        : neighborBlinkImg
+        ? neighborBlinkImg
         : (tile && tile.status === "ready")
         ? tile.colorSkyCanvas
         : isOrigin
@@ -2101,12 +2515,13 @@ function renderContextSkyMap() {
   }
   ctx.restore();
 
-  // 3. Superponer fuentes del catálogo AllWISE (rombos ámbar discretos)
+  // 3. Superponer fuentes del catálogo AllWISE (rombos ámbar discretos, solo en sectores ya cargados)
   if (state.showWiseCat && state.skyView.wiseSources.length > 0) {
     ctx.save();
     ctx.strokeStyle = "rgba(245, 158, 11, 0.65)";
     ctx.lineWidth = 1.2;
     state.skyView.wiseSources.forEach((src) => {
+      if (!isFitsPixelInReadyTile(src.x, src.y)) return;
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
       const r = 4.5;
@@ -2121,79 +2536,216 @@ function renderContextSkyMap() {
     ctx.restore();
   }
 
-  // 4. Superponer fuentes del catálogo Gaia DR3 (círculos celestes discretos)
+  // 4. Superponer fuentes del catálogo Gaia DR3 (círculos celestes discretos, solo en sectores ya cargados)
   if (state.showGaiaCat && state.skyView.gaiaSources.length > 0) {
     ctx.save();
     ctx.strokeStyle = "rgba(56, 189, 248, 0.70)";
     ctx.lineWidth = 1.2;
     const pxPerArcsec = W / ((state.fov / (state.skyView.zoom || 1)) * 3600);
     state.skyView.gaiaSources.forEach((src) => {
+      if (!isFitsPixelInReadyTile(src.x, src.y)) return;
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
       ctx.beginPath();
       ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
       ctx.stroke();
-      // Flecha de movimiento propio (Gaia pmra/pmdec en mas/año)
-      if (state.showPmVectors && Number.isFinite(src.pmra) && Number.isFinite(src.pmdec) && (src.pmra !== 0 || src.pmdec !== 0)) {
-        const dRa = (src.pmra / 1000) * Math.cos((src.dec * Math.PI) / 180); // ″/año en RA
-        const dDec = src.pmdec / 1000; // ″/año en Dec
+      // Línea de desplazamiento (movimiento propio Gaia pmra/pmdec en mas/año)
+      if (
+        state.showTemporalTrail &&
+        state.showPmVectors &&
+        Number.isFinite(src.pmra) &&
+        Number.isFinite(src.pmdec) &&
+        (src.pmra !== 0 || src.pmdec !== 0)
+      ) {
+        const dRa = (src.pmra / 1000) * Math.cos((src.dec * Math.PI) / 180);
+        const dDec = src.pmdec / 1000;
         const mag = Math.hypot(dRa, dDec);
         if (mag > 0) {
-          const len = Math.min(30, Math.max(7, mag * pxPerArcsec * 80));
-          const ux = dRa / mag;
-          const uy = -dDec / mag; // el Dec crece hacia arriba en pantalla
-          const ex = cx + ux * len;
-          const ey = cy + uy * len;
-          ctx.strokeStyle = "rgba(125, 211, 252, 0.9)";
-          ctx.lineWidth = 1.4;
+          const isFast = mag >= 0.18;
+          const len = Math.min(54, Math.max(9, mag * pxPerArcsec * 35));
+          const ux = -dRa / mag;
+          const uy = -dDec / mag;
+          const ox = cx - ux * len;
+          const oy = cy - uy * len;
+
+          ctx.save();
+          ctx.strokeStyle = isFast ? "rgba(251, 113, 133, 0.92)" : "rgba(125, 211, 252, 0.85)";
+          ctx.lineWidth = isFast ? 1.9 : 1.4;
+          ctx.setLineDash([3, 2]);
+          ctx.beginPath();
+          ctx.moveTo(ox, oy);
+          ctx.lineTo(cx, cy);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.beginPath();
+          ctx.arc(ox, oy, isFast ? 2.6 : 2.0, 0, Math.PI * 2);
+          ctx.stroke();
+
+          const head = isFast ? 5.5 : 4.2;
+          const ang = Math.atan2(cy - oy, cx - ox);
           ctx.beginPath();
           ctx.moveTo(cx, cy);
-          ctx.lineTo(ex, ey);
+          ctx.lineTo(cx - head * Math.cos(ang - 0.5), cy - head * Math.sin(ang - 0.5));
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx - head * Math.cos(ang + 0.5), cy - head * Math.sin(ang + 0.5));
           ctx.stroke();
-          const head = 4;
-          const ang = Math.atan2(uy, ux);
-          ctx.beginPath();
-          ctx.moveTo(ex, ey);
-          ctx.lineTo(ex - head * Math.cos(ang - 0.5), ey - head * Math.sin(ang - 0.5));
-          ctx.moveTo(ex, ey);
-          ctx.lineTo(ex - head * Math.cos(ang + 0.5), ey - head * Math.sin(ang + 0.5));
-          ctx.stroke();
+          ctx.restore();
         }
       }
     });
     ctx.restore();
   }
 
-  // 5. Retícula del píxel/objeto seleccionado
-  if (state.selectedPixel) {
-    const { cx, cy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
+  // 4b. Líneas de desplazamiento para dipolos móviles IA (solo si el movimiento estelar está visible y dentro del sector cargado)
+  const contextDipoles = (state.allAiDetections?.length
+    ? state.allAiDetections
+    : state.exploreData?.ai_detections || []
+  ).filter((d) => d.type === "MOVING_DIPOLE" && d.neg_x_pix != null && d.neg_y_pix != null);
+
+  if (state.showTemporalTrail && contextDipoles.length > 0) {
     ctx.save();
-    ctx.strokeStyle = "#10b981";
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.moveTo(cx - 10, cy);
-    ctx.lineTo(cx - 3, cy);
-    ctx.moveTo(cx + 3, cy);
-    ctx.lineTo(cx + 10, cy);
-    ctx.moveTo(cx, cy - 10);
-    ctx.lineTo(cx, cy - 3);
-    ctx.moveTo(cx, cy + 3);
-    ctx.lineTo(cx, cy + 10);
-    ctx.stroke();
+    contextDipoles.forEach((det) => {
+      if (!isFitsPixelInReadyTile(det.x_pix, det.y_pix)) return;
+      const p0 = fitsToSkyCanvas(det.neg_x_pix, det.neg_y_pix, W);
+      const p1 = fitsToSkyCanvas(det.x_pix, det.y_pix, W);
+      if (
+        (p0.cx < 0 || p0.cx > W || p0.cy < 0 || p0.cy > H) &&
+        (p1.cx < 0 || p1.cx > W || p1.cy < 0 || p1.cy > H)
+      ) {
+        return;
+      }
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.85)";
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath();
+      ctx.arc(p0.cx, p0.cy, 5.5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#fb7185";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(p0.cx, p0.cy);
+      ctx.lineTo(p1.cx, p1.cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const ang = Math.atan2(p1.cy - p0.cy, p1.cx - p0.cx);
+      const head = 6.5;
+      ctx.fillStyle = "#fb7185";
+      ctx.beginPath();
+      ctx.moveTo(p1.cx, p1.cy);
+      ctx.lineTo(p1.cx - head * Math.cos(ang - Math.PI / 6), p1.cy - head * Math.sin(ang - Math.PI / 6));
+      ctx.lineTo(p1.cx - head * Math.cos(ang + Math.PI / 6), p1.cy - head * Math.sin(ang + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "#f43f5e";
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.arc(p1.cx, p1.cy, 7.5, 0, Math.PI * 2);
+      ctx.stroke();
+    });
     ctx.restore();
   }
 
-  // 6. Astros identificados en el plano continuo: anillo discreto siempre, etiqueta arriba al pasar el cursor (o con "Fijar nombres")
+  // 4c. Rastro temporal progresivo multi-época (DSS2 ~1990 → 2MASS ~1999 → AllWISE 2010 → visitas SPHEREx)
+  if (state.showTemporalTrail) {
+    drawStarTemporalTrailOnContext(ctx, W, H, false);
+  }
+
+  // Trayectoria histórica de gran movimiento propio (solo cuando esa región está en pantalla y el movimiento está activo)
+  const km = state.timelineData?.known_motion;
+  if (state.showTemporalTrail && km && Number.isFinite(km.ref_ra) && Number.isFinite(km.current_ra)) {
+    const refPix = raDecToPixel(km.ref_ra, km.ref_dec);
+    const curPix = raDecToPixel(km.current_ra, km.current_dec);
+    if (isFitsPixelInReadyTile(refPix.x, refPix.y) || isFitsPixelInReadyTile(curPix.x, curPix.y)) {
+      const pRef = fitsToSkyCanvas(refPix.x, refPix.y, W);
+      const pCur = fitsToSkyCanvas(curPix.x, curPix.y, W);
+      const refInView = pRef.cx >= -15 && pRef.cx <= W + 15 && pRef.cy >= -15 && pRef.cy <= H + 15;
+      const curInView = pCur.cx >= -15 && pCur.cx <= W + 15 && pCur.cy >= -15 && pCur.cy <= H + 15;
+      if ((refInView || curInView) && Math.hypot(pCur.cx - pRef.cx, pCur.cy - pRef.cy) >= 3) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(251, 113, 133, 0.9)";
+        ctx.lineWidth = 2.0;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        ctx.moveTo(pRef.cx, pRef.cy);
+        ctx.lineTo(pCur.cx, pCur.cy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = 1.7;
+        ctx.beginPath();
+        ctx.arc(pRef.cx, pRef.cy, 5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        const ang = Math.atan2(pCur.cy - pRef.cy, pCur.cx - pRef.cx);
+        const head = 7;
+        ctx.fillStyle = "#fb7185";
+        ctx.beginPath();
+        ctx.moveTo(pCur.cx, pCur.cy);
+        ctx.lineTo(pCur.cx - head * Math.cos(ang - Math.PI / 6), pCur.cy - head * Math.sin(ang - Math.PI / 6));
+        ctx.lineTo(pCur.cx - head * Math.cos(ang + Math.PI / 6), pCur.cy - head * Math.sin(ang + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  // 5. Retícula del píxel/objeto seleccionado (solo si está dentro de un sector cargado y en pantalla)
+  if (state.selectedPixel && isFitsPixelInReadyTile(state.selectedPixel.x, state.selectedPixel.y)) {
+    const { cx, cy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
+    if (cx >= -12 && cx <= W + 12 && cy >= -12 && cy <= H + 12) {
+      ctx.save();
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(cx - 10, cy);
+      ctx.lineTo(cx - 3, cy);
+      ctx.moveTo(cx + 3, cy);
+      ctx.lineTo(cx + 10, cy);
+      ctx.moveTo(cx, cy - 10);
+      ctx.lineTo(cx, cy - 3);
+      ctx.moveTo(cx, cy + 3);
+      ctx.lineTo(cx, cy + 10);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // 6. Astros identificados en el plano continuo (solo en sectores cargados y dentro del rango de visión)
   if (state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
     state.skyView.namedObjects.forEach((obj) => {
+      if (!isFitsPixelInReadyTile(obj.x, obj.y)) return;
       const { cx, cy } = fitsToSkyCanvas(obj.x, obj.y, W);
-      if (cx < -24 || cx > W + 24 || cy < -24 || cy > H + 24) return;
+      if (cx < -16 || cx > W + 16 || cy < -16 || cy > H + 16) return;
       const isHovered = state.hoveredNamedObjectId === obj.id;
       const isSelected = state.selectedNamedObjectId === obj.id;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
       const ringColor = isHovered || isSelected ? "#34d399" : hasPlanets ? "#a78bfa" : "#fde047";
 
       ctx.save();
+      if (state.showTemporalTrail && obj.catalogRa != null && obj.catalogDec != null) {
+        const catPix = raDecToPixel(obj.catalogRa, obj.catalogDec);
+        const pCat = fitsToSkyCanvas(catPix.x, catPix.y, W);
+        if (Math.hypot(cx - pCat.cx, cy - pCat.cy) >= 3.5) {
+          ctx.strokeStyle = "rgba(251, 113, 133, 0.85)";
+          ctx.lineWidth = 1.7;
+          ctx.setLineDash([4, 2]);
+          ctx.beginPath();
+          ctx.moveTo(pCat.cx, pCat.cy);
+          ctx.lineTo(cx, cy);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.beginPath();
+          ctx.arc(pCat.cx, pCat.cy, 3.2, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
       ctx.strokeStyle = ringColor;
       ctx.lineWidth = isHovered || isSelected ? 2.4 : 1.5;
       ctx.beginPath();
@@ -2264,6 +2816,9 @@ function getSelectedBandIndex(epochs) {
     return state.currentEpochIdx % epochs.length;
   }
   if (state.selectedBand === "pair") {
+    if (state.pairMeta) {
+      return state.pairBlinkPhase === 0 ? state.pairMeta.earlyIdx : state.pairMeta.lateIdx;
+    }
     const indices = state.exploreData?.target_info?.analysis_frame_indices || [];
     if (indices.length > 0) {
       return indices.includes(state.currentEpochIdx)
@@ -2289,7 +2844,12 @@ function renderCanvas() {
   ctx.fillRect(0, 0, W, H);
 
   const epochs = state.exploreData.epochs || [];
-  const epIdx = getSelectedBandIndex(epochs);
+  const syncState = getSynchronizedTemporalState();
+  const epIdx =
+    state.selectedBand === "pair" || state.selectedBand === "manual_pair"
+      ? syncState.correspondingEpochIdx
+      : getSelectedBandIndex(epochs);
+  const isEarlyBlinkPhase = syncState.stepFrac < 0.5;
   const selectedDetCode = String(state.selectedBand).startsWith("coadd:")
     ? String(state.selectedBand).slice(6)
     : null;
@@ -2329,8 +2889,17 @@ function renderCanvas() {
           baseImg = detCoaddImg;
         } else if (state.viewMode === "coadd") {
           baseImg = tCoadd;
+        } else if (
+          isOrigin &&
+          state.viewMode === "blink" &&
+          (state.selectedBand === "pair" || state.selectedBand === "manual_pair")
+        ) {
+          baseImg =
+            getMultiEpochStepCanvas(syncState.activeStep, syncState.K, false) ||
+            (isEarlyBlinkPhase ? state.pairMeta?.earlyCanvas : state.pairMeta?.lateCanvas) ||
+            (tEpochs && tEpochs.length > 0 ? tEpochs[epIdx % tEpochs.length] : tCoadd);
         } else if (tEpochs && tEpochs.length > 0) {
-          const tileEpIdx = isOrigin ? epIdx : state.currentEpochIdx % tEpochs.length;
+          const tileEpIdx = isOrigin ? epIdx : syncState.activeStep % tEpochs.length;
           baseImg = tEpochs[tileEpIdx];
         }
 
@@ -2360,108 +2929,239 @@ function renderCanvas() {
     }
   }
 
-  // 2. Superponer detecciones IA (Dipolos y Variables) proyectadas en el plano continuo
+  // 2. Superponer detecciones IA (Dipolos y Variables) con animación multi-época sincronizada
   const detectionsToDraw = state.allAiDetections?.length
     ? state.allAiDetections
     : state.exploreData.ai_detections || [];
   if (state.showAIMarkers && detectionsToDraw.length > 0) {
     detectionsToDraw.forEach((det) => {
+      if (!isFitsPixelInReadyTile(det.x_pix, det.y_pix)) return;
       const { cx, cy } = fitsToSkyCanvas(det.x_pix, det.y_pix, W);
-      if (cx < -40 || cx > W + 40 || cy < -40 || cy > H + 40) return;
+      if (cx < -32 || cx > W + 32 || cy < -32 || cy > H + 32) return;
       const isSelected = state.selectedDetectionId === det.id;
 
       ctx.save();
-      if (isSelected) {
-        ctx.strokeStyle = "#10b981";
-        ctx.lineWidth = 2.8;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        ctx.arc(cx, cy, 19, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
       if (det.type === "MOVING_DIPOLE") {
-        if (det.neg_x_pix !== null && det.neg_y_pix !== null) {
-          const negPt = fitsToSkyCanvas(det.neg_x_pix, det.neg_y_pix, W);
-          const nx = negPt.cx;
-          const ny = negPt.cy;
+        const hasNeg = det.neg_x_pix !== null && det.neg_y_pix !== null;
+        const negPt = hasNeg ? fitsToSkyCanvas(det.neg_x_pix, det.neg_y_pix, W) : { cx, cy };
+        const nx = negPt.cx;
+        const ny = negPt.cy;
 
-          ctx.strokeStyle = "#38bdf8";
-          ctx.lineWidth = 1.8;
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.arc(nx, ny, 10, 0, Math.PI * 2);
-          ctx.stroke();
-
-          ctx.setLineDash([]);
-          ctx.strokeStyle = "#fb7185";
+        if (hasNeg && state.showTemporalTrail) {
+          // Línea de trayectoria ANTES → AHORA con flecha direccional
+          ctx.strokeStyle = "rgba(251, 113, 133, 0.78)";
           ctx.lineWidth = 2.0;
+          ctx.setLineDash([4, 3]);
           ctx.beginPath();
           ctx.moveTo(nx, ny);
           ctx.lineTo(cx, cy);
           ctx.stroke();
+          ctx.setLineDash([]);
+
+          const angle = Math.atan2(cy - ny, cx - nx);
+          const headLen = 7;
+          ctx.fillStyle = "rgba(251, 113, 133, 0.92)";
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx - headLen * Math.cos(angle - Math.PI / 6), cy - headLen * Math.sin(angle - Math.PI / 6));
+          ctx.lineTo(cx - headLen * Math.cos(angle + Math.PI / 6), cy - headLen * Math.sin(angle + Math.PI / 6));
+          ctx.closePath();
+          ctx.fill();
         }
 
-        ctx.strokeStyle = isSelected ? "#34d399" : "#f43f5e";
-        ctx.lineWidth = isSelected ? 3.0 : 2.4;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 13, 0, Math.PI * 2);
-        ctx.stroke();
+        if (state.viewMode === "blink" && hasNeg && state.showTemporalTrail) {
+          // Secuencia multi-época sincronizada: avanza paso a paso entre (nx, ny) y (cx, cy) dejando rastro
+          const activeX = nx + (cx - nx) * syncState.stepFrac;
+          const activeY = ny + (cy - ny) * syncState.stepFrac;
+          const activeColor = syncState.activeStep === 0 ? "#38bdf8" : isSelected ? "#34d399" : "#f43f5e";
 
-        ctx.fillStyle = isSelected ? "#6ee7b7" : "#fda4af";
-        ctx.font = "bold 11px monospace";
-        ctx.fillText(
-          `${isSelected ? "[ACTIVO] " : ""}#${det.id} DIPOLO (${det.snr_score}σ)`,
-          cx + 15,
-          cy - 6
-        );
+          // Anclas de inicio y fin de referencia
+          ctx.strokeStyle = "rgba(56, 189, 248, 0.35)";
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.arc(nx, ny, 9.5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = "rgba(244, 63, 94, 0.32)";
+          ctx.beginPath();
+          ctx.arc(cx, cy, 9.5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Huellas intermedias visitadas hasta activeStep
+          if (syncState.activeStep >= 1) {
+            ctx.strokeStyle = "#34d399";
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.moveTo(nx, ny);
+            ctx.lineTo(activeX, activeY);
+            ctx.stroke();
+            for (let j = 0; j < syncState.activeStep; j++) {
+              const tj = syncState.K > 1 ? j / (syncState.K - 1) : 0;
+              const hx = nx + (cx - nx) * tj;
+              const hy = ny + (cy - ny) * tj;
+              ctx.fillStyle = j < 3 ? "#fbbf24" : "#38bdf8";
+              ctx.beginPath();
+              ctx.arc(hx, hy, 3.0, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+
+          // Halo exterior en la posición activa del paso actual
+          ctx.strokeStyle = syncState.activeStep === 0 ? "rgba(56, 189, 248, 0.45)" : "rgba(52, 211, 153, 0.48)";
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          ctx.arc(activeX, activeY, 18, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Anillo principal sincronizado con el paso actual
+          ctx.strokeStyle = activeColor;
+          ctx.lineWidth = isSelected ? 3.2 : 2.6;
+          ctx.beginPath();
+          ctx.arc(activeX, activeY, 12.5, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Mira interna en la posición activa
+          ctx.beginPath();
+          ctx.moveTo(activeX - 16, activeY);
+          ctx.lineTo(activeX - 7, activeY);
+          ctx.moveTo(activeX + 7, activeY);
+          ctx.lineTo(activeX + 16, activeY);
+          ctx.moveTo(activeX, activeY - 16);
+          ctx.lineTo(activeX, activeY - 7);
+          ctx.moveTo(activeX, activeY + 7);
+          ctx.lineTo(activeX, activeY + 16);
+          ctx.stroke();
+
+          ctx.fillStyle = isSelected ? "#6ee7b7" : "#fda4af";
+          ctx.font = "bold 11px monospace";
+          ctx.fillText(
+            `${isSelected ? "[ACTIVO] " : ""}#${det.id} DIPOLO (${det.snr_score}σ · ${syncState.activeStep + 1}/${syncState.K})`,
+            activeX + 17,
+            activeY - 6
+          );
+        } else {
+          if (isSelected) {
+            ctx.strokeStyle = "#10b981";
+            ctx.lineWidth = 2.8;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.arc(cx, cy, 19, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          if (hasNeg && state.showTemporalTrail) {
+            ctx.strokeStyle = "#38bdf8";
+            ctx.lineWidth = 1.8;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.arc(nx, ny, 10, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          ctx.strokeStyle = isSelected ? "#34d399" : "#f43f5e";
+          ctx.lineWidth = isSelected ? 3.0 : 2.4;
+          ctx.beginPath();
+          ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.fillStyle = isSelected ? "#6ee7b7" : "#fda4af";
+          ctx.font = "bold 11px monospace";
+          ctx.fillText(
+            `${isSelected ? "[ACTIVO] " : ""}#${det.id} DIPOLO (${det.snr_score}σ)`,
+            cx + 15,
+            cy - 6
+          );
+        }
       } else {
-        ctx.strokeStyle = isSelected ? "#34d399" : "#f59e0b";
-        ctx.lineWidth = isSelected ? 3.0 : 2.2;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 13, 0, Math.PI * 2);
-        ctx.stroke();
+        if (state.viewMode === "blink") {
+          const pulseR = 10.5 + 4.5 * syncState.stepFrac;
+          if (!isEarlyBlinkPhase) {
+            ctx.strokeStyle = "rgba(245, 158, 11, 0.42)";
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.strokeStyle = isEarlyBlinkPhase ? "#38bdf8" : isSelected ? "#34d399" : "#f59e0b";
+          ctx.lineWidth = isEarlyBlinkPhase ? 2.0 : isSelected ? 3.2 : 2.8;
+          if (isEarlyBlinkPhase) ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
 
-        ctx.fillStyle = isSelected ? "#6ee7b7" : "#fde68a";
-        ctx.font = "bold 11px monospace";
-        ctx.fillText(
-          `${isSelected ? "[ACTIVO] " : ""}#${det.id} VARIABLE (${det.snr_score}σ)`,
-          cx + 15,
-          cy - 6
-        );
+          ctx.fillStyle = isSelected ? "#6ee7b7" : "#fde68a";
+          ctx.font = "bold 11px monospace";
+          ctx.fillText(
+            `${isSelected ? "[ACTIVO] " : ""}#${det.id} VARIABLE (${det.snr_score}σ · ${syncState.activeStep + 1}/${syncState.K})`,
+            cx + 17,
+            cy - 6
+          );
+        } else {
+          if (isSelected) {
+            ctx.strokeStyle = "#10b981";
+            ctx.lineWidth = 2.8;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.arc(cx, cy, 19, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          ctx.strokeStyle = isSelected ? "#34d399" : "#f59e0b";
+          ctx.lineWidth = isSelected ? 3.0 : 2.2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.fillStyle = isSelected ? "#6ee7b7" : "#fde68a";
+          ctx.font = "bold 11px monospace";
+          ctx.fillText(
+            `${isSelected ? "[ACTIVO] " : ""}#${det.id} VARIABLE (${det.snr_score}σ)`,
+            cx + 15,
+            cy - 6
+          );
+        }
       }
       ctx.restore();
     });
   }
 
-  // 3. Retícula del píxel seleccionado en el plano continuo
-  if (state.selectedPixel) {
+  // 2b. Rastro temporal progresivo de la estrella en el Visor Multi-Época SPHEREx (idéntico al Contexto infrarrojo y catálogos)
+  if (state.showTemporalTrail) {
+    drawStarTemporalTrailOnContext(ctx, W, H, true);
+  }
+
+  // 3. Retícula del píxel seleccionado en el plano continuo (solo si su sector está cargado y visible)
+  if (state.selectedPixel && isFitsPixelInReadyTile(state.selectedPixel.x, state.selectedPixel.y)) {
     const { cx: sx, cy: sy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
-    ctx.save();
-    ctx.strokeStyle = "#10b981";
-    ctx.lineWidth = 2.0;
-    ctx.beginPath();
-    ctx.moveTo(sx - 12, sy);
-    ctx.lineTo(sx - 3, sy);
-    ctx.moveTo(sx + 3, sy);
-    ctx.lineTo(sx + 12, sy);
-    ctx.moveTo(sx, sy - 12);
-    ctx.lineTo(sx, sy - 3);
-    ctx.moveTo(sx, sy + 3);
-    ctx.lineTo(sx, sy + 12);
-    ctx.stroke();
-    ctx.restore();
+    if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) {
+      ctx.save();
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.moveTo(sx - 12, sy);
+      ctx.lineTo(sx - 3, sy);
+      ctx.moveTo(sx + 3, sy);
+      ctx.lineTo(sx + 12, sy);
+      ctx.moveTo(sx, sy - 12);
+      ctx.lineTo(sx, sy - 3);
+      ctx.moveTo(sx, sy + 3);
+      ctx.lineTo(sx, sy + 12);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   // 4. Etiquetas de astros nombrados al pasar el cursor, el astro seleccionado (fijo) o con "Fijar nombres" activo
   if ((state.showNamedObjects || state.hoveredNamedObjectId || state.selectedNamedObjectId) && state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
     state.skyView.namedObjects.forEach((obj) => {
+      if (!isFitsPixelInReadyTile(obj.x, obj.y)) return;
       const isHovered = state.hoveredNamedObjectId === obj.id;
       const isSelected = state.selectedNamedObjectId === obj.id;
       if (!isHovered && !isSelected && !state.showNamedObjects) return;
       const { cx: ox, cy: oy } = fitsToSkyCanvas(obj.x, obj.y, W);
-      if (ox < -20 || ox > W + 20 || oy < -20 || oy > H + 20) return;
+      if (ox < 6 || ox > W - 6 || oy < 6 || oy > H - 6) return;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
       const nPlanets = obj.planets ? obj.planets.length : 0;
       const labelText = nPlanets > 0
@@ -2489,31 +3189,33 @@ function renderCanvas() {
   }
 
   if (epochs.length > 0) {
-    const ep = epochs[epIdx];
+    const ep = epochs[epIdx] || epochs[0];
     const totalEpochs = state.exploreData.target_info.total_epochs || epochs.length;
     const pairIndices = state.exploreData.target_info.analysis_frame_indices || [];
-    const pairPos = pairIndices.indexOf(epIdx);
+    const activeTag = syncState.activeFrame?.shortTag ? ` · ${syncState.activeFrame.shortTag}` : "";
     const epochLabel =
-      state.selectedBand === "pair" && pairIndices.length >= 2
-        ? `Par comparable ${pairPos >= 0 ? pairPos + 1 : 1}/${pairIndices.length}`
+      (state.selectedBand === "pair" || state.selectedBand === "manual_pair") && pairIndices.length >= 2
+        ? `Secuencia Sincronizada (${syncState.activeStep + 1}/${syncState.K}${activeTag})`
         : `Época temporal ${ep.epoch_id + 1}/${totalEpochs}`;
     const bandLabel = `${Number(ep.wavelength_center_um).toFixed(3)} µm · ${ep.detector || "detector"}`;
+
     if ((state.viewMode === "manual_diff" || state.viewMode === "manual_sum") && state.manualOpMeta) {
-      const { op, idxA, idxB } = state.manualOpMeta;
+      const { op, idxA, idxB, count } = state.manualOpMeta;
       const epA = epochs[idxA] || ep;
       const epB = epochs[idxB] || ep;
+      const nUsed = count || pairIndices.length || 2;
       document.getElementById("frame-counter").textContent =
         op === "diff"
-          ? `Resta Manual (Época ${idxB + 1} − Época ${idxA + 1})`
-          : `Suma Manual (Época ${idxA + 1} + Época ${idxB + 1})`;
+          ? `Contraste ΔI Secuencia (${nUsed} puntos temporales)`
+          : `Apilado Secuencia SNR (${nUsed} puntos temporales)`;
       document.getElementById("overlay-date").textContent =
-        `A (#${idxA + 1}): ${Number(epA.wavelength_center_um).toFixed(2)}µm (${epA.detector}) vs B (#${idxB + 1}): ${Number(epB.wavelength_center_um).toFixed(2)}µm (${epB.detector})`;
+        `Inicio (#${idxA + 1}): ${Number(epA.wavelength_center_um).toFixed(2)}µm (${epA.detector}) → Fin (#${idxB + 1}): ${Number(epB.wavelength_center_um).toFixed(2)}µm (${epB.detector})`;
       document.getElementById("overlay-detector").textContent =
         op === "diff"
-          ? "Operación: ΔI = Flujo(B) − Flujo(A)"
-          : "Operación: Promedio SNR = (Flujo(A) + Flujo(B)) / 2";
+          ? "Operación: ΔI de la secuencia multi-época completa"
+          : "Operación: Promedio SNR de la secuencia multi-época";
       document.getElementById("overlay-clean").textContent =
-        `Cobertura A: ${epA.clean_pixels_pct}% · Cobertura B: ${epB.clean_pixels_pct}%`;
+        `Cobertura inicial: ${epA.clean_pixels_pct}% · Cobertura final: ${epB.clean_pixels_pct}%`;
     } else if (state.viewMode === "shift_stack" && state.shiftStackMeta) {
       const { pmRaMasYr, pmDecMasYr, label, snrBoost } = state.shiftStackMeta;
       document.getElementById("frame-counter").textContent =
@@ -2539,14 +3241,9 @@ function renderCanvas() {
       document.getElementById("overlay-clean").textContent =
         `Píxeles limpios (mediana): ${detCoaddMeta.clean_pixels_pct}%`;
     } else {
-      const manualPos = (state.manualPairIndices || []).indexOf(epIdx);
-      const effectiveEpochLabel =
-        state.selectedBand === "manual_pair" && (state.manualPairIndices || []).length === 2
-          ? `Blink Manual A/B (${manualPos >= 0 ? manualPos + 1 : 1}/2 · Época #${epIdx + 1})`
-          : epochLabel;
       document.getElementById("frame-counter").textContent =
         state.viewMode === "blink"
-          ? `${effectiveEpochLabel} · ${bandLabel}`
+          ? `${epochLabel} · ${bandLabel}`
           : state.viewMode === "diff"
           ? "Resta temporal · bandas comparables"
           : "Mediana · bandas comparables";
@@ -2555,7 +3252,11 @@ function renderCanvas() {
         const date = ep.obs_time && Number.isFinite(mjd)
           ? new Date((mjd - 40587) * 86400000).toISOString().replace("T", " ").slice(0, 19) + " UTC"
           : ep.obs_time || "sin fecha";
-        document.getElementById("overlay-date").textContent = `Fecha: ${date}`;
+        const stepTitle = syncState.activeFrame?.badgeText || syncState.activeFrame?.title || `Fecha: ${date}`;
+        document.getElementById("overlay-date").textContent =
+          state.selectedBand === "pair" || state.selectedBand === "manual_pair"
+            ? `Paso ${syncState.activeStep + 1}/${syncState.K}: ${stepTitle} (${date})`
+            : `Fecha: ${date}`;
         document.getElementById("overlay-clean").textContent = `Píxeles limpios: ${ep.clean_pixels_pct}%`;
         document.getElementById("overlay-detector").textContent = `Banda: ${bandLabel} | Δλ: ${Number(ep.bandwidth_um || 0).toFixed(3)} µm`;
       } else {
@@ -2567,35 +3268,116 @@ function renderCanvas() {
       }
     }
   }
+
+  renderMultiEpochStepsBar();
+}
+
+/**
+ * Renderiza las píldoras interactivas de la Secuencia Histórica Sincronizada
+ * reemplazando el antiguo selector de solo 2 épocas (A vs B).
+ */
+function renderMultiEpochStepsBar() {
+  const bar = document.getElementById("multi-epoch-steps-bar");
+  if (!bar) return;
+  const sync = getSynchronizedTemporalState();
+  const { seqFrames, K, activeStep } = sync;
+  if (!seqFrames || seqFrames.length === 0) {
+    bar.innerHTML = `<span class="text-[10px] text-slate-400">Cargando puntos temporales…</span>`;
+    return;
+  }
+
+  bar.innerHTML = "";
+  seqFrames.forEach((f, idx) => {
+    const isCurrent = idx === activeStep && state.viewMode === "blink";
+    const isVisited = idx < activeStep && state.viewMode === "blink";
+    const isHist = f.kind === "historic";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.stepIdx = String(idx);
+    btn.title = `${f.badgeText || f.title || f.shortTag || `Paso ${idx + 1}`} · Clic para saltar a este punto en ambos mapas`;
+    btn.className = isCurrent
+      ? "px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-950/90 text-emerald-200 border border-emerald-400 ring-1 ring-emerald-400/60 shadow transition"
+      : isVisited
+      ? isHist
+        ? "px-1.5 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-amber-950/60 text-amber-200 border border-amber-500/50 hover:border-amber-400 transition"
+        : "px-1.5 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-950/60 text-sky-200 border border-sky-500/50 hover:border-sky-400 transition"
+      : "px-1.5 py-0.5 rounded-md text-[10px] font-mono bg-slate-900/80 text-slate-300 border border-slate-700 hover:border-slate-500 transition";
+    const prefix = isCurrent ? "●" : "✓";
+    btn.textContent = `${prefix} ${idx + 1}/${K} ${f.shortTag || `Época #${idx + 1}`}`;
+    btn.addEventListener("click", () => {
+      state.timelineBlinkStep = idx;
+      state.pairBlinkPhase = idx === 0 ? 0 : 1;
+      const nextSync = getSynchronizedTemporalState();
+      state.currentEpochIdx = nextSync.correspondingEpochIdx;
+      const slider = document.getElementById("slider-epoch");
+      if (slider) slider.value = state.currentEpochIdx;
+      if (state.viewMode !== "blink") setViewMode("blink");
+      renderCanvas();
+      renderContextSkyMap();
+      if (state.timelineBlinkFrames?.length) {
+        renderTimelineBlinkFrame(false);
+      }
+    });
+    bar.appendChild(btn);
+  });
+}
+
+function syncPlayPauseButtonsUI() {
+  const mainBtn = document.getElementById("btn-play-pause");
+  if (mainBtn) {
+    mainBtn.textContent = state.isPlaying ? "Pausar" : "Reproducir";
+  }
+  const tlBtn = document.getElementById("btn-tl-play");
+  if (tlBtn) {
+    tlBtn.textContent = state.isPlaying ? "⏸ Pausar" : "▶ Reproducir";
+  }
+}
+
+function setUnifiedPlaybackState(playing) {
+  const nextPlaying = Boolean(playing);
+  state.isPlaying = nextPlaying;
+  state.timelineBlinkPlaying = nextPlaying;
+  syncPlayPauseButtonsUI();
+  startBlinkTimer();
 }
 
 function startBlinkTimer() {
-  if (state.timerId) clearInterval(state.timerId);
+  if (state.timerId) {
+    clearInterval(state.timerId);
+    state.timerId = null;
+  }
+  if (state.timelineBlinkTimerId) {
+    clearInterval(state.timelineBlinkTimerId);
+    state.timelineBlinkTimerId = null;
+  }
+  state.timelineBlinkPlaying = state.isPlaying;
+  syncPlayPauseButtonsUI();
   if (!state.isPlaying) return;
-  const intervalMs = Math.round(1000 / state.fps);
+
+  const intervalMs = Math.round(1000 / Math.max(0.5, state.fps || 2));
   state.timerId = setInterval(() => {
-    if (!state.isLoading && state.viewMode === "blink" && state.exploreData?.epochs?.length > 0) {
+    if (state.isLoading || !state.exploreData?.epochs?.length) return;
+
+    const sync = getSynchronizedTemporalState();
+    state.timelineBlinkStep = (sync.activeStep + 1) % sync.K;
+    const nextSync = getSynchronizedTemporalState();
+    state.pairBlinkPhase = nextSync.stepFrac < 0.5 ? 0 : 1;
+
+    if (state.viewMode === "blink") {
       if (state.selectedBand === "auto") {
         state.currentEpochIdx = (state.currentEpochIdx + 1) % state.exploreData.epochs.length;
-        document.getElementById("slider-epoch").value = state.currentEpochIdx;
-        renderCanvas();
-      } else if (state.selectedBand === "pair") {
-        const indices = state.exploreData?.target_info?.analysis_frame_indices || [];
-        if (indices.length > 0) {
-          const curPos = indices.indexOf(state.currentEpochIdx);
-          state.currentEpochIdx = indices[(curPos + 1) % indices.length];
-          document.getElementById("slider-epoch").value = state.currentEpochIdx;
-          renderCanvas();
-        }
-      } else if (state.selectedBand === "manual_pair") {
-        const indices = state.manualPairIndices || [];
-        if (indices.length > 0) {
-          const curPos = indices.indexOf(state.currentEpochIdx);
-          state.currentEpochIdx = indices[(curPos + 1) % indices.length];
-          document.getElementById("slider-epoch").value = state.currentEpochIdx;
-          renderCanvas();
-        }
+      } else {
+        state.currentEpochIdx = nextSync.correspondingEpochIdx;
       }
+      const slider = document.getElementById("slider-epoch");
+      if (slider) slider.value = state.currentEpochIdx;
+      renderCanvas();
+    }
+
+    if (state.timelineData && state.timelineBlinkFrames?.length >= 2 && state.spectrumPlotMode === "timeline") {
+      renderTimelineBlinkFrame(false);
+    } else {
+      renderContextSkyMap();
     }
   }, intervalMs);
 }
@@ -2679,10 +3461,7 @@ function selectAndFocusAIDetection(det, preferredViewMode = null) {
       state.currentEpochIdx = indices[0];
       const slider = document.getElementById("slider-epoch");
       if (slider) slider.value = state.currentEpochIdx;
-      state.isPlaying = true;
-      const playBtn = document.getElementById("btn-play-pause");
-      if (playBtn) playBtn.textContent = "Pausar";
-      startBlinkTimer();
+      setUnifiedPlaybackState(true);
     } else if (indices.length > 0 && !indices.includes(state.currentEpochIdx)) {
       state.currentEpochIdx = indices[0];
       const slider = document.getElementById("slider-epoch");
@@ -2893,82 +3672,1703 @@ function renderAIDetectionsList(detections) {
   updateAIDetectionCardsSelection();
 }
 
+// ============================================================================
+// LÍNEA HISTÓRICA: cómo cambió el lugar elegido con el tiempo
+//   · Tira de miniaturas (relevamientos históricos + visitas SPHEREx) con mira fija.
+//   · Curva de brillo que solo compara el mismo color infrarrojo (misma banda).
+//   · Titular en lenguaje claro calculado por /api/timeline.
+// ============================================================================
+const TIMELINE_SURVEYS = [
+  {
+    key: "dss2",
+    hips: ["CDS/P/DSS2/red", "CDS/P/DSS2/color"],
+    label: "DSS2",
+    years: [1984, 2000],
+    range: "~1984–2000",
+    band: "placas fotográficas en luz visible",
+  },
+  {
+    key: "2mass",
+    hips: ["CDS/P/2MASS/color"],
+    label: "2MASS",
+    years: [1997, 2001],
+    range: "1997–2001",
+    band: "infrarrojo cercano (J/H/Ks)",
+  },
+  {
+    key: "allwise",
+    hips: ["CDS/P/allWISE/color"],
+    label: "AllWISE",
+    years: [2010, 2011],
+    range: "2010–2011",
+    band: "infrarrojo medio (3,4–12 µm)",
+  },
+];
+
+const TIMELINE_STATUS_STYLE = {
+  moved: { chip: "Se movió", box: "border-rose-500/50 bg-rose-500/10", pill: "bg-rose-500/25 text-rose-100 border-rose-400/50" },
+  moved_away: { chip: "Se mudó de lugar", box: "border-rose-500/50 bg-rose-500/10", pill: "bg-rose-500/25 text-rose-100 border-rose-400/50" },
+  brightness_changed: { chip: "Cambió su brillo", box: "border-amber-500/50 bg-amber-500/10", pill: "bg-amber-500/25 text-amber-100 border-amber-400/50" },
+  possible_change: { chip: "Posible cambio", box: "border-amber-500/30 bg-amber-500/5", pill: "bg-amber-500/15 text-amber-200 border-amber-400/40" },
+  stable: { chip: "Sin cambios", box: "border-emerald-500/40 bg-emerald-500/10", pill: "bg-emerald-500/20 text-emerald-100 border-emerald-400/40" },
+  faint: { chip: "Señal muy débil", box: "border-slate-700 bg-slate-900/70", pill: "bg-slate-700/60 text-slate-200 border-slate-600" },
+  insufficient: { chip: "Faltan fechas", box: "border-slate-700 bg-slate-900/70", pill: "bg-slate-700/60 text-slate-200 border-slate-600" },
+};
+
+function tlEscape(text) {
+  return String(text ?? "").replace(/[&<>"']/g, (ch) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+  ));
+}
+
+function tlDetCode(raw) {
+  const text = String(raw || "");
+  const m = /D\s*([1-6])/i.exec(text);
+  if (m) return `D${m[1]}`;
+  const n = /([1-6])\s*$/.exec(text);
+  return n ? `D${n[1]}` : text;
+}
+
+function tlParseMjd(obsTime) {
+  const num = Number(obsTime);
+  if (obsTime !== "" && obsTime != null && Number.isFinite(num) && num > 10000) return num;
+  const parsed = Date.parse(String(obsTime || ""));
+  return Number.isFinite(parsed) ? parsed / 86400000 + 40587 : NaN;
+}
+
+function tlYearFromMjd(mjd) {
+  return 2000 + (Number(mjd) - 51544.5) / 365.25;
+}
+
+function tlFmt(value, decimals = 1) {
+  return Number(value).toFixed(decimals).replace(".", ",");
+}
+
+function tlFieldLabel(fovArcsec) {
+  return fovArcsec >= 90 ? `${tlFmt(fovArcsec / 60, 1)}′` : `${Math.round(fovArcsec)}″`;
+}
+
+/** Stamps y serie del detector elegido en la línea histórica. */
+function tlCurrentSelection(data = state.timelineData) {
+  if (!data) return { detector: null, series: null, stamps: [] };
+  const detectors = [...new Set([...(data.series || []).map((s) => s.detector), ...(data.stamps || []).map((s) => s.detector)])].sort();
+  let detector = state.timelineDetector;
+  if (!detector || !detectors.includes(detector)) {
+    detector = data.default_detector && detectors.includes(data.default_detector) ? data.default_detector : detectors[0] || null;
+    state.timelineDetector = detector;
+  }
+  const series = (data.series || []).find((s) => s.detector === detector) || null;
+  // una miniatura por visita para ese detector
+  const byVisit = new Map();
+  (data.stamps || []).filter((s) => s.detector === detector).forEach((s) => {
+    if (!byVisit.has(s.visit_id)) byVisit.set(s.visit_id, s);
+  });
+  const stamps = [...byVisit.values()].sort((a, b) => a.mjd - b.mjd);
+  return { detector, detectors, series, stamps };
+}
+
+/**
+ * Devuelve las claves de todas las fotos mostradas en la tira histórica
+ * (DSS2 ~1990, 2MASS ~1999, AllWISE 2010 y todas las visitas SPHEREx del detector activo).
+ */
+function tlAllAvailableFrameKeys(data = state.timelineData) {
+  const histKeys = TIMELINE_SURVEYS.map((s) => `hist:${s.key}`);
+  if (!data) return histKeys;
+  const { stamps } = tlCurrentSelection(data);
+  const spxKeys = (stamps || []).map((st) => `spherex:${st.visit_id}`);
+  return [...histKeys, ...spxKeys];
+}
+
+function tlEnsureSelectedKeys(data = state.timelineData) {
+  const allKeys = tlAllAvailableFrameKeys(data);
+  if (!state.timelineSelectedKeys || !(state.timelineSelectedKeys instanceof Set) || state.timelineSelectedKeys.size === 0) {
+    state.timelineSelectedKeys = new Set(allKeys);
+  }
+  return state.timelineSelectedKeys;
+}
+
+function tlToggleFrameKeySelection(frameKey, data = state.timelineData) {
+  const selected = tlEnsureSelectedKeys(data);
+  if (selected.has(frameKey)) {
+    if (selected.size <= 2) {
+      setExploreProgress("Mantené al menos 2 puntos temporales seleccionados para comparar la secuencia histórica.");
+      return;
+    }
+    selected.delete(frameKey);
+  } else {
+    selected.add(frameKey);
+  }
+  const allKeys = tlAllAvailableFrameKeys(data);
+  const histKeys = TIMELINE_SURVEYS.map((s) => `hist:${s.key}`);
+  const spxKeys = allKeys.filter((k) => k.startsWith("spherex:"));
+  if (allKeys.every((k) => selected.has(k))) {
+    state.timelineBlinkMode = "all";
+  } else if (spxKeys.length >= 2 && spxKeys.every((k) => selected.has(k)) && selected.size === spxKeys.length) {
+    state.timelineBlinkMode = "spherex";
+  } else if (histKeys.every((k) => selected.has(k)) && selected.size === histKeys.length) {
+    state.timelineBlinkMode = "historic";
+  } else {
+    state.timelineBlinkMode = "custom";
+  }
+  state.timelineBlinkStep = 0;
+  buildTimelineBlinkFrames(data);
+  updateTimelineBlinkModeButtons();
+  renderTimelineStrip(data);
+  renderTimelineBlinkFrame(false);
+  startTimelineBlinkTimer();
+}
+
+/**
+ * Geometría de las miniaturas históricas. Si el objeto tiene movimiento propio conocido,
+ * el campo se agranda y se centra para que entre todo su recorrido desde ~1984 hasta hoy.
+ * Devuelve desplazamientos en arcosegundos (Este, Norte) respecto del punto elegido.
+ */
+function tlHistoryGeometry(data) {
+  const lastVisit = data.visits?.[data.visits.length - 1];
+  const yearNow = lastVisit ? tlYearFromMjd(lastVisit.mjd_mid) : new Date().getFullYear() + 0.5;
+  const cosDec = Math.max(1e-6, Math.cos((data.dec * Math.PI) / 180));
+  const wrap = (d) => ((d + 540) % 360) - 180;
+  let pm = null;
+  const km = data.known_motion;
+  if (km) {
+    const refE = wrap(km.ref_ra - data.ra) * cosDec * 3600;
+    const refN = (km.ref_dec - data.dec) * 3600;
+    const vE = km.pm_ra_mas_yr / 1000;
+    const vN = km.pm_dec_mas_yr / 1000;
+    pm = {
+      name: km.name,
+      source: km.source,
+      speed: Math.hypot(vE, vN),
+      vE,
+      vN,
+      at: (year) => ({ e: refE + vE * (year - km.ref_epoch_year), n: refN + vN * (year - km.ref_epoch_year) }),
+    };
+  } else {
+    // Respaldo 1: estrella Gaia con movimiento propio apreciable pegada al punto elegido.
+    let best = null;
+    (state.skyView.gaiaSources || []).forEach((g) => {
+      if (!Number.isFinite(g.pmra) || !Number.isFinite(g.pmdec)) return;
+      const sep = Math.hypot(wrap(g.ra - data.ra) * cosDec * 3600, (g.dec - data.dec) * 3600);
+      const speed = Math.hypot(g.pmra, g.pmdec) / 1000;
+      if (sep <= 12 && speed >= 0.12 && (!best || sep < best.sep)) best = { sep, g, speed };
+    });
+    if (best) {
+      const vE = best.g.pmra / 1000;
+      const vN = best.g.pmdec / 1000;
+      pm = {
+        name: `Gaia DR3 ${best.g.id || ""}`.trim(),
+        source: "Gaia DR3",
+        speed: best.speed,
+        vE,
+        vN,
+        at: (year) => ({ e: vE * (year - yearNow), n: vN * (year - yearNow) }),
+      };
+    } else {
+      // Respaldo 2: dipolo móvil detectado por IA en el recorte actual.
+      const detections = state.allAiDetections?.length
+        ? state.allAiDetections
+        : state.exploreData?.ai_detections || [];
+      const nearDipole = detections.find(
+        (d) =>
+          d.type === "MOVING_DIPOLE" &&
+          d.neg_x_pix != null &&
+          d.neg_y_pix != null &&
+          angularDistanceDeg(d.ra, d.dec, data.ra, data.dec) * 3600 <= 20
+      );
+      if (nearDipole) {
+        const earlySky = pixelToRaDec(nearDipole.neg_x_pix, nearDipole.neg_y_pix);
+        const lateSky = pixelToRaDec(nearDipole.x_pix, nearDipole.y_pix);
+        const dE = wrap(lateSky.ra - earlySky.ra) * cosDec * 3600;
+        const dN = (lateSky.dec - earlySky.dec) * 3600;
+        const norm = Math.hypot(dE, dN) || 1;
+        const estSpeed = Math.min(2.5, Math.max(0.4, Number(nearDipole.proper_motion_arcsec_yr) || norm));
+        const vE = (dE / norm) * estSpeed;
+        const vN = (dN / norm) * estSpeed;
+        pm = {
+          name: nearDipole.iau_designation || `Dipolo IA #${nearDipole.id}`,
+          source: "Detección IA SPHEREx",
+          speed: estSpeed,
+          vE,
+          vN,
+          at: (year) => ({ e: vE * (year - yearNow), n: vN * (year - yearNow) }),
+        };
+      }
+    }
+  }
+  const stampFovArcsec = (data.stamp_fov_deg || 0.04) * 3600;
+  let centerE = 0;
+  let centerN = 0;
+  let fovArcsec = Math.max(stampFovArcsec, 144);
+  if (pm) {
+    const pts = [pm.at(TIMELINE_SURVEYS[0].years[0]), pm.at(yearNow), { e: 0, n: 0 }];
+    const es = pts.map((p) => p.e);
+    const ns = pts.map((p) => p.n);
+    const span = Math.max(Math.max(...es) - Math.min(...es), Math.max(...ns) - Math.min(...ns));
+    if (span > 0.3 * fovArcsec) {
+      centerE = (Math.max(...es) + Math.min(...es)) / 2;
+      centerN = (Math.max(...ns) + Math.min(...ns)) / 2;
+      fovArcsec = Math.min(3600, span * 1.3 + 50);
+    }
+  }
+  return {
+    pm,
+    yearNow,
+    centerE,
+    centerN,
+    fovArcsec,
+    adaptive: fovArcsec > Math.max(stampFovArcsec, 144) + 1,
+    centerRa: (((data.ra + centerE / 3600 / cosDec) % 360) + 360) % 360,
+    centerDec: Math.max(-90, Math.min(90, data.dec + centerN / 3600)),
+  };
+}
+
+function tlCrosshairSvg(x, y, color = "#7dd3fc") {
+  const g = 4.5; // hueco central para no tapar la fuente
+  const l = 6;
+  return (
+    `<g stroke="${color}" stroke-width="1.1" stroke-linecap="round" opacity="0.95">` +
+    `<line x1="${x - g - l}" y1="${y}" x2="${x - g}" y2="${y}"/><line x1="${x + g}" y1="${y}" x2="${x + g + l}" y2="${y}"/>` +
+    `<line x1="${x}" y1="${y - g - l}" x2="${x}" y2="${y - g}"/><line x1="${x}" y1="${y + g}" x2="${x}" y2="${y + g + l}"/></g>`
+  );
+}
+
+function tlBuildCard({
+  imgSrc,
+  fallbackSrcs = [],
+  svg,
+  title,
+  subtitle,
+  tooltip,
+  visitId = null,
+  historicKey = null,
+  frameKey = null,
+  isSelected = true,
+  stepOrder = null,
+  onToggleSelect = null,
+  pixelated = false,
+  historic = false,
+}) {
+  const isButton = visitId != null || historicKey != null;
+  const card = document.createElement(isButton ? "button" : "div");
+  if (isButton) {
+    card.type = "button";
+  }
+  if (visitId != null) {
+    card.dataset.visit = String(visitId);
+  }
+  if (historicKey != null) {
+    card.dataset.historicKey = String(historicKey);
+  }
+  if (frameKey != null) {
+    card.dataset.frameKey = String(frameKey);
+  }
+  card.className =
+    "tl-card shrink-0 w-[118px] text-left rounded-lg border p-1 transition " +
+    (historic
+      ? "border-slate-800 bg-slate-900/60 hover:border-amber-400/70 cursor-pointer"
+      : "border-slate-700 bg-slate-950/80 hover:border-sky-400/70 cursor-pointer") +
+    (isSelected ? "" : " opacity-60");
+  card.title = tooltip || "";
+  const selectBadgeHtml =
+    frameKey != null
+      ? `<span role="checkbox" aria-checked="${isSelected}" title="${
+          isSelected
+            ? `Foto seleccionada en la secuencia histórica (paso #${stepOrder || ""}). Tocá para quitarla de la secuencia.`
+            : "Foto excluida de la secuencia. Tocá para incluirla."
+        }" class="tl-select-pill absolute top-1 right-1 z-10 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border shadow transition ${
+          isSelected
+            ? historic
+              ? "bg-amber-500/90 text-slate-950 border-amber-300 hover:bg-amber-400"
+              : "bg-sky-500/90 text-slate-950 border-sky-300 hover:bg-sky-400"
+            : "bg-slate-950/85 text-slate-400 border-slate-700 hover:text-white"
+        }">${isSelected ? `✓ #${stepOrder || ""}` : "+ Incluir"}</span>`
+      : "";
+  card.innerHTML =
+    `<div class="relative w-full overflow-hidden rounded bg-black" style="aspect-ratio:1/1">` +
+    `<img alt="${tlEscape(title)}" class="absolute inset-0 w-full h-full object-cover" style="${pixelated ? "image-rendering:pixelated;" : ""}" crossorigin="anonymous">` +
+    `<div class="tl-img-fallback hidden absolute inset-x-0 bottom-1 text-center text-[9px] text-slate-500 px-1">Imagen no disponible ahora</div>` +
+    `<svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">${svg}</svg>` +
+    selectBadgeHtml +
+    `</div>` +
+    `<div class="mt-1 text-[11px] font-semibold leading-tight ${historic ? "text-slate-300" : "text-slate-100"}">${tlEscape(title)}</div>` +
+    `<div class="text-[9px] leading-tight text-slate-400">${subtitle}</div>`;
+  const img = card.querySelector("img");
+  const pending = [...fallbackSrcs];
+  img.onerror = () => {
+    if (pending.length) {
+      img.src = pending.shift();
+      return;
+    }
+    img.classList.add("hidden");
+    card.querySelector(".tl-img-fallback")?.classList.remove("hidden");
+  };
+  img.src = imgSrc;
+  const pill = card.querySelector(".tl-select-pill");
+  if (pill && typeof onToggleSelect === "function") {
+    pill.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      onToggleSelect(frameKey);
+    });
+  }
+  return card;
+}
+
+function tlHipsUrl(hipsId, geom) {
+  return (
+    `https://alasky.cds.unistra.fr/hips-image-services/hips2fits?hips=${encodeURIComponent(hipsId)}` +
+    `&width=236&height=236&fov=${(geom.fovArcsec / 3600).toFixed(6)}&projection=TAN&coordsys=icrs` +
+    `&ra=${geom.centerRa.toFixed(6)}&dec=${geom.centerDec.toFixed(6)}&format=jpg`
+  );
+}
+
+/**
+ * Genera versiones de alto contraste diferencial para el primer y último recorte SPHEREx
+ * del detector seleccionado, de modo que las estrellas de fondo queden completamente fijas
+ * y el objeto que se mueve o cambia de brillo resalte nítidamente en el Comparador Intermitente.
+ */
+function enhanceTimelineStampsPair(data, detector, stamps) {
+  if (!data || !detector || !stamps || stamps.length < 2) return;
+  const firstSt = stamps[0];
+  const lastSt = stamps[stamps.length - 1];
+  const keyFirst = `${data.ra.toFixed(5)}:${data.dec.toFixed(5)}:${detector}:${firstSt.visit_id}:early`;
+  const keyLast = `${data.ra.toFixed(5)}:${data.dec.toFixed(5)}:${detector}:${lastSt.visit_id}:late`;
+  if (state.timelineEnhancedStamps.has(keyFirst) && state.timelineEnhancedStamps.has(keyLast)) {
+    return;
+  }
+
+  Promise.all([loadImagePromise(firstSt.image_base64), loadImagePromise(lastSt.image_base64)])
+    .then(([imgA, imgB]) => {
+      const w = 128;
+      const h = 128;
+      const extractGray = (img) => {
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        const rgba = ctx.getImageData(0, 0, w, h).data;
+        const out = new Float32Array(w * h);
+        for (let i = 0; i < w * h; i++) {
+          const j = i * 4;
+          out[i] = 0.299 * rgba[j] + 0.587 * rgba[j + 1] + 0.114 * rgba[j + 2];
+        }
+        return out;
+      };
+
+      const rawA = extractGray(imgA);
+      const rawB = extractGray(imgB);
+      const normalizePercentile = (arr) => {
+        const sorted = Float32Array.from(arr).sort();
+        const p20 = sorted[Math.floor(sorted.length * 0.20)];
+        const p995 = Math.max(p20 + 8, sorted[Math.floor(sorted.length * 0.995)]);
+        const out = new Float32Array(arr.length);
+        for (let i = 0; i < arr.length; i++) {
+          const norm = Math.max(0, Math.min(1, (arr[i] - p20) / (p995 - p20)));
+          out[i] = Math.pow(norm, 0.82) * 245;
+        }
+        return out;
+      };
+
+      const normA = normalizePercentile(rawA);
+      const normB = normalizePercentile(rawB);
+
+      const bakeSide = (isLate) => {
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext("2d");
+        const imgData = ctx.createImageData(w, h);
+        for (let idx = 0; idx < w * h; idx++) {
+          const a = normA[idx];
+          const b = normB[idx];
+          const diff = b - a;
+          const absDiff = Math.abs(diff);
+          const mean = 0.5 * (a + b);
+          let v = mean;
+          if (absDiff > 12) {
+            const boost = Math.min(110, (absDiff - 12) * 2.2);
+            if (isLate) {
+              v = diff > 0 ? Math.min(255, b + boost) : Math.max(6, b - boost * 0.45);
+            } else {
+              v = diff < 0 ? Math.min(255, a + boost) : Math.max(6, a - boost * 0.45);
+            }
+          }
+          const byte = Math.max(0, Math.min(255, Math.round(v)));
+          const j = idx * 4;
+          imgData.data[j] = byte;
+          imgData.data[j + 1] = byte;
+          imgData.data[j + 2] = Math.min(255, byte + 6);
+          imgData.data[j + 3] = 255;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        return c.toDataURL("image/png");
+      };
+
+      state.timelineEnhancedStamps.set(keyFirst, bakeSide(false));
+      state.timelineEnhancedStamps.set(keyLast, bakeSide(true));
+      if (state.timelineData === data) {
+        buildTimelineBlinkFrames(data);
+        renderTimelineBlinkFrame(false);
+      }
+    })
+    .catch(() => {});
+}
+
+/**
+ * Calcula las coordenadas (x, y en 0..100) de ANTES y DESPUÉS dentro del recorte SPHEREx
+ * para animar el marcador saltando entre ambas posiciones en el Comparador Intermitente.
+ */
+function tlResolveComparatorPositions(data, stamps) {
+  const stampFovArcsec = (data.stamp_fov_deg || 0.04) * 3600;
+  const cosDec = Math.max(1e-6, Math.cos((data.dec * Math.PI) / 180));
+  const wrap = (d) => ((d + 540) % 360) - 180;
+  const clampPct = (v) => Math.max(8, Math.min(92, v));
+  const arcsecToPct = (eastArcsec, northArcsec) => ({
+    x: clampPct(50 - (eastArcsec / stampFovArcsec) * 100),
+    y: clampPct(50 - (northArcsec / stampFovArcsec) * 100),
+  });
+
+  // 1) Si hay un dipolo móvil IA cercano al punto consultado, usar su desplazamiento medido
+  const detections = state.allAiDetections?.length
+    ? state.allAiDetections
+    : state.exploreData?.ai_detections || [];
+  const nearDipole = detections.find(
+    (d) =>
+      d.type === "MOVING_DIPOLE" &&
+      d.neg_x_pix != null &&
+      d.neg_y_pix != null &&
+      angularDistanceDeg(d.ra, d.dec, data.ra, data.dec) * 3600 <= 18
+  );
+  if (nearDipole) {
+    const earlySky = pixelToRaDec(nearDipole.neg_x_pix, nearDipole.neg_y_pix);
+    const lateSky = pixelToRaDec(nearDipole.x_pix, nearDipole.y_pix);
+    const eEarly = wrap(earlySky.ra - data.ra) * cosDec * 3600;
+    const nEarly = (earlySky.dec - data.dec) * 3600;
+    const eLate = wrap(lateSky.ra - data.ra) * cosDec * 3600;
+    const nLate = (lateSky.dec - data.dec) * 3600;
+    const posA = arcsecToPct(eEarly, nEarly);
+    const posB = arcsecToPct(eLate, nLate);
+    const shiftArcsec = Number.isFinite(nearDipole.shift_arcsec)
+      ? nearDipole.shift_arcsec
+      : Math.hypot(eLate - eEarly, nLate - nEarly);
+    return {
+      posA,
+      posB,
+      isMoving: Math.hypot(posB.x - posA.x, posB.y - posA.y) >= 1.0,
+      shiftArcsec,
+    };
+  }
+
+  // 2) Si /api/timeline midió centroide en varias visitas con corrimiento significativo
+  const positions = data.motion?.positions || [];
+  if (positions.length >= 2 && (data.motion?.shift_arcsec >= 1.2 || data.headline?.status === "moved")) {
+    const firstP = positions[0];
+    const lastP = positions[positions.length - 1];
+    const posA = arcsecToPct(firstP.east_arcsec, firstP.north_arcsec);
+    const posB = arcsecToPct(lastP.east_arcsec, lastP.north_arcsec);
+    return {
+      posA,
+      posB,
+      isMoving: Math.hypot(posB.x - posA.x, posB.y - posA.y) >= 1.0,
+      shiftArcsec: data.motion.shift_arcsec || 0,
+    };
+  }
+
+  // 3) Fuente fija o variable en brillo: usar el centroide de cada stamp o (50, 50)
+  const firstSt = stamps[0];
+  const lastSt = stamps[stamps.length - 1] || firstSt;
+  const posA =
+    firstSt && Number.isFinite(firstSt.centroid_east_arcsec) && Number.isFinite(firstSt.centroid_north_arcsec)
+      ? arcsecToPct(firstSt.centroid_east_arcsec, firstSt.centroid_north_arcsec)
+      : { x: 50, y: 50 };
+  const posB =
+    lastSt && Number.isFinite(lastSt.centroid_east_arcsec) && Number.isFinite(lastSt.centroid_north_arcsec)
+      ? arcsecToPct(lastSt.centroid_east_arcsec, lastSt.centroid_north_arcsec)
+      : posA;
+  return {
+    posA,
+    posB,
+    isMoving: Math.hypot(posB.x - posA.x, posB.y - posA.y) >= 1.6,
+    shiftArcsec: data.motion?.shift_arcsec || 0,
+  };
+}
+
+/**
+ * Dibuja tanto en "Contexto infrarrojo y catálogos" (#aladin-canvas) como en el
+ * "Visor Multi-Época SPHEREx" (#spherex-canvas) el rastro temporal progresivo de cómo
+ * se fue moviendo la estrella foto por foto a lo largo de la secuencia histórica activa.
+ * Solo se dibuja cuando la región de la estrella está cargada y dentro del rango de visión actual.
+ */
+function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
+  if (!state.exploreData || !state.showTemporalTrail) return;
+  if (state.timelineData && (!state.timelineBlinkFrames || state.timelineBlinkFrames.length === 0)) {
+    buildTimelineBlinkFrames(state.timelineData);
+  }
+
+  const refRa = state.timelineData?.ra ?? state.ra;
+  const refDec = state.timelineData?.dec ?? state.dec;
+  const cosDec = Math.max(1e-6, Math.cos((refDec * Math.PI) / 180));
+  const wrap = (d) => ((d + 540) % 360) - 180;
+
+  // 1) Identificar la fuente de movimiento de la estrella seleccionada o principal del campo
+  const detections = (
+    state.allAiDetections?.length ? state.allAiDetections : state.exploreData?.ai_detections || []
+  ).filter((d) => d.type === "MOVING_DIPOLE" && d.neg_x_pix != null && d.neg_y_pix != null);
+
+  const activeDipole =
+    detections.find((d) => d.id === state.selectedDetectionId) ||
+    detections.find((d) => angularDistanceDeg(d.ra, d.dec, refRa, refDec) * 3600 <= 24) ||
+    detections[0] ||
+    null;
+
+  const matchedTarget = state.targets.find(
+    (t) => t.id === state.exploreData?.target_info?.matched_target_id
+  );
+  const km =
+    state.timelineData?.known_motion ||
+    (matchedTarget?.proper_motion
+      ? {
+          name: matchedTarget.name,
+          ref_ra: matchedTarget.ra_deg,
+          ref_dec: matchedTarget.dec_deg,
+          ref_epoch_year: matchedTarget.proper_motion.ref_epoch_year || 2000.0,
+          pm_ra_mas_yr: matchedTarget.proper_motion.pm_ra_mas_yr,
+          pm_dec_mas_yr: matchedTarget.proper_motion.pm_dec_mas_yr,
+        }
+      : null);
+
+  let nearGaia = null;
+  (state.skyView.gaiaSources || []).forEach((g) => {
+    if (!Number.isFinite(g.pmra) || !Number.isFinite(g.pmdec)) return;
+    const speedMas = Math.hypot(g.pmra, g.pmdec);
+    if (speedMas < 15) return;
+    const sepArcsec = Math.hypot(wrap(g.ra - refRa) * cosDec * 3600, (g.dec - refDec) * 3600);
+    if (sepArcsec <= 22 && (!nearGaia || sepArcsec < nearGaia.sepArcsec)) {
+      nearGaia = { g, sepArcsec, speedMas };
+    }
+  });
+
+  const measuredMotion =
+    (state.timelineData?.motion?.positions?.length || 0) >= 2 &&
+    (state.timelineData?.motion?.shift_arcsec || 0) >= 0.8
+      ? state.timelineData.motion
+      : null;
+
+  if (!activeDipole && !km && !nearGaia && !measuredMotion) {
+    return;
+  }
+
+  // Verificar que el sector donde está el astro esté cargado y dentro del rango de visión actual del visor
+  const anchorFitsX = activeDipole
+    ? 0.5 * (activeDipole.neg_x_pix + activeDipole.x_pix)
+    : state.selectedPixel?.x ?? 63.5;
+  const anchorFitsY = activeDipole
+    ? 0.5 * (activeDipole.neg_y_pix + activeDipole.y_pix)
+    : state.selectedPixel?.y ?? 63.5;
+
+  if (!isFitsPixelInReadyTile(anchorFitsX, anchorFitsY)) {
+    return;
+  }
+
+  const rawAnchor = fitsToSkyCanvas(anchorFitsX, anchorFitsY, W);
+  // Si el usuario desplazó el mapa y la estrella salió del rango de visión, no dibujar nada en pantalla
+  if (rawAnchor.cx < 8 || rawAnchor.cx > W - 8 || rawAnchor.cy < 8 || rawAnchor.cy > H - 8) {
+    return;
+  }
+
+  // 2) Armar la lista de cuadros temporales activos (por defecto todas las fotos mostradas)
+  let seqFrames = state.timelineBlinkFrames;
+  if (!seqFrames || seqFrames.length < 2) {
+    const pairIndices = state.exploreData?.target_info?.analysis_frame_indices || [];
+    const epCount = Math.max(2, Math.min(4, pairIndices.length || 2));
+    seqFrames = [
+      { kind: "historic", shortTag: "DSS2 ~92", title: "DSS2 (~1984–2000)", year: 1992.0 },
+      { kind: "historic", shortTag: "2MASS 99", title: "2MASS (1997–2001)", year: 1999.0 },
+      { kind: "historic", shortTag: "WISE 10", title: "AllWISE (2010–2011)", year: 2010.5 },
+      ...Array.from({ length: epCount }, (_, i) => ({
+        kind: "spherex",
+        shortTag: `SPX #${i + 1}`,
+        title: `SPHEREx visita #${i + 1}`,
+        year: 2025.3 + i * 0.02,
+      })),
+    ];
+  }
+
+  const K = seqFrames.length;
+  if (K < 2) return;
+  const activeStep = (state.timelineBlinkStep || 0) % K;
+
+  // 3) Calcular vector unitario de dirección en el canvas (ux, uy) y anclas espaciales reales (sin clavar a los bordes)
+  let ux = 0.85;
+  let uy = -0.52;
+  if (activeDipole) {
+    const p0 = fitsToSkyCanvas(activeDipole.neg_x_pix, activeDipole.neg_y_pix, W);
+    const p1 = fitsToSkyCanvas(activeDipole.x_pix, activeDipole.y_pix, W);
+    const dx = p1.cx - p0.cx;
+    const dy = p1.cy - p0.cy;
+    const norm = Math.hypot(dx, dy);
+    if (norm >= 1.2) {
+      ux = dx / norm;
+      uy = dy / norm;
+    }
+  } else if (km && (km.pm_ra_mas_yr || km.pm_dec_mas_yr)) {
+    const vE = km.pm_ra_mas_yr / 1000;
+    const vN = km.pm_dec_mas_yr / 1000;
+    const norm = Math.hypot(vE, vN) || 1;
+    ux = -vE / norm;
+    uy = -vN / norm;
+  } else if (nearGaia) {
+    const vE = nearGaia.g.pmra / 1000;
+    const vN = nearGaia.g.pmdec / 1000;
+    const norm = Math.hypot(vE, vN) || 1;
+    ux = -vE / norm;
+    uy = -vN / norm;
+  } else if (measuredMotion) {
+    const pos = measuredMotion.positions;
+    const dE = pos[pos.length - 1].east_arcsec - pos[0].east_arcsec;
+    const dN = pos[pos.length - 1].north_arcsec - pos[0].north_arcsec;
+    const norm = Math.hypot(dE, dN) || 1;
+    ux = -dE / norm;
+    uy = -dN / norm;
+  }
+
+  const histIndices = [];
+  const spxIndices = [];
+  seqFrames.forEach((f, idx) => {
+    if (f.kind === "historic") histIndices.push(idx);
+    else spxIndices.push(idx);
+  });
+
+  const waypoints = new Array(K);
+
+  if (activeDipole) {
+    const rawEarly = fitsToSkyCanvas(activeDipole.neg_x_pix, activeDipole.neg_y_pix, W);
+    const rawLate = fitsToSkyCanvas(activeDipole.x_pix, activeDipole.y_pix, W);
+    const midX = 0.5 * (rawEarly.cx + rawLate.cx);
+    const midY = 0.5 * (rawEarly.cy + rawLate.cy);
+    const rawSpan = Math.hypot(rawLate.cx - rawEarly.cx, rawLate.cy - rawEarly.cy);
+    const minSpxSpan = spxIndices.length > 1 ? Math.min(44, Math.max(20, (spxIndices.length - 1) * 13)) : 18;
+    const effSpxSpan = Math.max(rawSpan, minSpxSpan);
+
+    const spxStart = {
+      cx: midX - ux * (effSpxSpan * 0.5),
+      cy: midY - uy * (effSpxSpan * 0.5),
+    };
+    const spxEnd = {
+      cx: midX + ux * (effSpxSpan * 0.5),
+      cy: midY + uy * (effSpxSpan * 0.5),
+    };
+
+    spxIndices.forEach((frameIdx, j) => {
+      const t = spxIndices.length > 1 ? j / (spxIndices.length - 1) : 1;
+      const f = seqFrames[frameIdx];
+      waypoints[frameIdx] = {
+        cx: spxStart.cx + (spxEnd.cx - spxStart.cx) * t,
+        cy: spxStart.cy + (spxEnd.cy - spxStart.cy) * t,
+        kind: "spherex",
+        shortTag: f.shortTag || `SPX #${j + 1}`,
+        title: f.badgeText || f.title || `SPHEREx #${j + 1}`,
+      };
+    });
+
+    if (histIndices.length > 0) {
+      const anchor = spxIndices.length > 0 ? spxStart : spxEnd;
+      const availUpstream = Math.min(62, Math.max(32, histIndices.length * 18));
+      histIndices.forEach((frameIdx, j) => {
+        const f = seqFrames[frameIdx];
+        const fracFromEarliest = histIndices.length > 1 ? j / histIndices.length : 0.35;
+        const distUpstream = availUpstream * (1 - fracFromEarliest * 0.72);
+        waypoints[frameIdx] = {
+          cx: anchor.cx - ux * distUpstream,
+          cy: anchor.cy - uy * distUpstream,
+          kind: "historic",
+          shortTag: f.shortTag || f.historicKey?.toUpperCase() || `HIST #${j + 1}`,
+          title: f.badgeText || f.title || `Histórico #${j + 1}`,
+        };
+      });
+    }
+  } else {
+    // Estrella con movimiento propio de catálogo (ej. Barnard's Star, Gaia DR3) o centroide medido
+    const totalSpan = Math.min(88, Math.max(46, (K - 1) * 14));
+    const startPt = {
+      cx: rawAnchor.cx - ux * (totalSpan * 0.55),
+      cy: rawAnchor.cy - uy * (totalSpan * 0.55),
+    };
+    const endPt = {
+      cx: rawAnchor.cx + ux * (totalSpan * 0.45),
+      cy: rawAnchor.cy + uy * (totalSpan * 0.45),
+    };
+    for (let i = 0; i < K; i++) {
+      const t = K > 1 ? i / (K - 1) : 1;
+      const f = seqFrames[i];
+      waypoints[i] = {
+        cx: startPt.cx + (endPt.cx - startPt.cx) * t,
+        cy: startPt.cy + (endPt.cy - startPt.cy) * t,
+        kind: f.kind || (i < 3 ? "historic" : "spherex"),
+        shortTag: f.shortTag || `${i + 1}`,
+        title: f.badgeText || f.title || `Paso ${i + 1}`,
+      };
+    }
+  }
+
+  ctx.save();
+
+  // Capa 1: Corredor histórico completo (línea punteada guía de principio a fin)
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.42)";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  waypoints.forEach((wp, idx) => {
+    if (idx === 0) ctx.moveTo(wp.cx, wp.cy);
+    else ctx.lineTo(wp.cx, wp.cy);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Nodos futuros (aún no alcanzados en el paso actual del ciclo)
+  for (let i = activeStep + 1; i < K; i++) {
+    const wp = waypoints[i];
+    ctx.strokeStyle = wp.kind === "historic" ? "rgba(251, 191, 36, 0.42)" : "rgba(56, 189, 248, 0.45)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(wp.cx, wp.cy, 3.2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Capa 2: Rastro temporal acumulado desde la foto #1 (índice 0) hasta la foto activa (activeStep)
+  if (activeStep >= 1) {
+    // Resplandor exterior del rastro dejado por la estrella
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.26)";
+    ctx.lineWidth = 6.0;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (let i = 0; i <= activeStep; i++) {
+      const wp = waypoints[i];
+      if (i === 0) ctx.moveTo(wp.cx, wp.cy);
+      else ctx.lineTo(wp.cx, wp.cy);
+    }
+    ctx.stroke();
+
+    // Tramo sólido segmento a segmento con flechas direccionales
+    for (let i = 0; i < activeStep; i++) {
+      const p0 = waypoints[i];
+      const p1 = waypoints[i + 1];
+      const isHistSeg = p0.kind === "historic" && p1.kind === "historic";
+      const segColor = isHistSeg ? "#fbbf24" : i + 1 === activeStep ? "#34d399" : "#38bdf8";
+      ctx.strokeStyle = segColor;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(p0.cx, p0.cy);
+      ctx.lineTo(p1.cx, p1.cy);
+      ctx.stroke();
+
+      const segLen = Math.hypot(p1.cx - p0.cx, p1.cy - p0.cy);
+      if (segLen >= 9) {
+        const ang = Math.atan2(p1.cy - p0.cy, p1.cx - p0.cx);
+        const mx = p0.cx + (p1.cx - p0.cx) * 0.62;
+        const my = p0.cy + (p1.cy - p0.cy) * 0.62;
+        const head = 5.2;
+        ctx.fillStyle = segColor;
+        ctx.beginPath();
+        ctx.moveTo(mx, my);
+        ctx.lineTo(mx - head * Math.cos(ang - Math.PI / 6), my - head * Math.sin(ang - Math.PI / 6));
+        ctx.lineTo(mx - head * Math.cos(ang + Math.PI / 6), my - head * Math.sin(ang + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  // Vector normal perpendicular al movimiento para alternar etiquetas sin solapamiento
+  const nx = -uy;
+  const ny = ux;
+
+  // Capa 3: Huellas temporales (nodos visitados 0 .. activeStep)
+  for (let i = 0; i <= activeStep; i++) {
+    const wp = waypoints[i];
+    if (wp.cx < -16 || wp.cx > W + 16 || wp.cy < -16 || wp.cy > H + 16) continue;
+    const isCurrent = i === activeStep;
+    const nodeColor = isCurrent
+      ? "#34d399"
+      : wp.kind === "historic"
+      ? "#fbbf24"
+      : "#38bdf8";
+
+    // Huella en la posición de la foto i
+    ctx.fillStyle = nodeColor;
+    ctx.strokeStyle = "#020617";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(wp.cx, wp.cy, isCurrent ? 4.6 : 3.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Etiqueta compacta para la primera foto, la foto actual y pasos intermedios suficientemente separados
+    const prevWp = i > 0 ? waypoints[i - 1] : null;
+    const distPrev = prevWp ? Math.hypot(wp.cx - prevWp.cx, wp.cy - prevWp.cy) : 999;
+    if (isCurrent || i === 0 || distPrev >= 15 || i === histIndices[histIndices.length - 1]) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const lblOffset = isCurrent ? 15 : 12;
+      const lx = wp.cx + nx * side * lblOffset;
+      const ly = wp.cy + ny * side * lblOffset;
+      const tagTxt = isCurrent ? `● ${i + 1}/${K} ${wp.shortTag}` : `${i + 1}·${wp.shortTag}`;
+      ctx.font = isCurrent ? "bold 9.5px monospace" : "bold 8.5px monospace";
+      const tw = ctx.measureText(tagTxt).width;
+      const bx = lx - tw / 2 - 3;
+      const by = ly - 6;
+
+      ctx.fillStyle = isCurrent ? "rgba(6, 78, 59, 0.92)" : "rgba(15, 23, 42, 0.86)";
+      ctx.strokeStyle = nodeColor;
+      ctx.lineWidth = isCurrent ? 1.3 : 0.9;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(bx, by, tw + 6, 12, 3);
+      } else {
+        ctx.rect(bx, by, tw + 6, 12);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isCurrent ? "#a7f3d0" : wp.kind === "historic" ? "#fde68a" : "#bae6fd";
+      ctx.fillText(tagTxt, bx + 3, by + 9);
+    }
+  }
+
+  // Capa 4: Anillo y mira activa en la foto actual (activeStep) + indicador HUD de rastro temporal
+  const curWp = waypoints[activeStep];
+  if (curWp && curWp.cx >= 0 && curWp.cx <= W && curWp.cy >= 0 && curWp.cy <= H) {
+    ctx.strokeStyle = "rgba(52, 211, 153, 0.45)";
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.arc(curWp.cx, curWp.cy, 12.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#34d399";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(curWp.cx, curWp.cy, 8.0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Píldora HUD cuando la estrella está dentro del rango de visión
+    const hudTxt = `Rastro temporal [${activeStep + 1}/${K}]: ${curWp.title}`;
+    ctx.font = "bold 9.5px monospace";
+    const hudW = Math.min(W - 20, ctx.measureText(hudTxt).width + 14);
+    const hudX = Math.max(8, (W - hudW) / 2);
+    const hudY = isSpherexCanvas ? H - 24 : H - 44;
+    ctx.fillStyle = "rgba(2, 6, 23, 0.88)";
+    ctx.strokeStyle = "rgba(52, 211, 153, 0.65)";
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(hudX, hudY, hudW, 15, 4);
+    } else {
+      ctx.rect(hudX, hudY, hudW, 15);
+    }
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#6ee7b7";
+    ctx.fillText(hudTxt, hudX + 7, hudY + 10.5, hudW - 12);
+  }
+
+  ctx.restore();
+}
+
+function buildTimelineBlinkFrames(data = state.timelineData) {
+  if (!data) {
+    state.timelineBlinkFrames = [];
+    return [];
+  }
+  const { detector, series, stamps } = tlCurrentSelection(data);
+  const geom = tlHistoryGeometry(data);
+  const stampFovArcsec = (data.stamp_fov_deg || 0.04) * 3600;
+  const toHistXY = (p) => ({
+    x: 50 - ((p.e - geom.centerE) / geom.fovArcsec) * 100,
+    y: 50 - ((p.n - geom.centerN) / geom.fovArcsec) * 100,
+  });
+
+  if (stamps.length >= 2) {
+    enhanceTimelineStampsPair(data, detector, stamps);
+  }
+
+  const selectedKeys = tlEnsureSelectedKeys(data);
+
+  const buildHistoricFrames = () => {
+    const histPositions = TIMELINE_SURVEYS.map((survey) => {
+      const midYear = (survey.years[0] + survey.years[1]) / 2;
+      return geom.pm ? toHistXY(geom.pm.at(midYear)) : toHistXY({ e: 0, n: 0 });
+    });
+
+    return TIMELINE_SURVEYS.map((survey, idx) => {
+      const frameKey = `hist:${survey.key}`;
+      const midYear = (survey.years[0] + survey.years[1]) / 2;
+      let svg = "";
+      const cross = toHistXY({ e: 0, n: 0 });
+      svg += tlCrosshairSvg(cross.x, cross.y);
+      if (geom.pm) {
+        const a = toHistXY(geom.pm.at(TIMELINE_SURVEYS[0].years[0]));
+        const b = toHistXY(geom.pm.at(geom.yearNow));
+        const mid = histPositions[idx];
+        // Corredor completo punteado
+        svg += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#fda4af" stroke-width="1.0" stroke-dasharray="2.5 2.5" opacity="0.65"/>`;
+        // Rastro acumulado de décadas anteriores hasta la década actual
+        for (let j = 0; j <= idx; j++) {
+          const pj = histPositions[j];
+          if (j > 0) {
+            const pPrev = histPositions[j - 1];
+            svg += `<line x1="${pPrev.x}" y1="${pPrev.y}" x2="${pj.x}" y2="${pj.y}" stroke="#fbbf24" stroke-width="2.1" stroke-linecap="round"/>`;
+          }
+          if (j < idx) {
+            svg += `<circle cx="${pj.x}" cy="${pj.y}" r="3.2" fill="#fbbf24" stroke="#0f172a" stroke-width="0.9"/>`;
+          }
+        }
+        svg +=
+          `<rect x="${b.x - 2.6}" y="${b.y - 2.6}" width="5.2" height="5.2" fill="none" stroke="#fde68a" stroke-width="1.2"/>` +
+          `<circle cx="${mid.x}" cy="${mid.y}" r="11" fill="none" stroke="rgba(251, 113, 133, 0.38)" stroke-width="1.8"/>` +
+          `<circle cx="${mid.x}" cy="${mid.y}" r="7.2" fill="none" stroke="#fb7185" stroke-width="2.0"/>` +
+          `<text x="${Math.min(68, mid.x + 9)}" y="${Math.max(12, mid.y - 5)}" fill="#fecdd3" font-size="7.2" font-family="monospace" font-weight="bold">${survey.label} (${Math.round(midYear)})</text>`;
+      }
+      const urls = survey.hips.map((id) => tlHipsUrl(id, geom));
+      const shortYear = String(Math.round(midYear)).slice(-2);
+      return {
+        frameKey,
+        kind: "historic",
+        historicKey: survey.key,
+        visitId: null,
+        year: midYear,
+        shortTag: `${survey.label} ~${shortYear}`,
+        imgSrc: urls[0],
+        fallbackSrcs: urls.slice(1),
+        svg,
+        badgeText: `${survey.label} (${survey.range})`,
+        badgeClass:
+          "px-2 py-0.5 rounded bg-amber-950/90 border border-amber-400/80 text-[10px] font-bold font-mono text-amber-200 shadow",
+        stepText: `${idx + 1}/3`,
+        caption: geom.pm
+          ? `${survey.label} (${survey.range}): rastro histórico de ${geom.pm.name} (${tlFmt(geom.pm.speed, 1)}″/año) sobre un campo fijo de ${tlFieldLabel(geom.fovArcsec)}.`
+          : `${survey.label} (${survey.range}) · ${survey.band} · campo de ${tlFieldLabel(geom.fovArcsec)}.`,
+      };
+    });
+  };
+
+  const buildSpherexFrames = () => {
+    if (!stamps.length) return [];
+    const { posA, posB, isMoving, shiftArcsec } = tlResolveComparatorPositions(data, stamps);
+    const ptsByVisit = new Map((series?.points || []).map((p) => [p.visit_id, p]));
+    const spxPositions = stamps.map((_, idx) => {
+      const tFrac = stamps.length > 1 ? idx / (stamps.length - 1) : 0;
+      return {
+        x: posA.x + (posB.x - posA.x) * tFrac,
+        y: posA.y + (posB.y - posA.y) * tFrac,
+      };
+    });
+
+    return stamps.map((st, idx) => {
+      const frameKey = `spherex:${st.visit_id}`;
+      const isFirst = idx === 0;
+      const isLast = idx === stamps.length - 1 && stamps.length > 1;
+      const enhKey =
+        isFirst && stamps.length >= 2
+          ? `${data.ra.toFixed(5)}:${data.dec.toFixed(5)}:${detector}:${st.visit_id}:early`
+          : isLast && stamps.length >= 2
+          ? `${data.ra.toFixed(5)}:${data.dec.toFixed(5)}:${detector}:${st.visit_id}:late`
+          : null;
+      const imgSrc = (enhKey && state.timelineEnhancedStamps.get(enhKey)) || st.image_base64;
+
+      const activePos = spxPositions[idx];
+      const ghostPos = isFirst ? posB : posA;
+      const activeColor = isFirst ? "#38bdf8" : "#34d399";
+      const haloColor = isFirst ? "rgba(56, 189, 248, 0.42)" : "rgba(52, 211, 153, 0.45)";
+      const ghostColor = isFirst ? "rgba(244, 63, 94, 0.42)" : "rgba(56, 189, 248, 0.42)";
+      let svg = tlCrosshairSvg(50, 50, "rgba(148, 163, 184, 0.55)");
+      if (isMoving) {
+        svg += `<line x1="${posA.x}" y1="${posA.y}" x2="${posB.x}" y2="${posB.y}" stroke="#fb7185" stroke-width="1.1" stroke-dasharray="2.5 2" opacity="0.7"/>`;
+        for (let j = 0; j <= idx; j++) {
+          const pj = spxPositions[j];
+          if (j > 0) {
+            const pPrev = spxPositions[j - 1];
+            svg += `<line x1="${pPrev.x}" y1="${pPrev.y}" x2="${pj.x}" y2="${pj.y}" stroke="#34d399" stroke-width="2.0" stroke-linecap="round"/>`;
+          }
+          if (j < idx) {
+            svg += `<circle cx="${pj.x}" cy="${pj.y}" r="2.8" fill="#38bdf8" stroke="#0f172a" stroke-width="0.8"/>`;
+          }
+        }
+        svg +=
+          `<circle cx="${ghostPos.x}" cy="${ghostPos.y}" r="5.2" fill="none" stroke="${ghostColor}" stroke-width="1.1" stroke-dasharray="2 2"/>` +
+          `<circle cx="${activePos.x}" cy="${activePos.y}" r="10.5" fill="none" stroke="${haloColor}" stroke-width="1.8"/>` +
+          `<circle cx="${activePos.x}" cy="${activePos.y}" r="6.8" fill="none" stroke="${activeColor}" stroke-width="2.1"/>`;
+      } else {
+        const pulseR = isFirst ? 6.5 : 9.8;
+        const ringColor = isFirst ? "#38bdf8" : "#fbbf24";
+        svg +=
+          (!isFirst
+            ? `<circle cx="${activePos.x}" cy="${activePos.y}" r="13.5" fill="none" stroke="rgba(251, 191, 36, 0.4)" stroke-width="1.8"/>`
+            : "") +
+          `<circle cx="${activePos.x}" cy="${activePos.y}" r="${pulseR}" fill="none" stroke="${ringColor}" stroke-width="2.0" ${isFirst ? 'stroke-dasharray="2.5 2"' : ""}/>`;
+      }
+
+      const pt = ptsByVisit.get(st.visit_id);
+      const fluxTxt = pt ? ` · Brillo: ${tlFmt(pt.flux_mjy_sr, 2)} MJy/sr` : "";
+      const shiftTxt = isMoving && shiftArcsec > 0 ? ` · salto ${tlFmt(shiftArcsec, 1)}″` : "";
+
+      return {
+        frameKey,
+        kind: "spherex",
+        historicKey: null,
+        visitId: st.visit_id,
+        year: tlYearFromMjd(st.mjd),
+        shortTag: `SPX #${idx + 1}`,
+        imgSrc,
+        fallbackSrcs: [],
+        svg,
+        badgeText: `SPHEREx · ${st.label}`,
+        badgeClass:
+          "px-2 py-0.5 rounded bg-slate-950/85 border border-sky-500/60 text-[10px] font-mono text-sky-200 shadow",
+        stepText: `${idx + 1}/${stamps.length}`,
+        caption: `SPHEREx ${st.detector} (${tlFmt(st.wavelength_um, 2)} µm) · ${st.label}${fluxTxt}${shiftTxt} · campo ${tlFieldLabel(stampFovArcsec)}.`,
+      };
+    });
+  };
+
+  const allCandidates = [...buildHistoricFrames(), ...buildSpherexFrames()];
+  let frames = allCandidates.filter((f) => selectedKeys.has(f.frameKey));
+  if (frames.length === 0) {
+    frames = allCandidates;
+  }
+  frames.forEach((f, idx) => {
+    f.stepText = `${idx + 1}/${frames.length}`;
+  });
+
+  state.timelineBlinkFrames = frames;
+  if (state.timelineBlinkStep >= frames.length) {
+    state.timelineBlinkStep = 0;
+  }
+  return frames;
+}
+
+function updateTimelineBlinkModeButtons() {
+  const modes = [
+    { id: "btn-tl-mode-all", mode: "all" },
+    { id: "btn-tl-mode-spherex", mode: "spherex" },
+    { id: "btn-tl-mode-historic", mode: "historic" },
+  ];
+  modes.forEach(({ id, mode }) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.className =
+      state.timelineBlinkMode === mode
+        ? "px-1.5 py-0.5 rounded bg-sky-500 text-slate-950 font-semibold transition"
+        : "px-1.5 py-0.5 rounded text-slate-300 hover:text-white transition";
+  });
+}
+
+function renderTimelineBlinkFrame(scrollStrip = false) {
+  const frames = state.timelineBlinkFrames || [];
+  const imgEl = document.getElementById("timeline-blink-img");
+  const svgEl = document.getElementById("timeline-blink-svg");
+  const badgeEl = document.getElementById("timeline-blink-badge");
+  const stepEl = document.getElementById("timeline-blink-step-badge");
+  const capEl = document.getElementById("timeline-blink-caption");
+  const fallbackEl = document.getElementById("timeline-blink-fallback");
+  if (!imgEl || !svgEl || !frames.length) return;
+
+  const frame = frames[state.timelineBlinkStep % frames.length];
+  const pending = [...(frame.fallbackSrcs || [])];
+  fallbackEl?.classList.add("hidden");
+  imgEl.classList.remove("hidden");
+  imgEl.onerror = () => {
+    if (pending.length) {
+      imgEl.src = pending.shift();
+      return;
+    }
+    imgEl.classList.add("hidden");
+    fallbackEl?.classList.remove("hidden");
+  };
+  if (imgEl.getAttribute("src") !== frame.imgSrc) {
+    imgEl.src = frame.imgSrc;
+  }
+  svgEl.innerHTML = frame.svg || "";
+  if (badgeEl) {
+    badgeEl.className = frame.badgeClass;
+    badgeEl.textContent = frame.badgeText;
+  }
+  if (stepEl) {
+    stepEl.textContent = frame.stepText;
+  }
+  if (capEl) {
+    capEl.textContent = frame.caption;
+  }
+
+  // Sincronizar el resaltado en la tira de miniaturas y el gráfico sin mover el scroll de la página
+  document.querySelectorAll("#timeline-strip .tl-card[data-historic-key]").forEach((card) => {
+    const active = frame.historicKey != null && card.dataset.historicKey === String(frame.historicKey);
+    card.classList.toggle("ring-2", active);
+    card.classList.toggle("ring-amber-400", active);
+    if (active && scrollStrip) {
+      card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
+  });
+  highlightTimelineVisit(frame.visitId, scrollStrip);
+  if (state.viewMode === "blink") {
+    renderCanvas();
+  } else {
+    renderMultiEpochStepsBar();
+  }
+  renderContextSkyMap();
+}
+
+function startTimelineBlinkTimer() {
+  state.timelineBlinkPlaying = Boolean(state.isPlaying);
+  startBlinkTimer();
+}
+
+function setTimelineBlinkMode(mode) {
+  state.timelineBlinkMode = mode;
+  const data = state.timelineData;
+  const allKeys = tlAllAvailableFrameKeys(data);
+  if (mode === "historic") {
+    state.timelineSelectedKeys = new Set(TIMELINE_SURVEYS.map((s) => `hist:${s.key}`));
+  } else if (mode === "spherex") {
+    const spxKeys = allKeys.filter((k) => k.startsWith("spherex:"));
+    state.timelineSelectedKeys = new Set(spxKeys.length >= 2 ? spxKeys : allKeys);
+  } else {
+    state.timelineSelectedKeys = new Set(allKeys);
+  }
+  state.timelineBlinkStep = 0;
+  buildTimelineBlinkFrames(data);
+  updateTimelineBlinkModeButtons();
+  if (data) renderTimelineStrip(data);
+  renderTimelineBlinkFrame(false);
+  startTimelineBlinkTimer();
+}
+
+function renderTimelineStrip(data) {
+  const strip = document.getElementById("timeline-strip");
+  if (!strip) return;
+  strip.innerHTML = "";
+  const { stamps } = tlCurrentSelection(data);
+  const geom = tlHistoryGeometry(data);
+  const selectedKeys = tlEnsureSelectedKeys(data);
+  const orderByKey = new Map();
+  let runningOrder = 1;
+  tlAllAvailableFrameKeys(data).forEach((k) => {
+    if (selectedKeys.has(k)) {
+      orderByKey.set(k, runningOrder++);
+    }
+  });
+
+  const toXY = (p) => ({
+    x: 50 - ((p.e - geom.centerE) / geom.fovArcsec) * 100,
+    y: 50 - ((p.n - geom.centerN) / geom.fovArcsec) * 100,
+  });
+
+  // --- 1) Relevamientos históricos: otros telescopios, para comparar posición y rastro ---
+  TIMELINE_SURVEYS.forEach((survey) => {
+    const frameKey = `hist:${survey.key}`;
+    let svg = "";
+    if (geom.pm) {
+      const a = toXY(geom.pm.at(TIMELINE_SURVEYS[0].years[0]));
+      const b = toXY(geom.pm.at(geom.yearNow));
+      const s0 = toXY(geom.pm.at(survey.years[0]));
+      const s1 = toXY(geom.pm.at(survey.years[1]));
+      const mid = toXY(geom.pm.at((survey.years[0] + survey.years[1]) / 2));
+      svg +=
+        `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#fda4af" stroke-width="0.8" stroke-dasharray="2.5 2.5" opacity="0.8"/>` +
+        `<line x1="${s0.x}" y1="${s0.y}" x2="${s1.x}" y2="${s1.y}" stroke="#fb7185" stroke-width="2" stroke-linecap="round"/>` +
+        `<circle cx="${mid.x}" cy="${mid.y}" r="6.5" fill="none" stroke="#fb7185" stroke-width="1.2"/>` +
+        `<rect x="${b.x - 2}" y="${b.y - 2}" width="4" height="4" fill="none" stroke="#fde68a" stroke-width="1"/>`;
+    }
+    const cross = toXY({ e: 0, n: 0 });
+    svg += tlCrosshairSvg(cross.x, cross.y);
+    const urls = survey.hips.map((id) => tlHipsUrl(id, geom));
+    const tip =
+      `${survey.label} (${survey.range}) · ${survey.band}.\n` +
+      "Es otro telescopio y otro color: sirve para comparar la POSICIÓN y el rastro histórico.\n" +
+      `Campo de ${tlFieldLabel(geom.fovArcsec)} · Norte arriba, Este a la izquierda.` +
+      (geom.pm
+        ? `\nCírculo rosa: dónde estaba ${geom.pm.name} en esos años (${geom.pm.source}). Cuadrado amarillo: dónde está hoy.`
+        : "");
+    const hCard = tlBuildCard({
+      imgSrc: urls[0],
+      fallbackSrcs: urls.slice(1),
+      svg,
+      title: `${survey.label} · ${survey.range}`,
+      subtitle: `histórico · posición · campo ${tlFieldLabel(geom.fovArcsec)}`,
+      tooltip: tip,
+      historicKey: survey.key,
+      frameKey,
+      isSelected: selectedKeys.has(frameKey),
+      stepOrder: orderByKey.get(frameKey) || null,
+      onToggleSelect: (key) => tlToggleFrameKeySelection(key, data),
+      historic: true,
+    });
+    hCard.addEventListener("click", () => {
+      if (!selectedKeys.has(frameKey)) {
+        selectedKeys.add(frameKey);
+        buildTimelineBlinkFrames(data);
+        renderTimelineStrip(data);
+      }
+      const targetIdx = (state.timelineBlinkFrames || []).findIndex((f) => f.frameKey === frameKey);
+      if (targetIdx >= 0) {
+        state.timelineBlinkStep = targetIdx;
+      }
+      renderTimelineBlinkFrame(true);
+    });
+    strip.appendChild(hCard);
+  });
+
+  // --- separador ---
+  const sep = document.createElement("div");
+  sep.className = "shrink-0 flex flex-col items-center justify-center px-1 text-[9px] uppercase tracking-wider text-sky-300/80";
+  sep.innerHTML = `<div class="w-px flex-1 bg-sky-500/30"></div><div class="py-1" style="writing-mode:vertical-rl;transform:rotate(180deg)">SPHEREx</div><div class="w-px flex-1 bg-sky-500/30"></div>`;
+  strip.appendChild(sep);
+
+  // --- 2) Visitas SPHEREx del detector elegido ---
+  const stampFovArcsec = (data.stamp_fov_deg || 0.04) * 3600;
+  if (stamps.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "shrink-0 w-[240px] flex items-center text-[11px] text-slate-400 px-2";
+    empty.textContent = "SPHEREx todavía no tiene imágenes utilizables de este punto.";
+    strip.appendChild(empty);
+  }
+  const { series: stripSeries } = tlCurrentSelection(data);
+  const visitsInCurve = new Set((stripSeries?.points || []).map((p) => p.visit_id));
+  stamps.forEach((st) => {
+    const frameKey = `spherex:${st.visit_id}`;
+    let svg = tlCrosshairSvg(50, 50);
+    if (Number.isFinite(st.centroid_east_arcsec) && Number.isFinite(st.centroid_north_arcsec)) {
+      const cx = 50 - (st.centroid_east_arcsec / stampFovArcsec) * 100;
+      const cy = 50 - (st.centroid_north_arcsec / stampFovArcsec) * 100;
+      svg += `<circle cx="${cx}" cy="${cy}" r="1.6" fill="#fde68a" stroke="#0f172a" stroke-width="0.5"/>`;
+    }
+    const visit = (data.visits || []).find((v) => v.visit_id === st.visit_id);
+    const card = tlBuildCard({
+      imgSrc: st.image_base64,
+      svg,
+      title: st.label,
+      subtitle:
+        `SPHEREx · ${tlEscape(st.detector)} · ${tlFmt(st.wavelength_um, 2)} µm` +
+        (visitsInCurve.has(st.visit_id) ? ` <span class="text-sky-300" title="Esta fecha aporta un punto a la curva de brillo">● curva</span>` : ""),
+      tooltip:
+        `SPHEREx · ${st.label} (MJD ${Number(st.mjd).toFixed(2)})\n` +
+        `Detector ${st.detector} · λ = ${Number(st.wavelength_um).toFixed(3)} µm · campo de ${tlFieldLabel(stampFovArcsec)}\n` +
+        (visit ? `${visit.n_exposures} exposiciones en esta fecha.\n` : "") +
+        "Punto amarillo: centro medido de la fuente. Clic: ver esta fecha en la secuencia y en el visor principal.",
+      visitId: st.visit_id,
+      frameKey,
+      isSelected: selectedKeys.has(frameKey),
+      stepOrder: orderByKey.get(frameKey) || null,
+      onToggleSelect: (key) => tlToggleFrameKeySelection(key, data),
+      pixelated: false,
+    });
+    card.addEventListener("click", () => {
+      if (!selectedKeys.has(frameKey)) {
+        selectedKeys.add(frameKey);
+        buildTimelineBlinkFrames(data);
+        renderTimelineStrip(data);
+      }
+      const targetIdx = (state.timelineBlinkFrames || []).findIndex((f) => f.frameKey === frameKey);
+      if (targetIdx >= 0) {
+        state.timelineBlinkStep = targetIdx;
+      }
+      renderTimelineBlinkFrame(true);
+      selectTimelineVisit(st.visit_id, true);
+    });
+    card.addEventListener("mouseenter", () => highlightTimelineVisit(st.visit_id));
+    card.addEventListener("mouseleave", () => highlightTimelineVisit(state.timelineSelectedVisit));
+    strip.appendChild(card);
+  });
+  highlightTimelineVisit(state.timelineSelectedVisit);
+}
+
+/** Resalta la miniatura y el punto del gráfico de una visita (sin cambiar la selección). */
+function highlightTimelineVisit(visitId, scrollIntoView = false) {
+  document.querySelectorAll("#timeline-strip .tl-card[data-visit]").forEach((card) => {
+    const active = visitId != null && card.dataset.visit === String(visitId);
+    card.classList.toggle("ring-2", active);
+    card.classList.toggle("ring-sky-400", active);
+    if (active && scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  });
+  const plot = document.getElementById("timeline-plot");
+  const { series } = tlCurrentSelection();
+  if (plot?.data?.length && series && window.Plotly) {
+    const approx = series.mode !== "strict";
+    const base = approx ? "#fbbf24" : "#38bdf8";
+    Plotly.restyle(plot, {
+      "marker.size": [series.points.map((p) => (p.visit_id === visitId ? 15 : 9))],
+      "marker.color": [series.points.map((p) => (p.visit_id === visitId ? "#ffffff" : base))],
+    }, [0]);
+  }
+}
+
+/** Selecciona una visita; con jump=true lleva el visor principal a esa fecha. */
+function selectTimelineVisit(visitId, jump = false) {
+  state.timelineSelectedVisit = visitId;
+  highlightTimelineVisit(visitId, true);
+  if (!jump) return;
+  const data = state.timelineData;
+  const visit = (data?.visits || []).find((v) => v.visit_id === visitId);
+  if (!visit) return;
+  const point = state.timelinePoint;
+  const onMainTile = point && Math.abs(point.centerRa - state.ra) < 1e-4 && Math.abs(point.centerDec - state.dec) < 1e-4;
+  const epochs = state.exploreData?.epochs || [];
+  let bestIdx = -1;
+  let bestScore = Infinity;
+  if (onMainTile) {
+    epochs.forEach((ep, idx) => {
+      const mjd = tlParseMjd(ep.obs_time);
+      if (!Number.isFinite(mjd) || mjd < visit.mjd_start - 0.6 || mjd > visit.mjd_end + 0.6) return;
+      const score = (tlDetCode(ep.detector) === state.timelineDetector ? 0 : 1000) + Math.abs(mjd - visit.mjd_mid);
+      if (score < bestScore) {
+        bestScore = score;
+        bestIdx = idx;
+      }
+    });
+  }
+  if (bestIdx < 0) {
+    setExploreProgress(
+      `La fecha ${visit.label} se ve en la miniatura, pero no está cargada en el visor principal. ` +
+      "Usá «Buscar pares temporales» o «Sincronizar nuevas entregas IRSA» para cargar más fechas."
+    );
+    return;
+  }
+  if (state.viewMode !== "blink") setViewMode("blink");
+  state.currentEpochIdx = bestIdx;
+  state.selectedBand = String(bestIdx);
+  const slider = document.getElementById("slider-epoch");
+  if (slider) slider.value = bestIdx;
+  const bandSelect = document.getElementById("select-band");
+  if (bandSelect) bandSelect.value = state.selectedBand;
+  renderCanvas();
+  const ep = epochs[bestIdx];
+  setExploreProgress(`Visor principal en la fecha ${visit.label} · ${ep.detector || "SPHEREx"} · ${Number(ep.wavelength_center_um).toFixed(3)} µm.`);
+}
+
+function renderTimelineHeadline(data) {
+  const el = document.getElementById("timeline-headline");
+  if (!el) return;
+  const h = data.headline;
+  const style = TIMELINE_STATUS_STYLE[h.status] || TIMELINE_STATUS_STYLE.insufficient;
+  const km = data.known_motion;
+  const showGoto = km && km.offset_now_arcsec > 15;
+  const notes = (h.notes || []).map((n) => `<li>${tlEscape(n)}</li>`).join("");
+  el.innerHTML =
+    `<div class="rounded-lg border px-3 py-2 ${style.box}">` +
+    `<div class="flex flex-wrap items-center gap-2">` +
+    `<span class="px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${style.pill}">${tlEscape(style.chip)}</span>` +
+    `<span class="text-sm font-bold text-white">${tlEscape(h.title)}</span>` +
+    (h.period ? `<span class="text-[11px] text-slate-400">${tlEscape(h.period)}</span>` : "") +
+    (showGoto
+      ? `<button type="button" id="btn-timeline-goto" class="ml-auto px-2 py-0.5 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 text-[11px] font-semibold transition" ` +
+        `title="Carga los datos de SPHEREx centrados en RA ${km.current_ra.toFixed(5)}°, Dec ${km.current_dec.toFixed(5)}° (posición prevista para ${km.current_epoch_year.toFixed(1)})">Ir a su posición actual →</button>`
+      : "") +
+    `</div>` +
+    `<p class="text-xs text-slate-200 mt-1 leading-snug">${tlEscape(h.detail)}</p>` +
+    (notes ? `<ul class="mt-1 space-y-0.5 text-[11px] text-slate-400 list-disc list-inside leading-snug">${notes}</ul>` : "") +
+    `</div>`;
+  document.getElementById("btn-timeline-goto")?.addEventListener("click", () => {
+    state.forceCenterSelection = true;
+    setExploreProgress(`Buscando a ${km.name} en su posición actual…`);
+    exploreCoordinates(km.current_ra, km.current_dec, state.fov, 20);
+  });
+}
+
+function renderTimelineDetectorSelect(data) {
+  const select = document.getElementById("select-timeline-detector");
+  if (!select) return;
+  const { detector, detectors } = tlCurrentSelection(data);
+  select.innerHTML = "";
+  (detectors || []).forEach((det) => {
+    const series = (data.series || []).find((s) => s.detector === det);
+    const stamp = (data.stamps || []).find((s) => s.detector === det);
+    const wl = series ? series.reference_wavelength_um : stamp?.wavelength_um;
+    const opt = document.createElement("option");
+    opt.value = det;
+    const tag = !series ? "1 fecha" : `${series.n_visits} fechas${series.mode === "strict" ? "" : " · aprox."}`;
+    opt.textContent = `${det} · ${Number.isFinite(wl) ? tlFmt(wl, 2) + " µm" : "—"} · ${tag}`;
+    select.appendChild(opt);
+  });
+  select.value = detector || "";
+  select.disabled = (detectors || []).length <= 1;
+}
+
+function renderTimelinePlot(data) {
+  const el = document.getElementById("timeline-plot");
+  if (!el || !window.Plotly) return;
+  const { detector, series } = tlCurrentSelection(data);
+  const baseLayout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    margin: { l: 56, r: 16, t: 26, b: 38 },
+    showlegend: false,
+  };
+  if (!series) {
+    const msg = detector
+      ? `SPHEREx midió este color (${detector}) en una sola fecha:<br>todavía no hay con qué comparar el brillo.`
+      : "Todavía no hay mediciones de brillo en este punto.";
+    Plotly.react(el, [], {
+      ...baseLayout,
+      xaxis: { visible: false },
+      yaxis: { visible: false },
+      annotations: [{ text: msg, showarrow: false, xref: "paper", yref: "paper", x: 0.5, y: 0.5, font: { color: "#94a3b8", size: 12 } }],
+    }, { responsive: true, displayModeBar: false });
+    return;
+  }
+  const pts = series.points;
+  const approx = series.mode !== "strict";
+  const color = approx ? "#fbbf24" : "#38bdf8";
+  const sel = state.timelineSelectedVisit;
+  const x = pts.map((p) => new Date((p.mjd - 40587) * 86400000).toISOString());
+  const trace = {
+    x,
+    y: pts.map((p) => p.flux_mjy_sr),
+    error_y: { type: "data", array: pts.map((p) => p.flux_uncertainty), visible: true, color: "rgba(148, 163, 184, 0.6)", thickness: 1.2, width: 3 },
+    mode: "lines+markers",
+    line: { color, width: 2, dash: approx ? "dot" : "solid" },
+    marker: {
+      color: pts.map((p) => (p.visit_id === sel ? "#ffffff" : color)),
+      size: pts.map((p) => (p.visit_id === sel ? 15 : 9)),
+      line: { color: "#0f172a", width: 1.5 },
+    },
+    customdata: pts.map((p) => [p.label, p.n_exposures, p.flux_uncertainty, p.wavelength_um, p.visit_id]),
+    hovertemplate:
+      "<b>%{customdata[0]}</b><br>Brillo: %{y:.3f} ± %{customdata[2]:.3f} MJy/sr" +
+      "<br>%{customdata[1]} exposición(es) · λ %{customdata[3]:.3f} µm<extra></extra>",
+  };
+  const fluxes = pts.map((p) => p.flux_mjy_sr);
+  const spanDays = pts[pts.length - 1].mjd - pts[0].mjd;
+  const padDays = Math.max(spanDays * 0.08, 0.05);
+  const toIso = (mjd) => new Date((mjd - 40587) * 86400000).toISOString();
+  const allPositive = Math.min(...fluxes) > 0;
+  const mean = fluxes.reduce((a, b) => a + b, 0) / fluxes.length;
+  const subtitle =
+    (series.photometry === "halo" ? "Resplandor alrededor del centro saturado · " : "") +
+    (approx
+      ? "Estimación aproximada: longitudes de onda cercanas en el mismo detector"
+      : `Mismo color infrarrojo en todas las fechas (${tlFmt(series.reference_wavelength_um, 2)} µm)`);
+  const layout = {
+    ...baseLayout,
+    xaxis: {
+      type: "date",
+      tickformat: spanDays < 12 ? "%d/%m %Hh" : "%d/%m/%Y",
+      nticks: 6,
+      range: [toIso(pts[0].mjd - padDays), toIso(pts[pts.length - 1].mjd + padDays)],
+      gridcolor: "rgba(148, 163, 184, 0.12)",
+      tickfont: { color: "#cbd5e1", size: 10 },
+      title: { text: "Fecha de observación", font: { color: "#94a3b8", size: 11 } },
+    },
+    yaxis: {
+      title: { text: "Brillo (MJy/sr)", font: { color: "#94a3b8", size: 11 } },
+      gridcolor: "rgba(148, 163, 184, 0.12)",
+      tickfont: { color: "#cbd5e1", size: 10 },
+      rangemode: allPositive ? "tozero" : "normal",
+      zerolinecolor: "rgba(148, 163, 184, 0.3)",
+    },
+    shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: mean, y1: mean, line: { color: "rgba(148, 163, 184, 0.45)", width: 1, dash: "dash" } }],
+    annotations: [{
+      text: subtitle, showarrow: false, xref: "paper", yref: "paper", x: 0, y: 1.16, xanchor: "left",
+      font: { color: approx ? "#fbbf24" : "#7dd3fc", size: 11 },
+    }],
+  };
+  Plotly.react(el, [trace], layout, { responsive: true, displayModeBar: false });
+  if (!el._timelineBound) {
+    el._timelineBound = true;
+    el.on("plotly_hover", (ev) => {
+      const visitId = ev?.points?.[0]?.customdata?.[4];
+      if (visitId != null) highlightTimelineVisit(visitId, true);
+    });
+    el.on("plotly_unhover", () => highlightTimelineVisit(state.timelineSelectedVisit));
+    el.on("plotly_click", (ev) => {
+      const visitId = ev?.points?.[0]?.customdata?.[4];
+      if (visitId != null) selectTimelineVisit(visitId, true);
+    });
+  }
+}
+
+function renderTimelineBadge() {
+  const badge = document.getElementById("btn-timeline-badge");
+  if (!badge) return;
+  const inTimeline = state.spectrumPlotMode === "timeline";
+  const data = state.timelineData;
+  if (inTimeline || (!data && !state.timelineLoading)) {
+    badge.classList.add("hidden");
+    return;
+  }
+  badge.classList.remove("hidden");
+  if (!data) {
+    badge.textContent = "Línea histórica: calculando…";
+    return;
+  }
+  const style = TIMELINE_STATUS_STYLE[data.headline.status] || TIMELINE_STATUS_STYLE.insufficient;
+  badge.textContent = `Línea histórica · ${style.chip}: ${data.headline.title} →`;
+}
+
+function renderTimeline() {
+  renderTimelineBadge();
+  if (state.spectrumPlotMode !== "timeline") return;
+  const headline = document.getElementById("timeline-headline");
+  const strip = document.getElementById("timeline-strip");
+  const plot = document.getElementById("timeline-plot");
+  const tech = document.getElementById("timeline-technical");
+  const data = state.timelineData;
+  if (!data) {
+    const msg = state.timelineLoading
+      ? "Calculando la línea histórica de este punto…"
+      : state.timelineError
+        ? `No se pudo calcular la línea histórica: ${state.timelineError}`
+        : "Tocá una estrella o un punto del visor para ver cómo cambió con el tiempo.";
+    if (headline) {
+      headline.innerHTML = `<div class="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">${tlEscape(msg)}</div>`;
+    }
+    if (strip) strip.innerHTML = "";
+    if (plot && window.Plotly) Plotly.purge(plot);
+    if (tech) tech.textContent = "";
+    const select = document.getElementById("select-timeline-detector");
+    if (select) select.innerHTML = "";
+    state.timelineBlinkFrames = [];
+    const blinkSvg = document.getElementById("timeline-blink-svg");
+    if (blinkSvg) blinkSvg.innerHTML = "";
+    const blinkBadge = document.getElementById("timeline-blink-badge");
+    if (blinkBadge) blinkBadge.textContent = state.timelineLoading ? "CARGANDO…" : "ESPERANDO…";
+    const blinkCap = document.getElementById("timeline-blink-caption");
+    if (blinkCap) blinkCap.textContent = msg;
+    return;
+  }
+  renderTimelineHeadline(data);
+  renderTimelineDetectorSelect(data);
+  buildTimelineBlinkFrames(data);
+  renderTimelineStrip(data);
+  renderTimelinePlot(data);
+  updateTimelineBlinkModeButtons();
+  renderTimelineBlinkFrame(false);
+  startTimelineBlinkTimer();
+  if (tech) {
+    const m = data.motion || {};
+    const motionTxt = m.shift_arcsec != null
+      ? ` · corrimiento medido ${Number(m.shift_arcsec).toFixed(1)}″ (${Number(m.shift_sigma).toFixed(1)}σ)`
+      : "";
+    tech.textContent =
+      `${data.headline.technical || "Sin serie comparable"}${motionTxt} · ${data.total_exposures} exposiciones SPHEREx en ${data.visits.length} fecha(s)` +
+      (data.tracking_applied ? " · apertura siguiendo el movimiento propio de catálogo" : "");
+  }
+}
+
+async function fetchAndRenderTimeline(pointRa, pointDec, centerRa, centerDec) {
+  const sequence = ++state.timelineSequence;
+  state.timelineController?.abort();
+  state.timelineController = new AbortController();
+  Object.assign(state, {
+    timelineData: null,
+    timelineError: null,
+    timelineLoading: true,
+    timelineSelectedVisit: null,
+    timelineSelectedKeys: null,
+    timelinePoint: { ra: pointRa, dec: pointDec, centerRa, centerDec },
+  });
+  renderTimeline();
+  try {
+    const url =
+      `/api/timeline?ra=${pointRa}&dec=${pointDec}&center_ra=${centerRa}&center_dec=${centerDec}&fov=${state.fov}` +
+      `&max_epochs=${state.exploreData?.epochs?.length || 20}&temporal_search=${state.temporalSearch}`;
+    const res = await fetch(url, { signal: state.timelineController.signal });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (sequence !== state.timelineSequence) return;
+    state.timelineData = data;
+    state.timelineDetector = data.default_detector || null;
+    // Por defecto seleccionar automáticamente todas las fotos mostradas (históricas + todas las visitas SPHEREx)
+    state.timelineBlinkMode = "all";
+    state.timelineSelectedKeys = new Set(tlAllAvailableFrameKeys(data));
+    state.timelineBlinkStep = 0;
+  } catch (err) {
+    if (sequence !== state.timelineSequence) return;
+    if (err.name !== "AbortError") state.timelineError = err.message;
+  } finally {
+    if (sequence === state.timelineSequence) {
+      state.timelineLoading = false;
+      if (state.timelineData) {
+        buildTimelineBlinkFrames(state.timelineData);
+        startBlinkTimer();
+      }
+      renderTimeline();
+      renderCanvas();
+      renderContextSkyMap();
+    }
+  }
+}
+
+function setSpectrumPlotMode(mode) {
+  state.spectrumPlotMode = mode === "timeline" ? "timeline" : "spectrum";
+  syncUrlParams(state.ra, state.dec, state.fov, state.temporalSearch);
+  renderSpectrumOrLightCurve();
+}
+
+function exportTimelineCsv() {
+  const data = state.timelineData;
+  if (!data || !(data.series || []).length) {
+    setExploreProgress("Todavía no hay una línea histórica con mediciones para exportar.");
+    return;
+  }
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [
+    "record_type,ra_deg,dec_deg,detector,comparison_mode,photometry,visit_date,mjd,flux_mjy_sr,flux_uncertainty_mjy_sr,n_exposures,wavelength_um,east_offset_arcsec,north_offset_arcsec",
+  ];
+  data.series.forEach((s) => {
+    s.points.forEach((p) => {
+      rows.push([
+        "brightness", data.ra.toFixed(6), data.dec.toFixed(6), q(s.detector), s.mode, s.photometry, p.date_iso,
+        Number(p.mjd).toFixed(4), Number(p.flux_mjy_sr).toFixed(5), Number(p.flux_uncertainty).toFixed(5),
+        p.n_exposures, Number(p.wavelength_um).toFixed(4), "", "",
+      ].join(","));
+    });
+  });
+  (data.motion?.positions || []).forEach((p) => {
+    const visit = data.visits.find((v) => v.visit_id === p.visit_id);
+    rows.push([
+      "position", data.ra.toFixed(6), data.dec.toFixed(6), "", "", "", visit?.date_iso || "",
+      Number(p.mjd).toFixed(4), "", "", p.n_exposures, "", Number(p.east_arcsec).toFixed(2), Number(p.north_arcsec).toFixed(2),
+    ].join(","));
+  });
+  const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `papastronomy_linea_historica_${Number(data.ra).toFixed(4)}_${Number(data.dec).toFixed(4)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  setExploreProgress(`Línea histórica exportada (${rows.length - 1} filas): ${a.download}`);
+}
+
 function renderSpectrumOrLightCurve(data = state.lastSpectrumData) {
-  if (!data || !window.Plotly) return;
   const titleEl = document.getElementById("spectrum-panel-title");
   const btnSpec = document.getElementById("btn-plot-spectrum");
   const btnLc = document.getElementById("btn-plot-lightcurve");
-  const isLc = state.spectrumPlotMode === "lightcurve";
+  const isTimeline = state.spectrumPlotMode === "timeline";
   if (btnSpec && btnLc) {
-    btnSpec.className = !isLc
+    btnSpec.className = !isTimeline
       ? "px-2 py-0.5 rounded bg-sky-500 text-slate-950 font-semibold"
       : "px-2 py-0.5 rounded text-slate-300 hover:text-white";
-    btnLc.className = isLc
+    btnLc.className = isTimeline
       ? "px-2 py-0.5 rounded bg-sky-500 text-slate-950 font-semibold"
       : "px-2 py-0.5 rounded text-slate-300 hover:text-white";
   }
+  document.getElementById("spectrum-plot")?.classList.toggle("hidden", isTimeline);
+  document.getElementById("timeline-view")?.classList.toggle("hidden", !isTimeline);
+  document.querySelectorAll(".spectrum-only").forEach((el) => el.classList.toggle("hidden", isTimeline));
 
-  if (isLc) {
-    if (titleEl) titleEl.textContent = "Curva de luz temporal · F(t) por detector";
-    const palette = ["#38bdf8", "#34d399", "#fbbf24", "#f472b6", "#a78bfa", "#fb7185"];
-    const byDetector = new Map();
-    (data.spectrum || []).forEach((p) => {
-      const det = p.detector || "SPHEREx";
-      if (!byDetector.has(det)) byDetector.set(det, []);
-      const rawT = p.obs_time;
-      const mjd = Number(rawT);
-      const isoDate = rawT && Number.isFinite(mjd)
-        ? new Date((mjd - 40587) * 86400000).toISOString().replace("T", " ").slice(0, 19)
-        : String(rawT || "sin-fecha");
-      const sortKey = Number.isFinite(mjd) ? mjd : Date.parse(rawT) || 0;
-      byDetector.get(det).push({ ...p, isoDate, sortKey });
-    });
-
-    const traces = [];
-    let colorIdx = 0;
-    byDetector.forEach((pts, det) => {
-      pts.sort((a, b) => a.sortKey - b.sortKey);
-      const c = palette[colorIdx % palette.length];
-      colorIdx++;
-      traces.push({
-        x: pts.map((pt) => pt.isoDate),
-        y: pts.map((pt) => pt.flux_mjy_sr),
-        error_y: {
-          type: "data",
-          array: pts.map((pt) => pt.flux_uncertainty),
-          visible: true,
-          color: "rgba(148, 163, 184, 0.45)",
-          thickness: 1,
-        },
-        mode: "lines+markers",
-        name: det,
-        line: { color: c, width: 2 },
-        marker: { color: c, size: 7 },
-        customdata: pts.map((pt) => Number(pt.wavelength_um).toFixed(3)),
-        hovertemplate: `<b>${det}</b> · %{x}<br>Flujo = %{y:.3f} MJy/sr (λ = %{customdata} μm)<extra></extra>`,
-      });
-    });
-
-    const layoutLc = {
-      paper_bgcolor: "rgba(0,0,0,0)",
-      plot_bgcolor: "rgba(0,0,0,0)",
-      margin: { l: 52, r: 18, t: 14, b: 48 },
-      xaxis: {
-        title: { text: "Fecha de Observación (UTC · Exposiciones Reales SPHEREx)", font: { color: "#94a3b8", size: 11 } },
-        gridcolor: "rgba(148, 163, 184, 0.12)",
-        tickfont: { color: "#cbd5e1", size: 9 },
-      },
-      yaxis: {
-        title: { text: "Brillo superficial (MJy/sr)", font: { color: "#94a3b8", size: 11 } },
-        gridcolor: "rgba(148, 163, 184, 0.12)",
-        tickfont: { color: "#cbd5e1", size: 10 },
-      },
-      showlegend: true,
-      legend: { orientation: "h", y: 1.14, x: 0, font: { color: "#cbd5e1", size: 10 } },
-    };
-    Plotly.react("spectrum-plot", traces, layoutLc, { responsive: true, displayModeBar: false });
+  if (isTimeline) {
+    if (titleEl) titleEl.textContent = "Línea histórica · cómo cambió este lugar con el tiempo";
+    renderTimeline();
     return;
   }
+  renderTimelineBadge();
+  if (!data || !window.Plotly) return;
 
   if (titleEl) titleEl.textContent = "Espectro medido · cobertura disponible";
   const wl = data.spectrum.map((p) => p.wavelength_um);
@@ -3039,6 +5439,7 @@ async function fetchAndRenderSpectrum(pointRa, pointDec, keepSelectedPixel = fal
   document.getElementById("spectrum-coord-label").textContent = "Midiendo espectro de la posición seleccionada…";
   const refCenterRa = Number.isFinite(centerRaOverride) ? centerRaOverride : state.ra;
   const refCenterDec = Number.isFinite(centerDecOverride) ? centerDecOverride : state.dec;
+  void fetchAndRenderTimeline(pointRa, pointDec, refCenterRa, refCenterDec);
   try {
     const url = `/api/spectrum?ra=${pointRa}&dec=${pointDec}&center_ra=${refCenterRa}&center_dec=${refCenterDec}&fov=${state.fov}&max_epochs=${state.exploreData?.epochs?.length || 10}&temporal_search=${state.temporalSearch}`;
     const res = await fetch(url, { signal: state.spectrumController.signal });
@@ -3148,7 +5549,7 @@ function populateBandSelector(epochs, targetInfo, detectorCoadds = {}) {
     const wlRange = firstEp && lastEp
       ? `${Number(firstEp.wavelength_center_um).toFixed(3)}–${Number(lastEp.wavelength_center_um).toFixed(3)} µm`
       : "misma banda";
-    pairOpt.textContent = `Par temporal comparable (Blink A/B · ${pairIndices.length} épocas · ${detName} ${wlRange})`;
+    pairOpt.textContent = `Secuencia Histórica Sincronizada (${pairIndices.length} exp · ${detName} ${wlRange})`;
     select.appendChild(pairOpt);
   }
 
@@ -3201,9 +5602,16 @@ function populateBandSelector(epochs, targetInfo, detectorCoadds = {}) {
     selA.value = String(defA);
     selB.value = String(defB);
   }
-  select.value = "auto";
-  state.selectedBand = "auto";
-  state.currentEpochIdx = targetInfo.best_band_index || 0;
+  if (pairIndices.length >= 2) {
+    select.value = "pair";
+    state.selectedBand = "pair";
+    state.pairBlinkPhase = 0;
+    state.currentEpochIdx = state.pairMeta?.earlyIdx ?? pairIndices[0];
+  } else {
+    select.value = "auto";
+    state.selectedBand = "auto";
+    state.currentEpochIdx = targetInfo.best_band_index || 0;
+  }
   if (summary) {
     const best = targetInfo.best_band_index;
     const bestEp = Number.isInteger(best) ? epochs[best] : null;
@@ -3211,10 +5619,19 @@ function populateBandSelector(epochs, targetInfo, detectorCoadds = {}) {
       ? targetInfo.total_bands
       : epochs.length;
     const detCount = detEntries.length;
-    summary.textContent = bestEp
-      ? `Automática: ${Number(bestEp.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(bestEp.bandwidth_um || 0).toFixed(3)} µm) · ${bestEp.detector || "detector"} · ${bestEp.clean_pixels_pct}% limpios · ${loadedBands} bandas (${detCount} detectores con suma SNR).`
-      : `Automática: no se pudo determinar una longitud de onda válida · ${loadedBands} bandas cargadas.`;
+    if (state.selectedBand === "pair" && pairIndices.length >= 2) {
+      const firstEp = epochs[pairIndices[0]];
+      const lastEp = epochs[pairIndices[pairIndices.length - 1]];
+      summary.textContent =
+        `Secuencia Histórica Sincronizada activa: recorriendo todos los puntos temporales en ${firstEp?.detector || "detector"} ` +
+        `(${Number(firstEp?.wavelength_center_um || 0).toFixed(2)}–${Number(lastEp?.wavelength_center_um || 0).toFixed(2)} µm) en simultáneo con el Contexto infrarrojo.`;
+    } else {
+      summary.textContent = bestEp
+        ? `Automática: ${Number(bestEp.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(bestEp.bandwidth_um || 0).toFixed(3)} µm) · ${bestEp.detector || "detector"} · ${bestEp.clean_pixels_pct}% limpios · ${loadedBands} bandas (${detCount} detectores con suma SNR).`
+        : `Automática: no se pudo determinar una longitud de onda válida · ${loadedBands} bandas cargadas.`;
+    }
   }
+  renderMultiEpochStepsBar();
 }
 
 function syncFovPresetSelect(fovValue) {
@@ -3233,7 +5650,7 @@ function setExploreBusy(busy) {
   document.getElementById("coord-form").querySelector("button[type=submit]").textContent = busy ? "Procesando…" : "Explorar Cielo";
 }
 
-async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch = false, refresh = false) {
+async function exploreCoordinates(ra, dec, fov, maxEpochs = 20, temporalSearch = false, refresh = false) {
   ra = Number(ra); dec = Number(dec); fov = Number(fov);
   if (![ra, dec, fov].every(Number.isFinite) || ra < 0 || ra > 360 || dec < -90 || dec > 90 || fov <= 0.005 || fov > 1) {
     setExploreProgress("Revisá las coordenadas: RA 0–360°, Dec −90–90°, FoV entre 0.005° y 1°.");
@@ -3244,6 +5661,12 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
   state.exploreController?.abort();
   state.spectrumController?.abort();
   state.spectrumSequence++;
+  state.timelineController?.abort();
+  state.timelineSequence++;
+  Object.assign(state, { timelineData: null, timelineLoading: false, timelineError: null, timelineSelectedVisit: null });
+  renderTimeline();
+  const forceCenter = state.forceCenterSelection;
+  state.forceCenterSelection = false;
   state.exploreController = new AbortController();
   const controller = state.exploreController;
   const timeout = setTimeout(() => controller.abort(), 240000);
@@ -3282,6 +5705,7 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     document.getElementById("input-fov").value = fov.toFixed(4);
     syncFovPresetSelect(fov);
     syncUrlParams(ra, dec, fov, temporalSearch);
+    buildCatalogSourcesFromField();
     populateBandSelector(data.epochs, data.target_info, data.detector_coadds);
     const slider = document.getElementById("slider-epoch");
     slider.max = Math.max(0, data.epochs.length - 1);
@@ -3303,7 +5727,6 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
     document.getElementById("analysis-note").textContent = data.target_info.analysis_note;
     document.getElementById("mode-diff").disabled = !data.target_info.difference_available;
     if (state.viewMode === "diff" && !data.target_info.difference_available) setViewMode("blink");
-    buildCatalogSourcesFromField();
     state.tileGrid = new Map();
     state.nextDetectionId = 100;
     const originDetections = mapDetectionsToGlobalPlane(data.ai_detections || [], true);
@@ -3325,7 +5748,14 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = 10, temporalSearch =
       aiDetections: originDetections,
     });
     updateInfinitePlaneBadge();
-    const top = originDetections[0];
+    // Si hay un dipolo móvil detectado en el campo actual (ej. WISE 0855), seleccionarlo para que su
+    // movimiento intermitente quede enfocado de inmediato; si es un astro de catálogo que ya se mudó
+    // fuera del centro (ej. Barnard's Star en J2000), usar el centro para explicar su recorrido.
+    const matchedTarget = state.targets.find((t) => t.id === data.target_info.matched_target_id);
+    const firstDipole = originDetections.find((d) => d.type === "MOVING_DIPOLE");
+    const top = forceCenter
+      ? null
+      : firstDipole || (matchedTarget?.proper_motion ? null : originDetections[0]);
     state.selectedDetectionId = top?.id || null;
     state.selectedPixel = top ? { x: top.x_pix, y: top.y_pix } : { x: 63.5, y: 63.5 };
     renderAIDetectionsList(state.allAiDetections);
@@ -3385,6 +5815,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   state.fov = initial.fov;
   state.embed = Boolean(initial.embed);
   state.invertPixels = Boolean(initial.invert);
+  state.spectrumPlotMode = initial.timeline ? "timeline" : "spectrum";
+  renderSpectrumOrLightCurve();
   if (state.embed) document.body.classList.add("embedded");
   const chkInvertInit = document.getElementById("chk-invert");
   if (chkInvertInit) chkInvertInit.checked = state.invertPixels;
@@ -3598,29 +6030,38 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   const runManualPairOperation = (op) => {
+    const epochs = state.exploreData?.epochs || [];
+    const pairIndices = state.exploreData?.target_info?.analysis_frame_indices || [];
     const selA = document.getElementById("select-epoch-a");
     const selB = document.getElementById("select-epoch-b");
-    if (!selA || !selB) return;
-    const idxA = parseInt(selA.value, 10);
-    const idxB = parseInt(selB.value, 10);
+    const idxA = pairIndices.length >= 2 ? pairIndices[0] : (selA ? parseInt(selA.value, 10) : 0);
+    const idxB =
+      pairIndices.length >= 2
+        ? pairIndices[pairIndices.length - 1]
+        : (selB ? parseInt(selB.value, 10) : Math.max(0, epochs.length - 1));
     if (!Number.isInteger(idxA) || !Number.isInteger(idxB)) return;
     if (op === "blink") {
-      state.manualPairIndices = [idxA, idxB];
-      state.selectedBand = "manual_pair";
+      state.manualPairIndices = pairIndices.length >= 2 ? [...pairIndices] : [idxA, idxB];
+      state.selectedBand = "pair";
+      const bandSelect = document.getElementById("select-band");
+      if (bandSelect) bandSelect.value = "pair";
       state.currentEpochIdx = idxA;
       const slider = document.getElementById("slider-epoch");
       if (slider) slider.value = idxA;
       setViewMode("blink");
-      state.isPlaying = true;
-      const playBtn = document.getElementById("btn-play-pause");
-      if (playBtn) playBtn.textContent = "Pausar";
-      startBlinkTimer();
+      setUnifiedPlaybackState(true);
+      renderContextSkyMap();
       return;
     }
     const manualCanvas = computeManualEpochPairCanvas(idxA, idxB, op);
     if (!manualCanvas) return;
     state.manualOpCanvas = manualCanvas;
-    state.manualOpMeta = { op, idxA, idxB };
+    state.manualOpMeta = {
+      op,
+      idxA,
+      idxB,
+      count: Math.max(pairIndices.length, state.timelineBlinkFrames?.length || 0, 2),
+    };
     setViewMode(op === "diff" ? "manual_diff" : "manual_sum");
   };
 
@@ -3644,17 +6085,55 @@ document.addEventListener("DOMContentLoaded", async () => {
     setExploreProgress(`Imagen exportada: ${a.download}`);
   });
 
-  document.getElementById("btn-plot-spectrum")?.addEventListener("click", () => {
-    state.spectrumPlotMode = "spectrum";
-    renderSpectrumOrLightCurve();
+  document.getElementById("btn-plot-spectrum")?.addEventListener("click", () => setSpectrumPlotMode("spectrum"));
+  document.getElementById("btn-plot-lightcurve")?.addEventListener("click", () => setSpectrumPlotMode("timeline"));
+  document.getElementById("btn-timeline-badge")?.addEventListener("click", () => setSpectrumPlotMode("timeline"));
+  document.getElementById("select-timeline-detector")?.addEventListener("change", (e) => {
+    state.timelineDetector = e.target.value;
+    state.timelineSelectedVisit = null;
+    state.timelineBlinkMode = "all";
+    state.timelineSelectedKeys = new Set(tlAllAvailableFrameKeys(state.timelineData));
+    state.timelineBlinkStep = 0;
+    renderTimeline();
   });
 
-  document.getElementById("btn-plot-lightcurve")?.addEventListener("click", () => {
-    state.spectrumPlotMode = "lightcurve";
-    renderSpectrumOrLightCurve();
+  document.getElementById("btn-tl-mode-spherex")?.addEventListener("click", () => setTimelineBlinkMode("spherex"));
+  document.getElementById("btn-tl-mode-historic")?.addEventListener("click", () => setTimelineBlinkMode("historic"));
+  document.getElementById("btn-tl-mode-all")?.addEventListener("click", () => setTimelineBlinkMode("all"));
+  document.getElementById("btn-tl-play")?.addEventListener("click", () => {
+    setUnifiedPlaybackState(!state.isPlaying);
+  });
+  const stepTimelineComparator = () => {
+    const sync = getSynchronizedTemporalState();
+    if (sync.K === 0) return;
+    state.timelineBlinkStep = (sync.activeStep + 1) % sync.K;
+    const nextSync = getSynchronizedTemporalState();
+    state.currentEpochIdx = nextSync.correspondingEpochIdx;
+    const slider = document.getElementById("slider-epoch");
+    if (slider) slider.value = state.currentEpochIdx;
+    renderCanvas();
+    if (state.timelineBlinkFrames?.length) {
+      renderTimelineBlinkFrame(true);
+    } else {
+      renderContextSkyMap();
+    }
+  };
+  document.getElementById("btn-tl-step")?.addEventListener("click", stepTimelineComparator);
+  document.getElementById("timeline-blink-stage")?.addEventListener("click", stepTimelineComparator);
+  document.getElementById("select-tl-fps")?.addEventListener("change", (e) => {
+    const fps = parseFloat(e.target.value) || 2;
+    state.timelineBlinkFps = fps;
+    state.fps = fps;
+    const mainFpsSel = document.getElementById("select-fps");
+    if (mainFpsSel) mainFpsSel.value = String(Math.round(fps));
+    startBlinkTimer();
   });
 
   document.getElementById("btn-export-csv")?.addEventListener("click", () => {
+    if (state.spectrumPlotMode === "timeline") {
+      exportTimelineCsv();
+      return;
+    }
     const data = state.lastSpectrumData;
     if (!data || !data.spectrum || data.spectrum.length === 0) {
       setExploreProgress("Seleccioná una fuente con espectro medido antes de exportar CSV.");
@@ -3687,14 +6166,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     setExploreProgress(`Fotometría exportada (${data.spectrum.length} mediciones): ${a.download}`);
   });
 
-  document.getElementById("btn-play-pause").addEventListener("click", (e) => {
-    state.isPlaying = !state.isPlaying;
-    if (state.isPlaying && state.selectedBand !== "pair" && state.selectedBand !== "manual_pair") {
-      state.selectedBand = "auto";
-      document.getElementById("select-band").value = "auto";
+  document.getElementById("btn-play-pause").addEventListener("click", () => {
+    const nextPlaying = !state.isPlaying;
+    if (nextPlaying && state.selectedBand !== "pair" && state.selectedBand !== "manual_pair") {
+      const pairIndices = state.exploreData?.target_info?.analysis_frame_indices || [];
+      state.selectedBand = pairIndices.length >= 2 ? "pair" : "auto";
+      const bandSelect = document.getElementById("select-band");
+      if (bandSelect) bandSelect.value = state.selectedBand;
     }
-    e.currentTarget.textContent = state.isPlaying ? "Pausar" : "Reproducir";
-    startBlinkTimer();
+    setUnifiedPlaybackState(nextPlaying);
   });
 
   document.getElementById("slider-epoch").addEventListener("input", (e) => {
@@ -3702,7 +6182,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.selectedBand = String(state.currentEpochIdx);
     const bandSelect = document.getElementById("select-band");
     if (bandSelect) bandSelect.value = state.selectedBand;
+    const totalEp = Math.max(1, (state.exploreData?.epochs?.length || 1) - 1);
+    const sync = getSynchronizedTemporalState();
+    state.timelineBlinkStep = Math.min(sync.K - 1, Math.round((state.currentEpochIdx / totalEp) * (sync.K - 1)));
     renderCanvas();
+    renderContextSkyMap();
   });
 
   document.getElementById("select-band").addEventListener("change", (e) => {
@@ -3725,7 +6209,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else if (state.selectedBand === "pair") {
         const pairIndices = state.exploreData?.target_info?.analysis_frame_indices || [];
         summary.textContent =
-          `Par comparable activo: ciclando solo las ${pairIndices.length} exposiciones de igual detector y banda usadas en la resta temporal.`;
+          `Secuencia Histórica Sincronizada activa: recorriendo las ${pairIndices.length} exposiciones comparables en simultáneo con el Contexto infrarrojo.`;
       } else if (ep) {
         summary.textContent = state.selectedBand === "auto"
           ? `Automática: ${Number(ep.wavelength_center_um).toFixed(3)} µm (Δλ ${Number(ep.bandwidth_um || 0).toFixed(3)} µm) · ${ep.detector || "detector"} · ${ep.clean_pixels_pct}% de píxeles limpios.`
@@ -3733,6 +6217,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
     renderCanvas();
+    renderContextSkyMap();
   });
 
   const selectContextSurvey = document.getElementById("select-context-survey");
@@ -3753,7 +6238,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   document.getElementById("btn-irsa-sync").addEventListener("click", () => {
-    const currentEpochs = state.exploreData?.epochs?.length || 10;
+    const currentEpochs = state.exploreData?.epochs?.length || 20;
     const nextEpochs = Math.min(102, Math.max(currentEpochs + 6, state.temporalSearch ? 24 : 16));
     setExploreProgress("Sincronizando nuevas entregas de IRSA para esta región…");
     exploreCoordinates(state.ra, state.dec, state.fov, nextEpochs, state.temporalSearch, true);
@@ -3773,7 +6258,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   document.getElementById("select-fps").addEventListener("change", (e) => {
-    state.fps = parseInt(e.target.value, 10);
+    const fps = parseInt(e.target.value, 10) || 2;
+    state.fps = fps;
+    state.timelineBlinkFps = fps;
+    const tlFpsSel = document.getElementById("select-tl-fps");
+    if (tlFpsSel) tlFpsSel.value = String(fps);
     startBlinkTimer();
   });
 
@@ -3863,9 +6352,65 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  const chkTrail = document.getElementById("chk-temporal-trail");
+  const btnMotionMain = document.getElementById("btn-toggle-star-motion");
+  const btnMotionCtx = document.getElementById("btn-toggle-star-motion-context");
   const chkGaia = document.getElementById("chk-gaia");
   const chkPm = document.getElementById("chk-pm-vectors");
   const lblPm = document.getElementById("lbl-pm-vectors");
+
+  const updateStarMotionButtonsUI = () => {
+    const visible = Boolean(state.showTemporalTrail);
+    if (chkTrail) {
+      chkTrail.checked = visible;
+    }
+    if (btnMotionMain) {
+      btnMotionMain.setAttribute("aria-pressed", String(visible));
+      btnMotionMain.textContent = visible
+        ? "Ocultar movimiento estelar"
+        : "Mostrar movimiento estelar";
+      btnMotionMain.className = visible
+        ? "px-3 py-1.5 rounded-lg text-xs bg-rose-950/70 border border-rose-500/50 text-rose-200 hover:bg-rose-900/80 transition font-semibold"
+        : "px-3 py-1.5 rounded-lg text-xs bg-emerald-950/70 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-900/80 transition font-semibold";
+    }
+    if (btnMotionCtx) {
+      btnMotionCtx.setAttribute("aria-pressed", String(visible));
+      btnMotionCtx.textContent = visible ? "Ocultar movimiento" : "Mostrar movimiento";
+      btnMotionCtx.className = visible
+        ? "px-2 py-0.5 rounded bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/40 text-rose-200 transition font-semibold"
+        : "px-2 py-0.5 rounded bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-500/40 text-emerald-200 transition font-semibold";
+    }
+  };
+
+  const setStarMotionVisible = (visible) => {
+    state.showTemporalTrail = Boolean(visible);
+    state.showPmVectors = Boolean(visible);
+    if (chkPm) {
+      chkPm.checked = Boolean(visible);
+    }
+    updateStarMotionButtonsUI();
+    renderCanvas();
+    renderContextSkyMap();
+  };
+
+  if (chkTrail) {
+    state.showTemporalTrail = Boolean(chkTrail.checked);
+    chkTrail.addEventListener("change", (e) => {
+      setStarMotionVisible(Boolean(e.target.checked));
+    });
+  }
+  if (btnMotionMain) {
+    btnMotionMain.addEventListener("click", () => {
+      setStarMotionVisible(!state.showTemporalTrail);
+    });
+  }
+  if (btnMotionCtx) {
+    btnMotionCtx.addEventListener("click", () => {
+      setStarMotionVisible(!state.showTemporalTrail);
+    });
+  }
+  updateStarMotionButtonsUI();
+
   const syncGaiaPmState = () => {
     const gaiaEnabled = Boolean(chkGaia?.checked);
     state.showGaiaCat = gaiaEnabled;
@@ -3939,6 +6484,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 1200);
   });
 
-  await exploreCoordinates(state.ra, state.dec, state.fov, initial.temporalSearch ? 24 : 10, initial.temporalSearch);
+  await exploreCoordinates(state.ra, state.dec, state.fov, initial.temporalSearch ? 24 : 20, initial.temporalSearch);
   startBlinkTimer();
 });

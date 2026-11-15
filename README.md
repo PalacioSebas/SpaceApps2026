@@ -15,7 +15,8 @@ El telescopio espacial **SPHEREx** de la NASA cartografía la totalidad del ciel
 - **Falso Color Infrarrojo RGB (3 Bandas SPHEREx):** Síntesis tricromática en vivo combinando el infrarrojo cercano corto ($< 1.65\ \mu\text{m}$ en azul), infrarrojo cercano medio ($1.65\text{–}3.0\ \mu\text{m}$ en verde) e infrarrojo medio ($\ge 3.0\ \mu\text{m}$ en rojo) para resaltar al instante enanas marrones ultrafrías y discos circumestelares.
 - **Resta Temporal Calibrada ($\Delta I$), Detección IA y Estimador Astrométrico Planeta X:** Igualación gaussiana de PSF, ajuste fotométrico relativo resistente a estrellas variables y detección automática ($>4\sigma$) de **Astros en Movimiento (`MOVING_DIPOLE`)** y **Estrellas Variables (`VARIABLE_MONOPOLE`)**, desglosando en cada dipolo tanto el movimiento propio lineal ($\mu$ en `″/año`, hipótesis estrella cercana / enana marrón) como la distancia heliocéntrica equivalente por paralaje ($d$ en `UA`, hipótesis Planeta X / TNO).
 - **Visor de Contexto Astronómico Multi-Misión:** Superposición interactiva de catálogos **Gaia DR3** (con vectores de movimiento propio), **AllWISE**, **SIMBAD**, **NASA Exoplanet Archive** y efemérides del Sistema Solar sobre fondos conmutables en proyección gnomónica `TAN` (**SPHEREx IR Local**, **AllWISE Color**, **2MASS JHK** y **DSS2 Óptico** vía CDS `hips2fits`).
-- **Espectro Infrarrojo $F(\lambda)$ y Curva de Luz Temporal $F(t)$ al Vuelo:** Extracción fotométrica de apertura real en `MJy/sr` con propagación de `VARIANCE` y evaluación del WCS espectral 2D (`WCS-WAVE`, `key='W'` con `sip=None`), acompañada de ajuste físico de temperatura de color de Planck ($T_{\text{eff}}$), detección de bandas moleculares ($\text{H}_2\text{O}$, $\text{CH}_4$, $\text{CO}$) y exportación científica en 1 clic a **CSV** y **PNG**.
+- **Línea Histórica del Lugar Seleccionado (cómo cambia con el tiempo):** Pestaña **«Línea histórica»** que, para cualquier punto o fuente, muestra un titular en lenguaje claro (*"Este objeto se movió entre fechas"*, *"Cambió su brillo un X %"*, *"No se ven cambios medibles"*), una **tira de miniaturas centradas con mira fija** (hitos históricos **DSS2 ~1984–2000**, **2MASS 1997–2001** y **AllWISE 2010–2011** + cada visita de **SPHEREx 2025–2026**) y una **curva de brillo sincronizada** que solo compara el mismo color infrarrojo ($\Delta\lambda/\lambda \le 3\,\%$), con respaldo aproximado siempre rotulado. Para astros de alto movimiento propio el campo histórico se agranda, dibuja la trayectoria prevista y ofrece **«Ir a su posición actual»**.
+- **Espectro Infrarrojo $F(\lambda)$ al Vuelo:** Extracción fotométrica de apertura real en `MJy/sr` con propagación de `VARIANCE` y evaluación del WCS espectral 2D (`WCS-WAVE`, `key='W'` con `sip=None`), acompañada de ajuste físico de temperatura de color de Planck ($T_{\text{eff}}$), detección de bandas moleculares ($\text{H}_2\text{O}$, $\text{CH}_4$, $\text{CO}$) y exportación científica en 1 clic a **CSV** y **PNG**.
 
 ---
 
@@ -34,9 +35,10 @@ El telescopio espacial **SPHEREx** de la NASA cartografía la totalidad del ciel
 | **Shift & Stack (`pmRA`, `pmDec`) + Auto-Track Dipolo IA** | ✅ Operativo | Apilado en movimiento (`computeShiftAndStackCanvas`) que desplaza bilinealmente cada época según $(\mu_{\alpha^*}, \mu_\delta)$ en `mas/año` para amplificar el SNR ($\sim\sqrt{N}$) de objetos móviles, con botón **Auto-Track Dipolo IA** (`#btn-autotrack-dipole`) y enlace directo **Comparar en WiseView ↗** (`#btn-open-wiseview`). |
 | **Resta Temporal Calibrada ($\Delta I$) + IA Astrométrica** | ✅ Operativo | Igualación de PSF (`src/difference.py`), detección $>4\sigma$ (`src/ai_detector.py`) y estimador dual **Movimiento Propio ($\mu$) vs. Distancia Planeta X (`UA`)**. |
 | **Fondos Multi-Misión (AllWISE / 2MASS / DSS2) + Gaia DR3** | ✅ Operativo | Selector de relevamiento de fondo vía CDS `hips2fits` + superposición de **Gaia DR3** (con respaldo JSON rápido vía AWS API Gateway), **AllWISE**, **SIMBAD** y exoplanetas. |
-| **Espectro 102 Bandas $F(\lambda)$ + Curva de Luz $F(t)$** | ✅ Operativo | Conmutador interactivo entre espectro infrarrojo y serie temporal por detector, con ajuste de cuerpo negro de Planck ($T_{\text{eff}}$) y bandas de $\text{H}_2\text{O}$, $\text{CH}_4$, $\text{CO}$. |
+| **Espectro 102 Bandas $F(\lambda)$** | ✅ Operativo | Espectro infrarrojo del punto seleccionado con ajuste de cuerpo negro de Planck ($T_{\text{eff}}$) y bandas de $\text{H}_2\text{O}$, $\text{CH}_4$, $\text{CO}$. |
+| **Línea Histórica (cambios en el tiempo)** | ✅ Operativo | Pestaña **«Línea histórica»** (`/api/timeline`, `src/timeline.py`): titular en lenguaje claro, tira de miniaturas con mira fija (DSS2 / 2MASS / AllWISE + visitas SPHEREx), curva de brillo por detector que solo compara la misma banda (estricta $\Delta\lambda/\lambda \le 3\,\%$ o respaldo aproximado rotulado), corrimiento medido del centroide, seguimiento de astros con movimiento propio de catálogo y botón **«Ir a su posición actual»**. Reemplaza a la antigua *Curva de Luz $F(t)$*, que mezclaba longitudes de onda distintas. |
 | **Banderas de Contaminación (`FLAGS`) y Metadatos** | ✅ Operativo | Enmascarado científico de bits anómalos (preservando `MP_SOURCE` y `MP_FULLSAMPLE`), lectura de `VERSION` del `PrimaryHDU` y capa magenta conmutable. |
-| **URL Parametrizada Embebible + Exportación CSV/PNG** | ✅ Operativo | Sincronización `?ra=...&dec=...&fov=...&temporal=1&embed=1`, generador de `<iframe>` y descarga directa de imagen anotada `.png` y fotometría `.csv`. |
+| **URL Parametrizada Embebible + Exportación CSV/PNG** | ✅ Operativo | Sincronización `?ra=...&dec=...&fov=...&temporal=1&embed=1&timeline=1`, generador de `<iframe>` y descarga directa de imagen anotada `.png` y fotometría `.csv`. |
 
 > Para el detalle completo del checklist contra los objetivos del challenge, consultar [`estado actual del proyecto.md`](file:///c:/Users/Sebas/OneDrive/Desktop/Nasa/estado%20actual%20del%20proyecto.md).
 
@@ -65,6 +67,8 @@ El telescopio espacial **SPHEREx** de la NASA cartografía la totalidad del ciel
 |  - src/pipeline.py        : Lectura FITS (PRIMARY/IMAGE/FLAGS/VARIANCE/WCS-WAVE), |
 |                             reproyección WCS común y fotometría de apertura       |
 |  - src/difference.py      : Igualación gaussiana de PSF y fotometría relativa     |
+|  - src/timeline.py        : Línea histórica: visitas, brillo comparable por banda,|
+|                             corrimiento del centroide, miniaturas y texto claro   |
 |  - src/ai_detector.py     : Detección >4 sigma de dipolos/monopolos, estimador    |
 |                             Planeta X (UA) y ajuste espectral de Planck (T_eff)   |
 |  - src/schemas.py         : Contratos de datos Pydantic v2                        |
@@ -88,6 +92,15 @@ El telescopio espacial **SPHEREx** de la NASA cartografía la totalidad del ciel
 4. **`GET /api/catalog`**: Consulta fuentes astrométricas y fotométricas de **Gaia DR3** o **AllWISE** en el campo de visión solicitado (vía IRSA TAP con respaldo automático en CDS VizieR y ARI Gaia).
 5. **`GET /api/objects`**: Identifica y nombra estrellas, enanas marrones, galaxias, estrellas con exoplanetas confirmados y planetas del Sistema Solar dentro del campo.
 6. **`GET /api/crossmatch`**: Realiza el cruce puntual de una coordenada `(ra, dec)` con SIMBAD, Gaia DR3 y AllWISE.
+7. **`GET /api/timeline`**: Devuelve la **línea histórica** del punto `(ra, dec)` usando todos los recortes `.FITS` reales ya presentes en la caché de la región (no descarga nada nuevo): visitas agrupadas por fecha, una serie de brillo por detector (`mode: "strict"` si $\Delta\lambda/\lambda \le 3\,\%$, `"approx"` si usa longitudes de onda cercanas del mismo detector), corrimiento del centroide entre visitas (`motion`), movimiento propio de catálogo y posición actual prevista (`known_motion`), miniaturas PNG norte-arriba con escala común por detector (`stamps`) y un titular en lenguaje claro (`headline`).
+
+### Cómo decide la Línea Histórica si algo cambió (y cuándo no lo afirma)
+
+- **Misma banda o nada.** En SPHEREx la longitud de onda depende de dónde cae el objeto sobre el filtro lineal variable, así que *mismo detector* no implica *mismo color*. La serie estricta solo une mediciones con $\Delta\lambda/\lambda \le 3\,\%$. Si no hay, el respaldo usa una ventana de hasta $10\,\%$ descontando la pendiente espectral y queda rotulado *"Estimación aproximada"*: puede sugerir un *posible cambio*, nunca afirmarlo.
+- **Fotometría robusta.** Suma en apertura de 2 px con borde suavizado y recentrada en el centroide. Sobre estrellas reales repite ~2,5 veces mejor que promediar píxeles enteros; aun así la dispersión medida entre exposiciones de una misma noche es ~8 %, y ese valor se usa como piso de error (baja con $\sqrt{N}$ exposiciones).
+- **Umbrales.** *Cambió su brillo* exige $p < 0{,}0027$ (≈3σ) y amplitud ≥ 8 %. *Se movió* exige ≥ 2,5″, ≥ 3σ y ≥ 20 días de separación. Con señal/ruido < 5 informa *"señal muy débil"* en lugar de inventar un cambio.
+- **Estrellas saturadas** (p. ej. R Draconis, Barnard's Star): se mide el resplandor alrededor del núcleo enmascarado y la posición con el centro de ese resplandor (residuo ~2″ por exposición frente a la trayectoria de catálogo de Barnard).
+- **Astros veloces.** WISE 0855, Barnard's Star y Epsilon Indi B traen su movimiento propio en `src/config.py`. Las coordenadas oficiales corresponden a épocas 2000–2014, así que hoy esos astros están a 1,6′–4,6′ de ahí: la línea histórica lo explica, dibuja el recorrido sobre las imágenes históricas y permite saltar a la posición actual, donde la apertura acompaña al objeto fecha a fecha.
 
 ---
 
@@ -105,6 +118,7 @@ Nasa/
 │   ├── analysis.py              # Selección científica de bandas comparables
 │   ├── pipeline.py              # Procesamiento FITS, reproyección WCS y espectros
 │   ├── difference.py            # Calibración PSF, fotometría relativa y resta Delta I
+│   ├── timeline.py              # Línea histórica: visitas, brillo por banda, movimiento y miniaturas
 │   ├── ai_detector.py           # Detector IA de dipolos/variables, Planeta X y Planck
 │   └── cache_utils.py           # Resolución multiplataforma de rutas en manifest.json
 ├── static/
@@ -116,7 +130,8 @@ Nasa/
 │   ├── test_dipoles.py          # Pruebas de detección de dipolos y monopolos variables
 │   ├── test_launcher.py         # Pruebas de compatibilidad multiplataforma del lanzador
 │   ├── test_regressions.py      # Pruebas de regresión científica, API, DR1+QR3 y 5 objetivos
-│   └── test_temporal_search.py  # Pruebas de selección y adquisición de pares temporales
+│   ├── test_temporal_search.py  # Pruebas de selección y adquisición de pares temporales
+│   └── test_timeline.py         # Pruebas de la línea histórica (brillo, movimiento, textos y API)
 ├── data/
 │   └── cache/                   # Caché local de recortes FITS reales y catálogos JSON
 ├── start_project.py             # Lanzador multiplataforma con autoverificación de entorno
@@ -163,7 +178,7 @@ py .\setup_cache_and_inspect.py
 
 ## 6. Pruebas Automatizadas y Rendimiento
 
-### Ejecución de la suite de tests (79 tests unitarios y de integración)
+### Ejecución de la suite de tests (98 tests unitarios y de integración)
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
@@ -174,6 +189,7 @@ La suite verifica:
 - Selección de líneas de base temporales y exclusión de restas entre detectores o longitudes de onda incompatibles (`tests/test_temporal_search.py`).
 - Funcionamiento 100% offline de los 5 casos oficiales de la NASA con apilados por detector (`detector_coadds`), resta temporal disponible y ajuste espectral de Planck (`tests/test_regressions.py`).
 - Compatibilidad multiplataforma del lanzador automático (`tests/test_launcher.py`).
+- Línea histórica (`tests/test_timeline.py`): agrupación en visitas, comparación estricta frente a respaldo aproximado, fuente estable / variable / débil / saturada, detección de movimiento por centroides, orientación norte-arriba de las miniaturas, astros veloces de catálogo y endpoint `/api/timeline` sobre los 5 objetivos reales en caché.
 
 ---
 
