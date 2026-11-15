@@ -869,20 +869,10 @@ def _read_cached_manifest(manifest_path: Path, region: tuple | None = None) -> T
     ):
         raise ValueError("El centro o tamaño de esta caché no coincide con la región solicitada")
     frames = []
-    seen_exposures: set = set()
     for item in manifest.get("frames", []):
         path = resolve_cached_path(item.get("local_path", ""), manifest_path.parent)
-        if not path.is_file():
-            continue
-        # La misma exposición (instante + detector) quedó guardada varias veces en algunas cachés:
-        # repetida, hacía que el blink mostrara la misma imagen en varios cuadros seguidos.
-        obs_time, detector = str(item.get("obs_time") or ""), str(item.get("detector_band") or "")
-        if obs_time and detector:
-            key = (obs_time, detector)
-            if key in seen_exposures:
-                continue
-            seen_exposures.add(key)
-        frames.append({**item, "local_path": str(path)})
+        if path.is_file():
+            frames.append({**item, "local_path": str(path)})
     return frames, manifest
 
 
