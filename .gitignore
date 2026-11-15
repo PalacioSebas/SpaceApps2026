@@ -22,9 +22,9 @@ ENV/
 !.env.sample
 !.env.template
 
-# Datos descargados y caches regenerables (no ignora fixtures fuera de data/cache)
-/data/cache/
-/data/raw_downloads/
+# Datos descargados (FITS, caché): pesan gigas, nunca se versionan.
+# El código crea data/cache al arrancar (src/config.py).
+/data/
 .matplotlib/
 .cache/
 
