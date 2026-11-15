@@ -72,6 +72,12 @@
   },
   "actions": [
     {
+      "id": "open_young_star_3d",
+      "label": "Explorar la estrella en 3D",
+      "effect": "navigation",
+      "requires_explicit_click": true
+    },
+    {
       "id": "open_learning_3d",
       "label": "Explorar en 3D",
       "effect": "navigation",
@@ -1425,6 +1431,28 @@
       "source_ids": ["nasa_brown_dwarfs"],
       "action_ids": ["open_learning_3d", "open_explorer"],
       "follow_up_ids": ["spectrum_definition", "mission"],
+      "fallback_ids": []
+    },
+    {
+      "id": "young_star",
+      "topic": "young_star",
+      "questions": ["¿Qué es una estrella joven con disco?", "Explicame el disco de polvo"],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Una estrella joven puede estar rodeada de un disco de gas y polvo. El polvo puede contribuir a la luz infrarroja que recibimos.",
+          "detail": "El visor muestra un sistema educativo genérico que podés inclinar. No reconstruye RW Aurigae ni determina qué causó una variación observada. Revisá las observaciones y el espectro de una fuente para investigar sus propiedades."
+        },
+        "technical": {
+          "summary": "El material circumestelar puede contribuir al exceso infrarrojo y afectar la luz estelar según la línea de visión.",
+          "detail": "El modelo usa una estrella y un disco plano con paletas conceptuales, sin transferencia radiativa ni ajuste a datos de una fuente. La acción 3D requiere integrar el módulo y apuntar a object=young-star."
+        }
+      },
+      "source_ids": ["nasa_planetary_systems"],
+      "action_ids": ["open_young_star_3d", "open_explorer"],
+      "follow_up_ids": ["spectrum_definition", "brown_dwarf"],
       "fallback_ids": []
     },
     {

@@ -12,7 +12,7 @@ Decisiones vigentes:
 - El perfil aplica valores iniciales; no bloquea funciones ni controles. Los ajustes manuales del usuario tienen prioridad y se pueden modificar después.
 - El asistente usa respuestas integradas y reglas locales. No se implementará por ahora un LLM externo, RAG, claves de IA ni entrenamiento de modelos.
 - El chat ocupa una sección propia, separada del explorador. Conserva una breve animación de preparación y la indicación de que usa respuestas integradas.
-- El usuario autorizó implementar «Aprendé en 3D»: una enana marrón educativa y genérica. Su módulo portable está en `static/learn-3d/`; debe conservarse al integrar. Otras clases de objetos siguen pendientes.
+- «Aprendé en 3D» incluye una enana marrón y una estrella joven con disco de polvo, ambas educativas y genéricas. El módulo portable está en `static/learn-3d/`; debe conservarse al integrar. El usuario decidió postergar las pruebas móviles y priorizar escritorio.
 - Se debe conservar la ejecución en Windows y Linux. Se recomienda Python 3.12; los lanzadores admiten 3.10–3.14. No introducir dependencias o comandos exclusivos de una plataforma sin revisar sus equivalentes.
 
 Las instrucciones posteriores del usuario pueden cambiar estas decisiones. Ante dudas sobre la integración, primero inspeccionar la versión del compañero y el estado del repositorio.
@@ -64,7 +64,7 @@ La integración futura debe adaptar este puente al estado real de la versión es
 
 ### Biblioteca portable: preparada, todavía sin conectar
 
-**El chat actual responde desde `static/demo-assistant.js`; todavía no carga los JSON de `content/assistant/`.** La biblioteca contiene 38 entradas con variantes simples y técnicas, 13 fuentes y tres recorridos de presentación. Incluye la guía de enanas marrones y la acción opcional `open_learning_3d`; el primer recorrido tiene una extensión 3D en `PRESENTACION.md`.
+**El chat actual responde desde `static/demo-assistant.js`; todavía no carga los JSON de `content/assistant/`.** La biblioteca contiene 39 entradas con variantes simples y técnicas, 14 fuentes y tres recorridos de presentación. Incluye guías de enanas marrones y estrellas jóvenes, con acciones opcionales `open_learning_3d` y `open_young_star_3d`; el primer recorrido tiene una extensión para ambas escenas en `PRESENTACION.md`.
 
 Sus archivos son `catalog.json`, `sources.json`, `demo-scenarios.json`, `PRESENTACION.md`, `validate.py` y `README.md`. El contrato neutral distingue campo, comparación, candidatos, selección y fotometría. El futuro adaptador debe resolver condiciones, variables y alternativas antes de mostrar una respuesta.
 
@@ -87,13 +87,19 @@ La carpeta **`static/learn-3d/`** contiene una página independiente, el compone
 
 El visor permite rotar y acercar una enana marrón genérica, pausar su animación, cambiar entre paletas artísticas visible/infrarroja y leer tres temas en estilo simple o técnico. Es una esfera tridimensional procedural mediante WebGL, no un archivo GLB ni una reconstrucción de un objeto real. No interpreta FITS, no mide temperaturas ni produce detecciones. Las fuentes y los límites están visibles.
 
+La segunda escena es una estrella joven con disco de gas y polvo, seleccionable mediante **Objeto educativo**, el atributo `object="young-star"` o el parámetro `?object=young-star`. El shader calcula esfera y disco plano con superposición según profundidad; inclinar con arrastre vertical cambia la vista. No es una reconstrucción de RW Aurigae ni identifica la causa de una variación. Los temas son Estrella, Disco y Variabilidad. El selector reinicia orientación, zoom y tema, conserva paleta/estilo/pausa y reutiliza el renderizador. La compatibilidad con `Papastronomy3DContent` se conserva; el catálogo completo es `Papastronomy3DObjects`.
+
+El arrastre y las flechas se corrigieron en ambos ejes para que la superficie acompañe el gesto. La rotación automática continúa siendo ilustrativa.
+
 Los enlaces desde la navegación y el asistente abren una pestaña nueva para conservar las observaciones. El puente añadido a `app.js` proporciona la ruta del módulo y pasa el estilo de explicación del perfil mediante un parámetro; se puede reescribir al integrar. El módulo no lee perfiles ni almacenamiento. Movimiento reducido inicia en pausa; fuera de pantalla se suspende y al retirarlo libera recursos. Sin WebGL sigue disponible el contenido educativo.
 
 El chat reconoce «¿Qué es una enana marrón?» y «Explorar en 3D». Su guía general funciona sin campo, durante la carga o con datos, y no clasifica el candidato. `DemoAssistant.mount` recibe `getLearning3DUrl` desde el anfitrión; sin una ruta HTTP(S) válida del mismo origen se omite el enlace. La ruta y el estilo del perfil se revisan al pulsar el acceso. Al integrar, conservar este puente junto al módulo o adaptar la acción neutral `open_learning_3d` de la biblioteca portable.
 
+También reconoce «¿Qué es una estrella joven con disco?» y ofrece un enlace con `object=young-star`, usando la misma ruta proporcionada por el anfitrión. La propiedad `object` de la acción distingue la escena; la biblioteca neutral usa `open_young_star_3d`. Conservar esa selección al adaptar el chat. Sus guías no usan resultados de una fuente como evidencia del dibujo.
+
 El usuario probó el visor en navegador y confirmó que se ve bien después de corregir la transparencia del halo: el shader ahora entrega colores premultiplicados por alfa, con negro transparente fuera del halo. No se completó una validación visual automatizada ni la revisión móvil; los chequeos de código y estado sí están aprobados.
 
-Verificación local: scripts con sintaxis válida, página HTTP 200, pruebas `check.cjs` del módulo y los cuatro chequeos JavaScript existentes aprobados mediante el runtime JavaScript de herramientas. Node no está en PATH. La revisión visual WebGL de escritorio/móvil no se pudo completar: navegador integrado no disponible y Chrome minimizado impidió capturar el estado con las herramientas. Debe hacerse antes de certificar la integración. El workflow incluye la nueva comprobación; aún no se ejecutó CI por estos cambios.
+Verificación local: scripts con sintaxis válida, página y assets HTTP 200, pruebas `check.cjs` del módulo y los cuatro chequeos JavaScript existentes aprobados mediante el runtime JavaScript de herramientas. Las pruebas cubren el selector entre escenas, conservación de estilo/paleta, liberación de recursos y selección del modelo desde el asistente. Node no está en PATH. La revisión visual automatizada de la estrella joven queda pendiente: el navegador integrado no está disponible y el control de Chrome se interrumpió porque no pudo verificar la URL con suficiente confianza. Las pruebas de estado no compilan shaders ni certifican el renderizado. La revisión móvil se postergó por decisión del usuario. CI aún no se ejecutó por estos cambios.
 
 ## Levantar la app en otra PC
 

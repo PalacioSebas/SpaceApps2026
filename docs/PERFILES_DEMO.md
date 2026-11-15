@@ -77,6 +77,8 @@ Para mostrar la idea en una presentación: entrar con un perfil, abrir el asiste
 
 La guía **¿Qué es una enana marrón?** ofrece explicaciones simples o técnicas y una referencia NASA. Su acción **Explorar en 3D** abre el objeto educativo genérico en otra pestaña, conservando la conversación y el campo. El estilo se toma del perfil vigente al abrirlo y puede cambiarse en el visor. La guía funciona sin campo o durante una carga; no clasifica candidatos ni usa la ilustración como evidencia de una fuente real.
 
+La guía **¿Qué es una estrella joven con disco?** y las preguntas generales sobre discos de polvo o RW Aurigae ofrecen **Explorar la estrella en 3D**. El enlace añade `object=young-star` y conserva el estilo del perfil. El visor permite alternar objetos; sus tamaños, colores y movimientos son ilustrativos. La guía usa fuentes NASA y no diagnostica los cambios actuales de RW Aurigae. Las consultas explícitas sobre un candidato mantienen la respuesta contextual del detector.
+
 Al montar el chat en otra base, `getLearning3DUrl()` debe devolver la URL HTTP(S) del módulo en el mismo origen. Si falta ese adaptador o la URL no es válida, se omite el enlace. No se debe copiar una ruta fija del proyecto antiguo. El módulo está documentado en `static/learn-3d/README.md`.
 
 ## Verificación

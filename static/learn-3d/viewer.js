@@ -11,7 +11,7 @@
     precision mediump float;
     #endif
     varying vec2 screen;
-    uniform float aspect, zoom, yaw, pitch, phase, infrared;
+    uniform float aspect, zoom, yaw, pitch, phase, infrared, objectKind;
     float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1,311.7,74.7))) * 43758.5453); }
     float noise(vec3 p) {
       vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
@@ -21,7 +21,59 @@
         mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
     }
     float cloud(vec3 p) { return .55*noise(p)+.28*noise(p*2.0)+.17*noise(p*4.0); }
+    vec3 toLocal(vec3 n) {
+      vec3 q = vec3(n.x,cos(pitch)*n.y-sin(pitch)*n.z,sin(pitch)*n.y+cos(pitch)*n.z);
+      return vec3(cos(yaw)*q.x+sin(yaw)*q.z,q.y,-sin(yaw)*q.x+cos(yaw)*q.z);
+    }
+    vec4 over(vec4 front, vec4 back) {
+      return vec4(front.rgb+back.rgb*(1.0-front.a),front.a+back.a*(1.0-front.a));
+    }
+    vec4 youngStar(vec2 p) {
+      // Rayo ortográfico: esfera central + intersección con un disco plano
+      // en coordenadas locales. La profundidad decide qué queda delante.
+      float radius=.30;
+      float distance=length(p);
+      float starDepth=100.0;
+      vec4 star=vec4(0.0);
+      if (distance < radius) {
+        float z=sqrt(radius*radius-dot(p,p));
+        starDepth=3.0-z;
+        vec3 normal=vec3(p,z)/radius;
+        float grain=cloud(toLocal(normal)*12.0+vec3(phase*.04));
+        vec3 light=mix(vec3(1.0,.43,.12),vec3(1.0,.91,.62),normal.z);
+        light*=.86+.14*grain;
+        star=vec4(light,1.0);
+      }
+      vec4 disk=vec4(0.0);
+      vec3 origin=toLocal(vec3(p,3.0));
+      vec3 direction=toLocal(vec3(0.0,0.0,-1.0));
+      float diskDepth=100.0;
+      if (abs(direction.y) > .01) {
+        diskDepth=-origin.y/direction.y;
+        vec3 position=origin+diskDepth*direction;
+        float r=length(position.xz);
+        if (diskDepth > 0.0 && r > .49 && r < 1.65) {
+          float angle=atan(position.z,position.x)-phase*.12;
+          float texture=cloud(vec3(cos(angle)*r*5.0,r*3.0,sin(angle)*r*5.0));
+          float rings=.5+.5*sin(r*57.0+texture*4.0+sin(angle*3.0)*.8);
+          float edge=smoothstep(.49,.61,r)*(1.0-smoothstep(1.40,1.65,r));
+          float opacity=edge*(.40+.42*texture+.12*rings);
+          vec3 visible=mix(vec3(.17,.085,.050),vec3(.73,.43,.20),.35+.55*texture);
+          vec3 ir=mix(vec3(.26,.10,.40),vec3(.97,.35,.16),clamp(1.6-r,0.0,1.0));
+          vec3 color=mix(visible,ir,infrared)*(.76+.24*rings);
+          disk=vec4(color*opacity,opacity);
+        }
+      }
+      vec4 body=diskDepth < starDepth ? over(disk,star) : over(star,disk);
+      float halo=distance < .95 ? exp(-max(0.0,distance-radius)*10.0)*.25 : 0.0;
+      vec3 haloColor=mix(vec3(.95,.44,.12),vec3(.96,.26,.35),infrared);
+      return over(body,vec4(haloColor*halo,halo));
+    }
     void main() {
+      if (objectKind > .5) {
+        gl_FragColor=youngStar(screen*vec2(aspect,1.0)/(.48*zoom));
+        return;
+      }
       // Intersección ortográfica de un rayo con una esfera de radio unitario.
       vec2 p = screen * vec2(aspect, 1.0) / (.67 * zoom);
       float r = length(p);
@@ -78,7 +130,7 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
       const location = gl.getAttribLocation(program, 'position');
-      const uniforms = Object.fromEntries(['aspect','zoom','yaw','pitch','phase','infrared'].map(k => [k,gl.getUniformLocation(program,k)]));
+      const uniforms = Object.fromEntries(['aspect','zoom','yaw','pitch','phase','infrared','objectKind'].map(k => [k,gl.getUniformLocation(program,k)]));
       return {
         draw(values) {
           const bounds = canvas.getBoundingClientRect();
@@ -92,7 +144,7 @@
           gl.enableVertexAttribArray(location);
           gl.vertexAttribPointer(location,2,gl.FLOAT,false,0,0);
           gl.uniform1f(uniforms.aspect,w/h);
-          for (const key of ['zoom','yaw','pitch','phase','infrared']) gl.uniform1f(uniforms[key],values[key]);
+          for (const key of ['zoom','yaw','pitch','phase','infrared','objectKind']) gl.uniform1f(uniforms[key],values[key]);
           gl.drawArrays(gl.TRIANGLES,0,6);
         },
         destroy,
@@ -101,12 +153,13 @@
   }
 
   class ObjectViewer extends HTMLElement {
-    static get observedAttributes() { return ['explanation']; }
+    static get observedAttributes() { return ['explanation','object']; }
     constructor() {
       super();
       this.attachShadow({mode:'open'});
       this.yaw=.4; this.pitch=-.12; this.zoom=1; this.phase=0; this.infrared=0;
       this.topicIndex=0; this.frame=0; this.inView=true; this.lost=false;
+      this.objectKind=0;
     }
     connectedCallback() {
       if (this.abort) return;
@@ -119,11 +172,12 @@
       // Plantilla estática; los textos educativos y valores del anfitrión usan textContent.
       this.shadowRoot.innerHTML=`
         <link rel="stylesheet">
-        <div class="intro"><div><p class="eyebrow">Aprendé en 3D / Objetos subestelares</p><h1></h1><p class="subtitle"></p></div>
-          <label class="style">Estilo de explicación<select aria-label="Estilo de explicación"><option value="simple">Simple · para empezar</option><option value="technical">Técnica · más detalle</option></select></label></div>
+        <div class="intro"><div><p class="eyebrow"></p><h1></h1><p class="subtitle"></p></div>
+          <div class="pickers"><label class="style">Objeto educativo<select class="object-picker" aria-label="Objeto educativo"></select></label>
+          <label class="style">Estilo de explicación<select class="explanation-picker" aria-label="Estilo de explicación"><option value="simple">Simple · para empezar</option><option value="technical">Técnica · más detalle</option></select></label></div></div>
         <div class="layout"><div class="scene">
           <div class="orbit" aria-hidden="true"></div>
-          <canvas class="viewport" tabindex="0" role="img" aria-label="Enana marrón genérica en 3D. Arrastrá para rotar o usá las flechas del teclado; más y menos para zoom; espacio para pausar; cero para restablecer." aria-describedby="help limits"></canvas>
+          <canvas class="viewport" tabindex="0" role="img" aria-describedby="help limits"></canvas>
           <div class="topline"><span class="tag"></span><span>Modelo conceptual / sin escala</span></div>
           <div class="hotspots" role="group" aria-label="Puntos de interés educativos"></div>
           <div class="fallback" role="status" hidden>No se pudo iniciar el visor 3D. Necesita WebGL habilitado en el navegador. Podés seguir leyendo los tres temas.<br><button type="button" class="retry">Reintentar visor</button></div>
@@ -139,25 +193,18 @@
         <p class="caption" role="status"></p><p class="limits" id="limits"></p>`;
       this.$=selector=>this.shadowRoot.querySelector(selector);
       this.$('link').href=new URL('viewer.css',assetBase).href;
-      this.$('h1').textContent=this.content.title;
-      this.$('.subtitle').textContent=this.content.subtitle;
-      this.$('.tag').textContent=this.content.disclosure;
-      this.$('.limits').textContent=this.content.limits;
       this.canvas=this.$('canvas');
-      for (const topic of this.content.topics) {
-        for (const container of ['.topics','.hotspots']) {
-          const button=document.createElement('button');
-          button.type='button'; button.dataset.topic=topic.id;
-          if (container === '.hotspots') {
-            button.className='hotspot';
-            const number=document.createElement('span'); number.textContent=topic.number;
-            button.append(number,document.createTextNode(topic.short));
-          } else { button.textContent=topic.short; }
-          button.addEventListener('click',()=>this.selectTopic(this.content.topics.indexOf(topic)),{signal});
-          this.$(container).append(button);
-        }
+      this.objects=window.Papastronomy3DObjects || {'brown-dwarf':this.content};
+      for (const item of Object.values(this.objects)) {
+        const option=document.createElement('option'); option.value=item.id; option.textContent=item.title;
+        this.$('.object-picker').append(option);
       }
-      this.$('select').addEventListener('change',event=>this.setAttribute('explanation',event.target.value),{signal});
+      this.$('.object-picker').addEventListener('change',event=>this.setAttribute('object',event.target.value),{signal});
+      this.$('.explanation-picker').addEventListener('change',event=>this.setAttribute('explanation',event.target.value),{signal});
+      this.shadowRoot.addEventListener('click',event=>{
+        const button=event.target.closest('[data-topic]');
+        if (button) this.selectTopic(this.content.topics.findIndex(topic=>topic.id===button.dataset.topic));
+      },{signal});
       this.$('.next').addEventListener('click',()=>this.selectTopic((this.topicIndex+1)%this.content.topics.length),{signal});
       this.shadowRoot.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>this.setMode(Number(button.dataset.mode)),{signal}));
       this.$('.play').addEventListener('click',()=>this.setPlaying(!this.playing),{signal});
@@ -171,8 +218,10 @@
       },{signal});
       this.canvas.addEventListener('pointermove',event=>{
         if (!this.drag || this.drag.id !== event.pointerId) return;
-        this.yaw+=(event.clientX-this.drag.x)*.008;
-        this.pitch=Math.max(-1.3,Math.min(1.3,this.pitch+(event.clientY-this.drag.y)*.008));
+        // El shader transforma de vista a superficie: invertir los deltas
+        // hace que el punto agarrado acompañe al cursor en ambos ejes.
+        this.yaw-=(event.clientX-this.drag.x)*.008;
+        this.pitch=Math.max(-1.3,Math.min(1.3,this.pitch-(event.clientY-this.drag.y)*.008));
         this.drag.x=event.clientX; this.drag.y=event.clientY; this.draw();
       },{signal});
       for (const name of ['pointerup','pointercancel','lostpointercapture']) this.canvas.addEventListener(name,()=>{this.drag=null;},{signal});
@@ -183,10 +232,10 @@
         if (event.key === '0') { this.reset(); return; }
         if (['+','=','-'].includes(event.key)) { this.setZoom(this.zoom+(event.key === '-' ? -.05 : .05)); return; }
         this.setPlaying(false);
-        if (event.key === 'ArrowLeft') this.yaw-=.12;
-        if (event.key === 'ArrowRight') this.yaw+=.12;
-        if (event.key === 'ArrowUp') this.pitch=Math.max(-1.3,this.pitch-.12);
-        if (event.key === 'ArrowDown') this.pitch=Math.min(1.3,this.pitch+.12);
+        if (event.key === 'ArrowLeft') this.yaw+=.12;
+        if (event.key === 'ArrowRight') this.yaw-=.12;
+        if (event.key === 'ArrowUp') this.pitch=Math.min(1.3,this.pitch+.12);
+        if (event.key === 'ArrowDown') this.pitch=Math.max(-1.3,this.pitch-.12);
         this.draw();
       },{signal});
       this.canvas.addEventListener('webglcontextlost',event=>{
@@ -199,18 +248,50 @@
       this.resize=new ResizeObserver(()=>this.draw()); this.resize.observe(this.$('.scene'));
       this.intersection=new IntersectionObserver(entries=>{this.inView=entries[0].isIntersecting;this.schedule();});
       this.intersection.observe(this);
-      this.startRenderer(); this.setMode(this.infrared); this.selectTopic(this.topicIndex);
+      this.selectObject(this.getAttribute('object')); this.startRenderer();
     }
-    attributeChangedCallback() { if (this.$ && this.isConnected) this.selectTopic(this.topicIndex); }
+    attributeChangedCallback(name) {
+      if (!this.$ || !this.isConnected) return;
+      if (name === 'object') this.selectObject(this.getAttribute('object'));
+      else this.selectTopic(this.topicIndex);
+    }
+    selectObject(id) {
+      this.content=Object.hasOwn(this.objects,id) ? this.objects[id] : this.objects['brown-dwarf'];
+      this.objectKind=this.content.id === 'young-star' ? 1 : 0;
+      this.$('.object-picker').value=this.content.id;
+      this.$('h1').textContent=this.content.title;
+      this.$('.subtitle').textContent=this.content.subtitle;
+      this.$('.eyebrow').textContent=`Aprendé en 3D / ${this.content.category || 'Objetos subestelares'}`;
+      this.$('.tag').textContent=this.content.disclosure;
+      this.$('.limits').textContent=this.content.limits;
+      this.canvas.setAttribute('aria-label',`${this.content.title}, ilustración genérica en 3D. Flechas para rotar; más y menos para zoom; espacio para pausar; cero para restablecer.`);
+      this.$('.orbit').hidden=this.objectKind === 1;
+      this.$('.hint').textContent=this.objectKind === 1
+        ? 'Arrastrá verticalmente para inclinar el disco · también podés usar las flechas'
+        : 'Arrastrá para rotar · flechas con teclado · usá Zoom para acercarte';
+      for (const container of ['.topics','.hotspots']) {
+        this.$(container).replaceChildren();
+        this.content.topics.forEach((topic,index)=>{
+          const button=document.createElement('button'); button.type='button';button.dataset.topic=topic.id;
+          if (container === '.hotspots') {
+            button.className=`hotspot point-${index}`;
+            const number=document.createElement('span');number.textContent=topic.number;
+            button.append(number,document.createTextNode(topic.short));
+          } else button.textContent=topic.short;
+          this.$(container).append(button);
+        });
+      }
+      this.reset();this.selectTopic(0);this.setMode(this.infrared);
+    }
     selectTopic(index) {
       this.topicIndex=index;
       const topic=this.content.topics[index];
       const style=this.getAttribute('explanation') === 'technical' ? 'technical' : 'simple';
-      this.$('select').value=style;
+      this.$('.explanation-picker').value=style;
       this.$('h2').textContent=topic.title;
       this.$('.explanation').textContent=topic[style];
       this.$('.takeaway').textContent=topic.takeaway;
-      this.$('.step').textContent=`${topic.number} / 03`;
+      this.$('.step').textContent=`${topic.number} / ${String(this.content.topics.length).padStart(2,'0')}`;
       const source=this.content.sources[topic.source];
       this.$('.source').textContent=`Leer la referencia · ${source.title} ↗`;
       this.$('.source').href=source.url;
@@ -228,7 +309,7 @@
       this.zoom=Math.max(.75,Math.min(1.35,value));
       this.$('input').value=this.zoom; this.$('output').textContent=`${this.zoom.toFixed(2)}×`; this.draw();
     }
-    reset() { this.yaw=.4;this.pitch=-.12;this.phase=0;this.setZoom(1); }
+    reset() { this.yaw=.4;this.pitch=this.objectKind === 1 ? .65 : -.12;this.phase=0;this.setZoom(1); }
     setPlaying(value) {
       this.playing=Boolean(value);
       this.$('.play').textContent=this.playing ? 'Pausar animación' : 'Animar objeto';

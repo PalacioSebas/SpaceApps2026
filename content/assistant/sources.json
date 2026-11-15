@@ -2,6 +2,15 @@
   "schema_version": 1,
   "sources": [
     {
+      "id": "nasa_planetary_systems",
+      "kind": "official_reference",
+      "title": "NASA · Planetary Systems",
+      "url": "https://science.nasa.gov/universe/stars/planetary-system/",
+      "reviewed_on": "2026-11-14",
+      "supports": ["Discos alrededor de estrellas jóvenes y su contribución a la emisión infrarroja."],
+      "does_not_support": ["Reconstrucción 3D de RW Aurigae, propiedades medidas del campo o causa de una variación concreta."]
+    },
+    {
       "id": "nasa_brown_dwarfs",
       "kind": "official_reference",
       "title": "NASA · What Makes Brown Dwarfs Unique?",

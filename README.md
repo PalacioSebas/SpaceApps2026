@@ -6,9 +6,11 @@ Para continuar el desarrollo desde otra PC o una nueva conversación con Codex, 
 
 ### Aprendé en 3D
 
-La navegación y el asistente incluyen un acceso a una enana marrón educativa con rotación, zoom, animación, paletas artísticas visible/infrarroja y explicaciones simples o técnicas. Se abre en otra pestaña para conservar las observaciones. No es una reconstrucción de WISE 0855 o Epsilon Indi B ni una medición científica.
+La navegación y el asistente incluyen un visor educativo con dos objetos: una enana marrón y una estrella joven con disco de polvo. Permite rotación, inclinación del disco, zoom, animación, paletas artísticas visible/infrarroja y explicaciones simples o técnicas. Se abre en otra pestaña para conservar las observaciones. Son ilustraciones genéricas, sin reconstruir WISE 0855, Epsilon Indi B o RW Aurigae ni producir mediciones científicas.
 
 El módulo es independiente y portable: copiar la carpeta [static/learn-3d](static/learn-3d/README.md) para integrarlo en otra versión. Con la app iniciada se accede desde `http://127.0.0.1:8000/static/learn-3d/index.html`.
+
+Para abrir directamente la estrella, usar `http://127.0.0.1:8000/static/learn-3d/index.html?object=young-star`. También se puede preguntar al asistente **¿Qué es una estrella joven con disco?** y pulsar **Explorar la estrella en 3D**.
 
 ---
 

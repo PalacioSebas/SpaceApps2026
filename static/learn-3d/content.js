@@ -36,10 +36,45 @@
     },
     reviewedOn: '2026-11-14',
   };
+  const youngStar = {
+    id: 'young-star',
+    title: 'Estrella joven con disco',
+    subtitle: 'Una estrella en formación. Un entorno que cambia.',
+    category: 'Estrellas jóvenes',
+    disclosure: 'Ilustración educativa · sistema genérico',
+    limits: 'La estrella, el disco, sus colores y movimientos son ilustrativos y no están a escala. No es una reconstrucción de RW Aurigae ni un diagnóstico de sus cambios actuales; no utiliza mediciones del explorador.',
+    topics: [
+      {
+        id: 'star', number: '01', title: 'La estrella y su entorno', short: 'Estrella',
+        simple: 'Una estrella joven puede estar rodeada de material que quedó de su formación. En esta escena vemos la estrella central y un disco de gas y polvo. La luz y el tamaño están realzados para poder explorar la idea.',
+        technical: 'Los discos circumestelares son parte del entorno de muchas estrellas jóvenes. Este esquema muestra una estrella y un disco inclinado, sin ajustar masa, edad, tamaño o geometría a una fuente observada.',
+        takeaway: 'El sistema del dibujo es genérico, no un mapa de RW Aurigae.', source: 'disks',
+      },
+      {
+        id: 'disk', number: '02', title: 'El polvo también emite luz', short: 'Disco',
+        simple: 'El polvo puede absorber luz de la estrella y volver a emitir energía en infrarrojo. Por eso estudiar distintas longitudes de onda ayuda a investigar su entorno. La paleta infrarroja resalta el disco de forma artística.',
+        technical: 'La emisión térmica del polvo puede contribuir al exceso infrarrojo respecto de la fotosfera estelar. La paleta del modelo no calcula transferencia radiativa ni temperatura; tampoco reproduce la respuesta de filtros de SPHEREx.',
+        takeaway: 'Una paleta ayuda a explicar; el espectro permite medir.', source: 'systems',
+      },
+      {
+        id: 'variability', number: '03', title: '¿Por qué puede cambiar el brillo?', short: 'Variabilidad',
+        simple: 'El material alrededor de una estrella puede tapar parte de su luz según nuestra línea de visión. RW Aur A es un ejemplo de estrella joven con oscurecimientos estudiados. El modelo no determina qué causó una variación concreta.',
+        technical: 'En RW Aur A se han investigado oscurecimientos y material circumestelar. La extinción variable es una posibilidad que requiere contrastar observaciones. Una diferencia de brillo aislada o esta ilustración no establece una causa física.',
+        takeaway: 'Para interpretar un cambio, revisá fechas, bandas y calidad de las observaciones.', source: 'rwAur',
+      },
+    ],
+    sources: {
+      disks: { title: 'NASA · Hubble’s Album of Planet-Forming Disks', url: 'https://science.nasa.gov/missions/hubble/hubbles-album-of-planet-forming-disks/' },
+      systems: { title: 'NASA · Planetary Systems', url: 'https://science.nasa.gov/universe/stars/planetary-system/' },
+      rwAur: { title: 'NASA · Estudio de los oscurecimientos de RW Aur A', url: 'https://www.nasa.gov/universe/chandra-may-have-first-evidence-of-a-young-star-devouring-a-planet/' },
+    },
+    reviewedOn: '2026-11-14',
+  };
   // Evita que el anfitrión o una instancia alteren el contenido de las demás.
   function freeze(value) {
     Object.values(value).forEach(item => { if (item && typeof item === 'object') freeze(item); });
     return Object.freeze(value);
   }
   window.Papastronomy3DContent = freeze(content);
+  window.Papastronomy3DObjects = freeze({ 'brown-dwarf': content, 'young-star': youngStar });
 })();

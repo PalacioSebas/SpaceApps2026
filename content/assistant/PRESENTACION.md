@@ -62,4 +62,6 @@ Si el visor portable está integrado, continuar el primer recorrido con **«¿Qu
 
 Presentarlo como una ilustración de una clase de objetos. El modelo no identifica la fuente observada ni representa un mapa de WISE 0855 o Epsilon Indi B. Si no hay observaciones disponibles, se puede mostrar la guía y el 3D sin afirmar que se cargó un campo. Si el visor no está integrado, omitir ese acceso y conservar la explicación con sus fuentes.
 
+Para la segunda escena, preguntar **¿Qué es una estrella joven con disco?** y pulsar **Explorar la estrella en 3D**. Comprobar que abre la estrella en lugar de la enana marrón. Inclinar el disco con un arrastre vertical y recorrer **Estrella**, **Disco** y **Variabilidad**. El selector permite volver a la enana marrón sin recargar la página. El modelo no es una reconstrucción de RW Aurigae y no determina qué causó un cambio observado. Al integrar la biblioteca, conectar `open_young_star_3d` solo si el anfitrión tiene esta escena.
+
 Volver al explorador y comprobar que el campo y los controles se conservan. El mensaje del MVP es que una persona puede orientarse, consultar datos y revisar resultados con ayuda de explicaciones y fuentes; el asistente no ejecuta por conversación una validación científica que no exista en el backend.

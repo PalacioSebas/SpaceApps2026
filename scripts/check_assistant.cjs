@@ -149,3 +149,23 @@ for (const href of [null, '', 'javascript:alert(1)', 'https://example.org/model'
   assert.equal(assistant.learningLink(href, 'http://localhost:8000/'), null);
 }
 console.log('Asistente → 3D: guía general, estilos, fuentes, continuidad y ruta local revisable: OK.');
+
+for (const prompt of ['¿Qué es una estrella joven con disco?', 'Explicame el disco de polvo', 'Contame sobre RW Aurigae']) {
+  assert.equal(assistant.classify(prompt),'youngStar');
+  for (const ctx of [{}, {...base,loading:true}, selected]) {
+    const response=assistant.reply(prompt,ctx);
+    assert.ok(response.actions.some(action=>action.id==='learn3d' && action.object==='young-star'));
+    assert.ok(response.sources.some(source=>source.url?.includes('planetary-system')));
+    assert.equal(response.sources.some(source=>source.kind==='Datos de esta consulta'),false);
+    assert.equal(response.proposal,undefined);
+    assert.match(response.text,/ilustrativ|ilustración/);
+  }
+}
+assert.equal(assistant.classify('¿El candidato es una estrella joven?'),'candidate');
+assert.match(assistant.reply('¿Qué es una estrella joven?',technical).text,/transferencia radiativa/);
+assert.doesNotMatch(assistant.reply('¿Qué es una estrella joven?',base).text,/transferencia radiativa/);
+const starAnswer=assistant.reply('¿Qué es una estrella joven?',base);
+assert.match(assistant.reply('¿Y cómo lo compruebo?',base,starAnswer.memory).text,/incliná el disco/);
+assert.equal(new URL(assistant.learningLink('/model?explanation=technical','https://example.test/','young-star')).searchParams.get('object'),'young-star');
+assert.equal(new URL(assistant.learningLink('/model?object=young-star','https://example.test/','brown-dwarf')).searchParams.get('object'),'brown-dwarf');
+console.log('Estrella joven: guía sin datos, contexto, estilos, continuidad y selección del modelo: OK.');

@@ -25,6 +25,8 @@ Las acciones del catálogo son intenciones, no instrucciones ejecutables. `open_
 
 `open_learning_3d` representa el acceso opcional al módulo educativo `static/learn-3d/`, que se traslada copiando esa carpeta completa. La entrada `brown_dwarf` ofrece una guía general incluso sin datos cargados. En el chat actual existe una respuesta equivalente en `static/demo-assistant.js`, con un enlace provisto por el anfitrión mediante `getLearning3DUrl`; el chat aún no lee estos JSON. Al integrar, omitir la acción si falta el visor y no usar una ilustración como evidencia del candidato seleccionado.
 
+La entrada `young_star` conserva la guía de estrellas jóvenes y discos. Su acción `open_young_star_3d` debe apuntar al mismo módulo con `object=young-star`; `open_learning_3d` puede usar `object=brown-dwarf`. Es contenido educativo disponible sin campo o durante la carga. El adaptador decide la ruta real y conserva el estilo de explicación. La guía no diagnostica variaciones actuales de RW Aurigae.
+
 No se incluyen comandos para ejecutar código, consultas científicas automáticas ni acciones de autenticación real.
 
 ## Datos y resultados

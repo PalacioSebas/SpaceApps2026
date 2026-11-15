@@ -11,6 +11,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-vi
 h1 { margin: 0; font-size: clamp(32px, 4vw, 52px); font-weight: 450; line-height: 1.15; letter-spacing: -.04em; }
 .subtitle { margin: 12px 0 0; color: #a5b3c0; font-size: 15px; }
 .style { color: #a5b3c0; font-size: 12px; display: grid; gap: 7px; }
+.pickers { display: flex; flex-wrap: wrap; gap: 14px; flex-shrink: 0; max-width: 100%; }
 select { padding: 9px 12px; background: #12202d; border: 1px solid #3b4a58; border-radius: 7px; }
 .layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(290px, 1fr); border: 1px solid #2b3743; border-radius: 18px; overflow: hidden; }
 .scene { position: relative; background: radial-gradient(ellipse at 51% 47%, #302028 0, #141722 36%, #0b131e 70%); min-height: 490px; overflow: hidden; }
@@ -23,9 +24,9 @@ select { padding: 9px 12px; background: #12202d; border: 1px solid #3b4a58; bord
 .hotspot { position: absolute; z-index: 2; display: flex; align-items: center; gap: 9px; background: #0a1622d9; border: 1px solid #7a6b5d; border-radius: 24px; padding: 6px 12px 6px 6px; font-size: 11px; box-shadow: 0 3px 16px #0004; }
 .hotspot span { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid #8c7c6b; border-radius: 50%; color: #eacaa3; font-size: 10px; }
 .hotspot[aria-pressed=true] { border-color: #e5bb8b; background: #34271fe8; }
-.hotspot[data-topic=atmosphere] { top: 32%; left: 10%; }
-.hotspot[data-topic=temperature] { top: 61%; right: 7%; }
-.hotspot[data-topic=infrared] { top: 76%; left: 16%; }
+.hotspot.point-0 { top: 32%; left: 10%; }
+.hotspot.point-1 { top: 61%; right: 7%; }
+.hotspot.point-2 { top: 76%; left: 16%; }
 .hint { position: absolute; bottom: 21px; left: 20px; right: 20px; color: #9ca9b6; text-align: center; font-size: 11px; pointer-events: none; }
 .fallback { position: absolute; top: 22%; left: 15%; right: 15%; padding: 24px; background: #121e2cf5; border: 1px solid #56717c; border-radius: 12px; z-index: 3; }
 .details { padding: 30px; background: #101c28; border-left: 1px solid #2b3743; }
@@ -51,5 +52,5 @@ input { width: 90px; accent-color: #d8b183; }
 .caption { font-size: 12px; margin: 0 0 20px; color: #a7b8c5; }
 .limits { margin: 0; font-size: 11px; color: #91a1ae; padding-top: 16px; border-top: 1px solid #263440; }
 @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } .scene { min-height: 450px; } .details { border-left: 0; border-top: 1px solid #2b3743; padding: 24px; } .explanation { min-height: 0; } .topics { margin-bottom: 22px; } }
-@media (max-width: 500px) { .intro { display: block; } .style { margin-top: 20px; width: fit-content; } .scene { min-height: 380px; } .hotspot { padding-right: 8px; gap: 5px; } .hotspot[data-topic=atmosphere] { left: 4%; } .hotspot[data-topic=temperature] { right: 3%; } .modes { width: 100%; } .modes button { flex: 1; } .controls { gap: 12px; } .tools { justify-content: space-between; width: 100%; gap: 9px; } }
+@media (max-width: 500px) { .intro { display: block; } .style { margin-top: 20px; width: fit-content; } .scene { min-height: 380px; } .hotspot { padding-right: 8px; gap: 5px; } .hotspot.point-0 { left: 4%; } .hotspot.point-1 { right: 3%; } .modes { width: 100%; } .modes button { flex: 1; } .controls { gap: 12px; } .tools { justify-content: space-between; width: 100%; gap: 9px; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
