@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Papastronomy · SPHEREx & Planet X Explorer</title>
+  <meta name="description" content="Papastronomy: una página web abierta para explorar los datos del telescopio espacial SPHEREx de la NASA sin saber de astronomía ni de programación. NASA Space Apps Challenge 2026." />
+  <meta name="theme-color" content="#04060b" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="/static/landing/landing.css?v=0" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#inicio" aria-label="Papastronomy, inicio">
+        <span class="brand-mark">PX</span>
+        <span class="brand-name">Papa<em>stronomy</em></span>
+      </a>
+      <nav class="nav-links" aria-label="Secciones">
+        <a href="#mision">Misión</a>
+        <a href="#como-observa">Cómo observa</a>
+        <a href="#problema">El problema</a>
+        <a href="#solucion">La solución</a>
+        <a href="#objetivos">Objetivos</a>
+        <a href="#desarrollo">Desarrollo</a>
+      </nav>
+      <a class="btn btn-primary btn-sm" href="/">Abrir el explorador <span aria-hidden="true">→</span></a>
+    </div>
+  </header>
+
+  <!-- Indicador de diapositivas (se marca la actual desde landing.js) -->
+  <nav class="dots" aria-label="Diapositivas">
+    <a href="#inicio" data-label="Inicio"></a>
+    <a href="#mision" data-label="La misión"></a>
+    <a href="#como-observa" data-label="Cómo observa"></a>
+    <a href="#problema" data-label="El problema"></a>
+    <a href="#solucion" data-label="La solución"></a>
+    <a href="#objetivos" data-label="Objetivos"></a>
+    <a href="#desarrollo" data-label="Desarrollo"></a>
+    <a href="#explorar" data-label="Explorar"></a>
+  </nav>
+
+  <main>
+
+    <!-- INICIO -->
+    <section id="inicio" class="slide hero">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-dot"></span>NASA Space Apps Challenge 2026 · Planet X and SPHEREx</p>
+          <h1>El cielo infrarrojo, <em>abierto</em> para todos.</h1>
+          <p class="lead">
+            SPHEREx fotografía el cielo completo cada seis meses en <strong>102 colores infrarrojos</strong>
+            y registra más de mil millones de objetos. Papastronomy es una página web abierta para explorar
+            esos datos <em>sin saber de astronomía ni de programación</em>, y encontrar lo que se mueve
+            o cambia de brillo entre una imagen y otra.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="/">Abrir el explorador <span aria-hidden="true">→</span></a>
+            <a class="btn btn-ghost" href="#mision">Conocer SPHEREx</a>
+          </div>
+        </div>
+
+        <!-- Comparador de parpadeo: el mismo campo en dos épocas -->
+        <figure class="blink" aria-label="Animación: el mismo campo de estrellas en dos épocas; un objeto cambia de posición">
+          <div class="blink-frame">
+            <svg viewBox="0 0 320 320" role="img" aria-hidden="true">
+              <defs>
+                <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0" stop-color="#ffffff" stop-opacity="1" />
+                  <stop offset=".35" stop-color="#c7d7ff" stop-opacity=".5" />
+                  <stop offset="1" stop-color="#3b6cf6" stop-opacity="0" />
+                </radialGradient>
+                <radialGradient id="glow-mover" cx="50%" cy="50%" r="50%">
+                  <stop offset="0" stop-color="#ffffff" stop-opacity="1" />
+                  <stop offset=".3" stop-color="#7aa2ff" stop-opacity=".85" />
+                  <stop offset="1" stop-color="#2f5bff" stop-opacity="0" />
+                </radialGradient>
+              </defs>
+              <rect width="320" height="320" fill="#02040a" />
+              <g class="field">
+                <circle cx="42" cy="58" r="9" fill="url(#glow)" />
+                <circle cx="250" cy="40" r="6" fill="url(#glow)" />
+                <circle cx="196" cy="118" r="12" fill="url(#glow)" />
+                <circle cx="88" cy="176" r="7" fill="url(#glow)" />
+                <circle cx="282" cy="210" r="10" fill="url(#glow)" />
+                <circle cx="140" cy="266" r="8" fill="url(#glow)" />
+                <circle cx="36" cy="282" r="5" fill="url(#glow)" />
+                <circle cx="230" cy="290" r="6" fill="url(#glow)" />
+                <circle cx="120" cy="84" r="4" fill="url(#glow)" />
+                <circle cx="300" cy="120" r="4" fill="url(#glow)" />
+                <circle cx="60" cy="230" r="4" fill="url(#glow)" />
+                <circle cx="180" cy="200" r="3.5" fill="url(#glow)" />
+                <circle cx="20" cy="140" r="3" fill="url(#glow)" />
+                <circle cx="270" cy="160" r="3" fill="url(#glow)" />
+                <circle cx="96" cy="128" r="3" fill="url(#glow)" />
+              </g>
+              <g class="mover">
+                <circle class="epoch-a" cx="150" cy="160" r="12" fill="url(#glow-mover)" />
+                <circle class="epoch-b" cx="172" cy="148" r="12" fill="url(#glow-mover)" />
+              </g>
+              <g class="reticle" stroke="#7aa2ff" stroke-width="1.2" fill="none" opacity=".8">
+                <path d="M128 128h-8v8M196 128h8v8M128 180h-8v-8M196 180h8v-8" />
+              </g>
+            </svg>
+            <span class="blink-tag tag-a">Época A</span>
+            <span class="blink-tag tag-b">Época B</span>
+            <span class="blink-coord">RA 133.7951° · Dec −7.2451°</span>
+          </div>
+          <figcaption>
+            <em>Mismo campo, dos épocas.</em> Las estrellas lejanas quedan quietas;
+            lo que se desplaza está cerca nuestro.
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="wrap">
+        <dl class="stats">
+          <div><dt>102</dt><dd>colores infrarrojos, invisibles para nuestros ojos</dd></div>
+          <div><dt>22<small>lunas</small></dt><dd>llenas entran en una sola imagen</dd></div>
+          <div><dt>+1.000<small>millones</small></dt><dd>de objetos registrados</dd></div>
+          <div><dt>6<small>meses</small></dt><dd>para cubrir todo el cielo</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- LA MISIÓN -->
+    <section id="mision" class="slide section">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="eyebrow"><span class="eyebrow-n">01</span>La misión</p>
+          <h2>Pequeña, pero <em>poderosa</em>.</h2>
+          <p class="section-lead">
+            SPHEREx es la misión Explorer más reciente de la NASA en astrofísica: un telescopio pequeño con una
+            capacidad única, <strong>hacer espectroscopía en todo el cielo</strong>. Va a ver la esfera celeste
+            completa cuatro veces, en casi 100 colores del infrarrojo cercano. Eso nunca se había hecho.
+          </p>
+        </header>
+
+        <div class="cards cards-3">
+          <article class="card">
+            <span class="card-n">/01</span>
+            <h3>El origen del <em>universo</em></h3>
+            <p>
+              En una fracción de nanosegundo después del Big Bang, el universo se habría expandido de golpe:
+              la <strong>inflación</strong>. Para ponerla a prueba, SPHEREx mapea en 3D cientos de millones de galaxias.
+            </p>
+          </article>
+          <article class="card">
+            <span class="card-n">/02</span>
+            <h3>La historia de las <em>galaxias</em></h3>
+            <p>
+              Hay unos 100 mil millones de galaxias, pero todavía no sabemos bien cómo surgieron.
+              SPHEREx busca <strong>dónde se forman y cómo crecen</strong> a lo largo del tiempo cósmico.
+            </p>
+          </article>
+          <article class="card">
+            <span class="card-n">/03</span>
+            <h3>El agua y la <em>vida</em></h3>
+            <p>
+              El agua se congela sobre granos de polvo que después forman planetas. Por primera vez se va a medir
+              <strong>dónde está ese hielo y cuánto hay</strong>, junto con otros ingredientes de la vida.
+            </p>
+          </article>
+        </div>
+
+        <div class="facts">
+          <p><strong>500 millones</strong> de galaxias y <strong>cientos de millones</strong> de estrellas con espectro.
+            Un complemento ideal del <em>James Webb</em>.</p>
+          <a class="video-link" href="https://www.youtube.com/watch?v=Jqw6QeUIDoU" target="_blank" rel="noopener">
+            <span class="video-play" aria-hidden="true">▶</span> Exploring Cosmic Origins with NASA’s SPHEREx
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- CÓMO OBSERVA -->
+    <section id="como-observa" class="slide section section-alt">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="eyebrow"><span class="eyebrow-n">02</span>Cómo observa</p>
+          <h2>Más de 100 colores <em>a la vez</em>.</h2>
+          <p class="section-lead">
+            Nuestros ojos combinan solo tres colores: rojo, verde y azul. SPHEREx ve el universo en
+            <strong>102 colores de luz infrarroja</strong>, repartidos entre seis detectores organizados en dos grupos de tres.
+          </p>
+        </header>
+
+        <!-- Diagrama de bandas: ancho proporcional al rango de cada detector; 17 canales por detector -->
+        <figure class="bands" aria-label="Las 102 bandas de SPHEREx entre 0.75 y 5.00 micrones, repartidas en 6 detectores de 17 canales">
+          <div class="bands-groups" aria-hidden="true">
+            <span style="flex-grow: 1.64">Grupo 1 · D1–D3</span>
+            <span style="flex-grow: 2.56">Grupo 2 · D4–D6</span>
+          </div>
+          <div class="bands-bar">
+            <div class="band" style="flex-grow: .34; --i: 0"><b>D1</b><span>0.75–1.09</span></div>
+            <div class="band" style="flex-grow: .52; --i: 1"><b>D2</b><span>1.10–1.62</span></div>
+            <div class="band" style="flex-grow: .78; --i: 2"><b>D3</b><span>1.63–2.41</span></div>
+            <div class="band" style="flex-grow: 1.40; --i: 3"><b>D4</b><span>2.42–3.82</span></div>
+            <div class="band" style="flex-grow: .58; --i: 4"><b>D5</b><span>3.83–4.41</span></div>
+            <div class="band" style="flex-grow: .58; --i: 5"><b>D6</b><span>4.42–5.00</span></div>
+          </div>
+          <figcaption>Longitud de onda en µm · cada línea es uno de los 17 canales de un detector.</figcaption>
+        </figure>
+
+        <ol class="steps">
+          <li>
+            <span class="step-n">01</span>
+            <h3>Campo <em>amplio</em></h3>
+            <p>En una sola imagen de SPHEREx entrarían 22 lunas llenas, una al lado de la otra. Así puede mapear todo el cielo en un tiempo razonable.</p>
+          </li>
+          <li>
+            <span class="step-n">02</span>
+            <h3>Dos colores <em>por pasada</em></h3>
+            <p>Cada vez que los detectores pasan sobre una galaxia la capturan en dos colores. Al correrse un poco, van completando más pares.</p>
+          </li>
+          <li>
+            <span class="step-n">03</span>
+            <h3>El espectro <em>completo</em></h3>
+            <p>Tras muchas pasadas, cada punto del cielo queda medido en más de 100 colores: alcanza para saber de qué está hecho y armar un mapa 3D.</p>
+          </li>
+        </ol>
+
+        <a class="video-link" href="https://www.youtube.com/watch?v=V-UhPS1Jwl4" target="_blank" rel="noopener">
+          <span class="video-play" aria-hidden="true">▶</span> How NASA Will Observe the Universe with SPHEREx
+        </a>
+      </div>
+    </section>
+
+    <!-- EL PROBLEMA -->
+    <section id="problema" class="slide section">
+      <div class="wrap problem">
+        <header class="section-head">
+          <p class="eyebrow"><span class="eyebrow-n">03</span>El problema</p>
+          <h2>Muchos descubrimientos, <em>muy pocos ojos</em>.</h2>
+          <p class="section-lead">
+            Entre los más de mil millones de objetos que registra SPHEREx hay asteroides, cometas, estrellas cercanas
+            y enanas marrones. Se pueden descubrir porque <strong>cambian de posición de una imagen a otra</strong>.
+            Pero hay dos obstáculos:
+          </p>
+        </header>
+
+        <div class="problem-grid">
+          <ol class="problem-list">
+            <li>
+              <span class="problem-n">1</span>
+              <div>
+                <h3>Hay <em>demasiados</em> datos</h3>
+                <p>Ninguna persona, y ni siquiera un programa por sí solo, puede revisarlo todo.</p>
+              </div>
+            </li>
+            <li>
+              <span class="problem-n">2</span>
+              <div>
+                <h3>No son fáciles de <em>usar</em></h3>
+                <p>Los datos existen, pero para verlos hay que saber de astronomía y de programación.
+                  Mucha gente que podría ayudar a descubrir cosas nuevas no puede hacerlo.</p>
+              </div>
+            </li>
+          </ol>
+
+          <blockquote class="quote">
+            <p>Hay una cantidad enorme de datos del espacio con descubrimientos escondidos, pero casi nadie puede
+              mirarlos, porque falta una herramienta simple para hacerlo.</p>
+          </blockquote>
+        </div>
+      </div>
+    </section>
+
+    <!-- LA SOLUCIÓN -->
+    <section id="solucion" class="slide section section-alt">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="eyebrow"><span class="eyebrow-n">04</span>La solución</p>
+          <h2>Una web <em>abierta</em> para explorar SPHEREx.</h2>
+          <p class="section-lead">
+            Hicimos una página web donde <strong>cualquier persona</strong> puede explorar los datos de SPHEREx
+            sin saber de astronomía ni de programación: elegís un punto del cielo y la herramienta hace el resto.
+          </p>
+        </header>
+
+        <div class="solution-grid">
+          <ul class="features">
+            <li>
+              <h3>Buscar un punto del <em>cielo</em></h3>
+              <p>Por coordenadas, en grados o en horas, con el campo de visión que quieras.</p>
+            </li>
+            <li>
+              <h3>Ver el cielo <em>en movimiento</em></h3>
+              <p>Las imágenes de distintas fechas se reproducen como un video para ver qué se desplazó.</p>
+            </li>
+            <li>
+              <h3>Detectar <em>cambios</em></h3>
+              <p>La herramienta resta épocas y marca automáticamente objetos que se mueven o cambian de brillo.</p>
+            </li>
+            <li>
+              <h3>Leer los <em>colores</em></h3>
+              <p>Con un clic sobre la imagen obtenés el espectro infrarrojo de ese punto, del que se deduce su temperatura y composición.</p>
+            </li>
+            <li>
+              <h3>Comparar con <em>catálogos</em></h3>
+              <p>Gaia, WISE y SIMBAD superpuestos para saber qué objetos ya son conocidos.</p>
+            </li>
+            <li>
+              <h3>Compartir el <em>hallazgo</em></h3>
+              <p>Cada vista tiene su propio enlace y se puede insertar en otra página.</p>
+            </li>
+          </ul>
+
+          <aside class="chat" aria-label="Chatbot (en desarrollo)">
+            <div class="chat-head">
+              <span class="chat-title">Preguntale a <em>Papastronomy</em></span>
+              <span class="soon">En desarrollo</span>
+            </div>
+            <div class="chat-body">
+              <p class="bubble bubble-user">¿Dónde está Barnard’s Star?</p>
+              <p class="bubble bubble-bot">Está en la constelación de Ofiuco, en RA 17h57m48s, Dec +04°41′36″. ¿Querés que la abra en el explorador?</p>
+              <p class="bubble bubble-user">¿Qué es una enana marrón?</p>
+              <p class="bubble bubble-bot bubble-typing" aria-label="Escribiendo"><span></span><span></span><span></span></p>
+            </div>
+            <p class="chat-note">
+              Un chatbot para consultar en <strong>lenguaje normal</strong>: así la herramienta sirve también a estudiantes y curiosos,
+              no solo a quien ya sabe de astronomía.
+            </p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- OBJETIVOS -->
+    <section id="objetivos" class="slide section">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="eyebrow"><span class="eyebrow-n">05</span>Casos de prueba</p>
+          <h2>Los cinco <em>objetivos</em> del desafío.</h2>
+          <p class="section-lead">Cada uno abre el explorador <strong>directamente en sus coordenadas</strong>.</p>
+        </header>
+        <div class="targets">
+          <a class="target" href="/?ra=133.795129&amp;dec=-7.245147&amp;fov=0.05">
+            <span class="target-kind kind-move">En movimiento</span>
+            <h3>WISE 0855</h3>
+            <p>La enana marrón más fría conocida, a 7 años luz del Sol.</p>
+            <span class="target-coord">08h55m10.8s · −07°14′43″</span>
+            <span class="target-go" aria-hidden="true">→</span>
+          </a>
+          <a class="target" href="/?ra=269.452075&amp;dec=4.693364&amp;fov=0.05">
+            <span class="target-kind kind-move">En movimiento</span>
+            <h3>Barnard's Star</h3>
+            <p>La estrella con mayor movimiento propio vista desde la Tierra.</p>
+            <span class="target-coord">17h57m48.5s · +04°41′36″</span>
+            <span class="target-go" aria-hidden="true">→</span>
+          </a>
+          <a class="target" href="/?ra=331.043833&amp;dec=-56.782694&amp;fov=0.05">
+            <span class="target-kind kind-move">En movimiento</span>
+            <h3>Epsilon Indi B</h3>
+            <p>Un par de enanas marrones (T1 + T6) que cruzan el cielo rápidamente.</p>
+            <span class="target-coord">22h04m10.5s · −56°46′58″</span>
+            <span class="target-go" aria-hidden="true">→</span>
+          </a>
+          <a class="target" href="/?ra=76.9565&amp;dec=30.401417&amp;fov=0.05">
+            <span class="target-kind kind-var">Variable</span>
+            <h3>RW Aurigae</h3>
+            <p>Estrella joven T Tauri con cambios fuertes de brillo entre épocas.</p>
+            <span class="target-coord">05h07m49.6s · +30°24′05″</span>
+            <span class="target-go" aria-hidden="true">→</span>
+          </a>
+          <a class="target" href="/?ra=248.167625&amp;dec=66.754972&amp;fov=0.05">
+            <span class="target-kind kind-var">Variable</span>
+            <h3>R Draconis</h3>
+            <p>Gigante roja tipo Mira con variaciones drásticas en el infrarrojo.</p>
+            <span class="target-coord">16h32m40.2s · +66°45′18″</span>
+            <span class="target-go" aria-hidden="true">→</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- DESARROLLO (se completa desde desarrollo.json) -->
+    <section id="desarrollo" class="slide section section-alt">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="eyebrow"><span class="eyebrow-n">06</span>Bitácora</p>
+          <h2>Cómo lo fuimos <em>construyendo</em>.</h2>
+          <p class="section-lead">Avances, pruebas y capturas del desarrollo, de lo más reciente a lo más antiguo.</p>
+        </header>
+        <ol class="timeline" id="timeline" aria-live="polite">
+          <li class="timeline-empty">Cargando la bitácora…</li>
+        </ol>
+        <noscript><p class="timeline-empty">Activá JavaScript para ver la bitácora de desarrollo.</p></noscript>
+      </div>
+    </section>
+
+    <!-- CTA + pie: última diapositiva, con el enlace a la herramienta -->
+    <div id="explorar" class="slide slide-end">
+      <section class="cta">
+        <div class="wrap cta-inner">
+          <p class="eyebrow"><span class="eyebrow-n">07</span>Explorar</p>
+          <h2>Probalo con <em>tus propias</em> coordenadas.</h2>
+          <p>Elegí un punto del cielo y mirá <strong>qué cambió</strong> entre las épocas de SPHEREx.</p>
+          <a class="btn btn-primary" href="/">Abrir el explorador <span aria-hidden="true">→</span></a>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="wrap footer-grid">
+          <div>
+            <p class="footer-brand"><span class="brand-mark brand-mark-sm">PX</span> Papa<em>stronomy</em></p>
+            <p>Equipo de Inteligencia Artificial e Ingeniería en Sistemas · NASA Space Apps Challenge 2026.</p>
+            <p class="footer-title footer-title-gap">Videos de la NASA</p>
+            <p class="footer-links">
+              <a href="https://www.youtube.com/watch?v=Jqw6QeUIDoU" target="_blank" rel="noopener">Exploring Cosmic Origins</a>
+              <a href="https://www.youtube.com/watch?v=V-UhPS1Jwl4" target="_blank" rel="noopener">How NASA Will Observe the Universe</a>
+              <a href="https://www.youtube.com/watch?v=RvvbD-IZ28E" target="_blank" rel="noopener">Spacecraft Makers: SPHEREx</a>
+            </p>
+          </div>
+          <div>
+            <p class="footer-title">Datos</p>
+            <p>
+              SPHEREx DR1 y QR3 vía NASA/IPAC Infrared Science Archive (IRSA).
+              Catálogos de ESA Gaia DR3, AllWISE, SIMBAD y NASA Exoplanet Archive; fondos vía CDS hips2fits.
+            </p>
+          </div>
+          <div>
+            <p class="footer-title">Reconocimiento</p>
+            <p class="footer-small">
+              This publication makes use of data products from SPHEREx, a joint project of the Jet Propulsion
+              Laboratory and the California Institute of Technology, funded by the National Aeronautics and
+              Space Administration.
+            </p>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+  </main>
+
+  <script src="/static/landing/landing.js?v=0" defer></script>
+</body>
+</html>

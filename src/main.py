@@ -398,17 +398,33 @@ async def serve_app_js(request: Request) -> Response:
 
 app.mount("/static", _STATIC_FILES, name="static")
 
+_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 
 @app.get("/")
 def serve_frontend() -> HTMLResponse:
     html_content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     bust = (STATIC_DIR / "app.js").stat().st_mtime_ns
     html_content = re.sub(r'/static/app\.js\?v=[^"]+', f"/static/app.js?v={bust}", html_content)
-    return HTMLResponse(
-        content=html_content,
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
+    return HTMLResponse(content=html_content, headers=_NO_STORE_HEADERS)
+
+
+_LANDING_DIR = STATIC_DIR / "landing"
+
+
+@app.get("/main")
+def serve_landing() -> HTMLResponse:
+    """Landing del proyecto; la bitácora se completa desde static/landing/desarrollo.json."""
+    html_content = (_LANDING_DIR / "index.html").read_text(encoding="utf-8")
+    for asset in ("landing.css", "landing.js"):
+        bust = (_LANDING_DIR / asset).stat().st_mtime_ns
+        html_content = re.sub(
+            rf'/static/landing/{re.escape(asset)}\?v=[^"]+',
+            f"/static/landing/{asset}?v={bust}",
+            html_content,
+        )
+    return HTMLResponse(content=html_content, headers=_NO_STORE_HEADERS)

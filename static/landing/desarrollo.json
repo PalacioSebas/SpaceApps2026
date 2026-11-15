@@ -1,0 +1,38 @@
+{
+  "entradas": [
+    {
+      "fecha": "2026-11-14",
+      "etiqueta": "Contenido",
+      "titulo": "La landing cuenta la misión",
+      "texto": [
+        "Volcamos el informe del equipo sobre SPHEREx en la página: qué busca la misión, cómo observa el cielo en 102 colores, el problema que encontramos y la solución que proponemos.",
+        "Sumamos un diagrama de las bandas de los seis detectores y un adelanto del chatbot que estamos preparando."
+      ]
+    },
+    {
+      "fecha": "2026-11-14",
+      "etiqueta": "Landing",
+      "titulo": "Nace la página del proyecto",
+      "texto": [
+        "Sumamos esta landing en /main para contar qué es Papastronomy, cómo funciona por dentro y cómo lo fuimos construyendo.",
+        "Desde acá se puede saltar directo al explorador o abrir cualquiera de los cinco objetivos del desafío en sus coordenadas."
+      ],
+      "imagenes": [
+        { "pendiente": "Captura de la landing" }
+      ]
+    },
+    {
+      "etiqueta": "Punto de partida",
+      "titulo": "Explorador SPHEREx v2.5",
+      "texto": [
+        "El explorador ya consulta SPHEREx DR1 + QR3 en NASA/IPAC IRSA, alinea las épocas, reproduce el flipbook multi-época, calcula la resta temporal calibrada y detecta objetos en movimiento y estrellas variables.",
+        "También extrae espectros de 0.75 a 5 µm con un clic y superpone catálogos de Gaia DR3, AllWISE y SIMBAD."
+      ],
+      "imagenes": [
+        { "pendiente": "Captura del visor con el flipbook" },
+        { "pendiente": "Captura de la resta temporal y las detecciones" },
+        { "pendiente": "Captura del espectro infrarrojo" }
+      ]
+    }
+  ]
+}
