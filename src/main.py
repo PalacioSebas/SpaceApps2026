@@ -119,7 +119,6 @@ def explore_sky_region(
         
         # Cargar y limpiar cada recorte; los que fallen se omiten
         cleaned_epochs: List[Dict[str, Any]] = []
-        seen_exposures: set = set()
         for fm in frames_meta[:max_epochs]:
             p = Path(fm["local_path"])
             if not p.exists():
@@ -133,11 +132,6 @@ def explore_sky_region(
             # el manifest de irsa_client trae obs_time y detector_band: tienen prioridad
             ep["obs_time"] = str(fm.get("obs_time") or ep.get("obs_time") or "")
             ep["detector"] = str(fm.get("detector_band") or ep.get("detector") or "")
-            # Misma exposición repetida (mismo instante, detector y λ): se carga una sola vez.
-            exposure_key = (ep["obs_time"], ep["detector"], round(float(ep.get("wavelength_center_um") or 0.0), 4))
-            if ep["obs_time"] and exposure_key in seen_exposures:
-                continue
-            seen_exposures.add(exposure_key)
             cleaned_epochs.append(ep)
 
         if not cleaned_epochs:

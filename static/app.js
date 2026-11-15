@@ -272,19 +272,16 @@ function getTileCanvasRect(gx, gy, canvasSize) {
 
 function drawSeamlessTileImage(ctx, img, rect) {
   if (!img) return;
-  // Las grillas propias miden 128 px, pero las imágenes de hips2fits miden 384 px: el recorte de
-  // origen se escala al tamaño real (antes solo se veía el cuadrante superior izquierdo ampliado).
-  const k = (img.naturalWidth || img.width || CUTOUT_NPIX) / CUTOUT_NPIX;
   if (rect.fullCutout) {
-    ctx.drawImage(img, 0, 0, CUTOUT_NPIX * k, CUTOUT_NPIX * k, rect.x, rect.y, rect.w, rect.h);
+    ctx.drawImage(img, 0, 0, CUTOUT_NPIX, CUTOUT_NPIX, rect.x, rect.y, rect.w, rect.h);
     return;
   }
   ctx.drawImage(
     img,
-    TILE_MARGIN_PIX * k,
-    TILE_MARGIN_PIX * k,
-    TILE_STEP_PIX * k,
-    TILE_STEP_PIX * k,
+    TILE_MARGIN_PIX,
+    TILE_MARGIN_PIX,
+    TILE_STEP_PIX,
+    TILE_STEP_PIX,
     rect.x,
     rect.y,
     rect.w,
@@ -785,32 +782,11 @@ function mapDetectionsToGlobalPlane(detections, isOriginTile = false) {
   });
 }
 
-// Dos marcas a menos de ~2 píxeles de SPHEREx (6,15″ c/u) son la misma estrella (mismo valor que el backend).
-const SAME_SOURCE_RADIUS_ARCSEC = 12.0;
-
-function isSameSourceDetection(a, b) {
-  const arcsecPerPix = (state.fov * 3600.0) / CUTOUT_NPIX;
-  const limitPx = SAME_SOURCE_RADIUS_ARCSEC / Math.max(1e-6, arcsecPerPix);
-  const pts = (d) => {
-    const out = [[d.x_pix, d.y_pix]];
-    if (d.neg_x_pix !== null && d.neg_x_pix !== undefined && d.neg_y_pix !== null && d.neg_y_pix !== undefined) {
-      out.push([d.neg_x_pix, d.neg_y_pix]);
-    }
-    return out;
-  };
-  if (Number.isFinite(a.ra) && Number.isFinite(b.ra) &&
-      angularDistanceDeg(a.ra, a.dec, b.ra, b.dec) * 3600.0 <= SAME_SOURCE_RADIUS_ARCSEC) {
-    return true;
-  }
-  return pts(a).some(([xa, ya]) => pts(b).some(([xb, yb]) => Math.hypot(xa - xb, ya - yb) <= limitPx));
-}
-
 function mergeTileDetections(newDetections) {
   const existing = state.allAiDetections || [];
   let added = false;
   newDetections.forEach((det) => {
-    // Los sectores vecinos se solapan: la misma estrella puede venir detectada en dos sectores.
-    const duplicate = existing.some((ex) => isSameSourceDetection(ex, det));
+    const duplicate = existing.some((ex) => Math.hypot(ex.x_pix - det.x_pix, ex.y_pix - det.y_pix) < 3.5);
     if (!duplicate) {
       existing.push(det);
       added = true;
@@ -1556,30 +1532,13 @@ function getSynchronizedTemporalState() {
       : pairIndices.length >= 2
       ? pairIndices
       : epochs.map((_, i) => i);
-  // Paso → imagen SPHEREx del visor, por FECHA (antes era por posición en la lista, y varios
-  // pasos caían en la misma exposición: el visor parecía congelado en el primer cuadro).
-  const yearOf = (idx) => {
-    const mjd = tlParseMjd(epochs[idx]?.obs_time);
-    return Number.isFinite(mjd) ? tlYearFromMjd(mjd) : NaN;
-  };
-  const datedCandidates = candidateIndices.filter((i) => Number.isFinite(yearOf(i)));
-  let mappedIdx;
-  if (activeFrame?.kind === "historic" && datedCandidates.length) {
-    // Antes de SPHEREx no hay imagen propia: se muestra la primera fecha disponible.
-    mappedIdx = datedCandidates.reduce((a, b) => (yearOf(b) < yearOf(a) ? b : a));
-  } else if (Number.isFinite(activeFrame?.year) && activeFrame?.kind === "spherex" && datedCandidates.length) {
-    mappedIdx = datedCandidates.reduce((a, b) =>
-      Math.abs(yearOf(b) - activeFrame.year) < Math.abs(yearOf(a) - activeFrame.year) ? b : a);
-  } else {
-    const pos = candidateIndices.length > 0
-      ? Math.min(candidateIndices.length - 1, Math.floor(stepFrac * candidateIndices.length))
-      : 0;
-    mappedIdx = candidateIndices[pos] ?? 0;
-  }
+  const mappedPoolPos = candidateIndices.length > 0
+    ? Math.min(candidateIndices.length - 1, Math.floor(stepFrac * candidateIndices.length))
+    : 0;
   const correspondingEpochIdx =
     Number.isInteger(activeFrame?.epochIdx) && activeFrame.epochIdx >= 0 && activeFrame.epochIdx < epochs.length
       ? activeFrame.epochIdx
-      : mappedIdx;
+      : candidateIndices[mappedPoolPos] ?? 0;
 
   return {
     seqFrames,
@@ -1589,6 +1548,168 @@ function getSynchronizedTemporalState() {
     activeFrame,
     correspondingEpochIdx,
   };
+}
+
+/**
+ * Construye (con caché) un cuadro de 128×128 píxeles para el paso `stepIdx` de `totalSteps`
+ * donde las estrellas de fondo permanecen 100% estáticas y el cambio temporal (movimiento
+ * o variación de brillo de la estrella) se muestra con alta nitidez tanto en el Visor
+ * Multi-Época SPHEREx (`isContextColor = false`) como en el Contexto infrarrojo (`isContextColor = true`).
+ */
+function getMultiEpochStepCanvas(stepIdx, totalSteps, isContextColor = false) {
+  const pm = state.pairMeta;
+  if (!pm || !pm.earlyGrid || !pm.lateGrid) return null;
+  const K = Math.max(2, totalSteps || 2);
+  const step = Math.max(0, Math.min(K - 1, stepIdx || 0));
+  if (!pm.stepCache) pm.stepCache = new Map();
+
+  const cacheKey = `${isContextColor ? "ctx" : "spx"}:${step}:${K}:${state.invertPixels ? 1 : 0}:${state.stretchLinearity.toFixed(2)}:${state.contrastGain.toFixed(2)}:${state.selectedDetectionId || 0}`;
+  if (pm.stepCache.has(cacheKey)) {
+    return pm.stepCache.get(cacheKey);
+  }
+
+  const w = 128;
+  const h = 128;
+  const t = K > 1 ? step / (K - 1) : 1;
+  const earlyGrid = pm.earlyGrid;
+  const lateGrid = pm.lateGrid;
+
+  const detections = (state.allAiDetections?.length
+    ? state.allAiDetections
+    : state.exploreData?.ai_detections || []
+  ).filter((d) => d.type === "MOVING_DIPOLE" && d.neg_x_pix != null && d.neg_y_pix != null);
+
+  // Pre-calcular posiciones interpoladas y huellas previas de cada dipolo móvil en coordenadas de imagen (px, py con py = h - 1 - y_pix)
+  const dipoleSpots = detections.map((d) => {
+    const x0 = Number(d.neg_x_pix);
+    const y0 = h - 1 - Number(d.neg_y_pix);
+    const x1 = Number(d.x_pix);
+    const y1 = h - 1 - Number(d.y_pix);
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dist = Math.hypot(dx, dy);
+    const ux = dist > 0.2 ? dx / dist : 0;
+    const uy = dist > 0.2 ? dy / dist : 0;
+    // Extender levemente la línea visual si el salto sub-píxel es corto para que cada paso se distinga con nitidez
+    const midX = 0.5 * (x0 + x1);
+    const midY = 0.5 * (y0 + y1);
+    const effSpan = Math.max(dist, 3.4);
+    const sx0 = midX - ux * (effSpan * 0.5);
+    const sy0 = midY - uy * (effSpan * 0.5);
+    const sx1 = midX + ux * (effSpan * 0.5);
+    const sy1 = midY + uy * (effSpan * 0.5);
+
+    const trail = [];
+    for (let j = 0; j <= step; j++) {
+      const tj = K > 1 ? j / (K - 1) : 1;
+      trail.push({
+        x: sx0 + (sx1 - sx0) * tj,
+        y: sy0 + (sy1 - sy0) * tj,
+        isCurrent: j === step,
+        ageFrac: step > 0 ? j / step : 1,
+      });
+    }
+    return { x0, y0, x1, y1, sx0, sy0, sx1, sy1, trail };
+  });
+
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  const imgData = ctx.createImageData(w, h);
+  const inv = state.invertPixels;
+
+  for (let py = 0; py < h; py++) {
+    // Coordenada FITS vertical (Norte arriba: fila 0 del canvas corresponde a yFits = h - 1 - py o directa según grillas)
+    for (let px = 0; px < w; px++) {
+      const pIdx = py * w + px;
+      const eVal = earlyGrid[pIdx];
+      const lVal = lateGrid[pIdx];
+      const diff = lVal - eVal;
+      const absDiff = Math.abs(diff);
+
+      // Fondo estático libre de parpadeo donde |ΔSNR| es pequeño
+      const staticVal = 0.5 * (eVal + lVal);
+      // Suprimir lóbulos estáticos en los extremos del dipolo para que la PSF sintetizada se desplace limpia paso a paso
+      let baseVal = absDiff > 0.65 ? Math.min(eVal, lVal) * 0.82 : staticVal;
+
+      // Interpolación progresiva de fuentes variables o cambios de brillo
+      const boost = absDiff > 0.65 ? Math.tanh((absDiff - 0.65) / 1.85) * 2.5 : 0.0;
+      const interpSignal = eVal * (1 - t) + lVal * t + (2 * t - 1) * boost * 0.9;
+
+      // Contribución PSF nítida de los objetos en movimiento en el paso actual + persistencia leve de pasos previos
+      let spotSnr = 0;
+      let trailGlow = 0;
+      for (let dIdx = 0; dIdx < dipoleSpots.length; dIdx++) {
+        const dp = dipoleSpots[dIdx];
+        for (let sIdx = 0; sIdx < dp.trail.length; sIdx++) {
+          const pt = dp.trail[sIdx];
+          const r2 = (px - pt.x) * (px - pt.x) + (py - pt.y) * (py - pt.y);
+          if (pt.isCurrent) {
+            if (r2 < 14.0) {
+              spotSnr = Math.max(spotSnr, 8.5 * Math.exp(-r2 / 2.35));
+            }
+          } else if (r2 < 6.5) {
+            trailGlow = Math.max(trailGlow, (1.8 + 1.4 * pt.ageFrac) * Math.exp(-r2 / 1.55));
+          }
+        }
+      }
+
+      const finalSnr = spotSnr > 0.15 || trailGlow > 0.15
+        ? baseVal + spotSnr + trailGlow * 0.65
+        : interpSignal;
+
+      const i = pIdx * 4;
+      if (!isContextColor) {
+        const g = snrToGrayscaleByte(finalSnr);
+        imgData.data[i] = g;
+        imgData.data[i + 1] = g;
+        imgData.data[i + 2] = g;
+        imgData.data[i + 3] = 255;
+      } else {
+        // Paleta infrarroja profunda para Contexto infrarrojo y catálogos (#aladin-canvas) con realce nítido del paso temporal
+        const gByte = snrToGrayscaleByte(finalSnr);
+        const rawNorm = inv ? 1.0 - gByte / 255.0 : gByte / 255.0;
+        const n = Math.pow(Math.max(0, rawNorm), 1.08);
+        let r = Math.min(255, Math.round(4 + 215 * Math.pow(n, 1.32) + 36 * Math.pow(n, 3.0)));
+        let g = Math.min(255, Math.round(9 + 188 * Math.pow(n, 1.08) + 58 * Math.pow(n, 2.4)));
+        let b = Math.min(255, Math.round(22 + 165 * Math.pow(n, 0.86) + 68 * Math.pow(n, 2.0)));
+
+        // Si el píxel pertenece al pulso activo o al rastro de pasos visitados, darle nitidez cromática distintiva
+        if (spotSnr > 0.35) {
+          const wSpot = Math.min(1, spotSnr / 6.5);
+          // Pulso actual brillante (núcleo blanco-esmeralda/ámbar de alto contraste)
+          r = Math.min(255, Math.round(r * (1 - wSpot * 0.45) + 180 * wSpot));
+          g = Math.min(255, Math.round(g * (1 - wSpot * 0.65) + 255 * wSpot));
+          b = Math.min(255, Math.round(b * (1 - wSpot * 0.5) + 225 * wSpot));
+        } else if (trailGlow > 0.25) {
+          const wTrail = Math.min(1, trailGlow / 3.0);
+          // Huellas previas en tono cian luminoso
+          r = Math.min(255, Math.round(r * (1 - wTrail * 0.4) + 56 * wTrail));
+          g = Math.min(255, Math.round(g * (1 - wTrail * 0.5) + 198 * wTrail));
+          b = Math.min(255, Math.round(b * (1 - wTrail * 0.6) + 248 * wTrail));
+        } else if (absDiff > 0.85) {
+          // Fuente variable puntual: realce cálido según fase temporal
+          const wVar = Math.min(1, (absDiff - 0.85) / 4.0) * t;
+          r = Math.min(255, Math.round(r + 65 * wVar));
+          g = Math.min(255, Math.round(g + 45 * wVar));
+        }
+
+        imgData.data[i] = inv ? 255 - r : r;
+        imgData.data[i + 1] = inv ? 255 - g : g;
+        imgData.data[i + 2] = inv ? 255 - b : b;
+        imgData.data[i + 3] = 255;
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  if (pm.stepCache.size > 48) {
+    const firstKey = pm.stepCache.keys().next().value;
+    pm.stepCache.delete(firstKey);
+  }
+  pm.stepCache.set(cacheKey, c);
+  return c;
 }
 
 function rebakeAllOpticalCanvases() {
@@ -1843,28 +1964,6 @@ function clearNamedObjectSelection() {
   if (state.selectedNamedObjectId === null) return;
   state.selectedNamedObjectId = null;
   renderNamedObjectsPanel();
-}
-
-function isFitsPixelInReadyTile(xPix, yPix) {
-  if (!Number.isFinite(xPix) || !Number.isFinite(yPix)) return false;
-  if (xPix >= 0 && xPix <= CUTOUT_NPIX && yPix >= 0 && yPix <= CUTOUT_NPIX) {
-    return true;
-  }
-  if (!state.infinitePlaneEnabled || !state.tileGrid) return false;
-  const prefGx = Math.floor((xPix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
-  const prefGy = Math.floor((yPix + 0.5 - TILE_MARGIN_PIX) / TILE_STEP_PIX);
-  const prefTile = state.tileGrid.get(`${prefGx},${prefGy}`);
-  if (prefTile && prefTile.status === "ready") return true;
-  for (const tile of state.tileGrid.values()) {
-    if (tile.status === "ready") {
-      const lx = xPix - tile.gx * TILE_STEP_PIX;
-      const ly = yPix - tile.gy * TILE_STEP_PIX;
-      if (lx >= 0 && lx <= CUTOUT_NPIX && ly >= 0 && ly <= CUTOUT_NPIX) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 function findBestTileForGlobalPixel(rawX, rawY) {
@@ -2293,24 +2392,6 @@ function ensureExternalSurveyImage(survey, ra, dec, fov) {
   return null;
 }
 
-/** Clave de SURVEY_HIPS_MAP de un paso histórico de la secuencia ('dss2' | '2mass' | 'allwise'). */
-function historicSurveyKeyOfFrame(frame) {
-  if (!frame || frame.kind !== "historic") return null;
-  const raw = String(frame.historicKey || String(frame.frameKey || "").replace(/^hist:/, "")).toLowerCase();
-  const key = raw === "twomass" ? "2mass" : raw;
-  return SURVEY_HIPS_MAP[key] ? key : null;
-}
-
-/** Imagen real del relevamiento histórico para el campo actual (null si todavía no cargó o falló). */
-function getHistoricFrameImage(frame) {
-  const key = historicSurveyKeyOfFrame(frame);
-  return key ? ensureExternalSurveyImage(key, state.ra, state.dec, state.fov) : null;
-}
-
-function isHistoricFrameImageReady(frame) {
-  return Boolean(getHistoricFrameImage(frame));
-}
-
 function renderContextSkyMap() {
   const canvas = document.getElementById("aladin-canvas");
   if (!canvas) return;
@@ -2353,24 +2434,14 @@ function renderContextSkyMap() {
         isOrigin && state.contextSurvey !== "spherex"
           ? ensureExternalSurveyImage(state.contextSurvey, state.ra, state.dec, state.fov)
           : null;
-      // Sector central: imagen real del paso actual (relevamiento histórico o fecha SPHEREx).
       const dynamicOriginSky =
         isOrigin && syncTemporal
-          ? (syncTemporal.activeFrame?.kind === "historic" ? getHistoricFrameImage(syncTemporal.activeFrame) : null) ||
-            (state.epochImages?.length
-              ? state.epochImages[syncTemporal.correspondingEpochIdx % state.epochImages.length]
-              : null)
-          : null;
-      const neighborBlinkImg =
-        !isOrigin && syncTemporal && tile && tile.status === "ready" && tile.epochImages?.length
-          ? tile.epochImages[syncTemporal.activeStep % tile.epochImages.length]
+          ? getMultiEpochStepCanvas(syncTemporal.activeStep, syncTemporal.K, true)
           : null;
       const colorImg = extSurveyImg
         ? extSurveyImg
         : dynamicOriginSky
         ? dynamicOriginSky
-        : neighborBlinkImg
-        ? neighborBlinkImg
         : (tile && tile.status === "ready")
         ? tile.colorSkyCanvas
         : isOrigin
@@ -2416,13 +2487,12 @@ function renderContextSkyMap() {
   }
   ctx.restore();
 
-  // 3. Superponer fuentes del catálogo AllWISE (rombos ámbar discretos, solo en sectores ya cargados)
+  // 3. Superponer fuentes del catálogo AllWISE (rombos ámbar discretos)
   if (state.showWiseCat && state.skyView.wiseSources.length > 0) {
     ctx.save();
     ctx.strokeStyle = "rgba(245, 158, 11, 0.65)";
     ctx.lineWidth = 1.2;
     state.skyView.wiseSources.forEach((src) => {
-      if (!isFitsPixelInReadyTile(src.x, src.y)) return;
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
       const r = 4.5;
@@ -2437,35 +2507,29 @@ function renderContextSkyMap() {
     ctx.restore();
   }
 
-  // 4. Superponer fuentes del catálogo Gaia DR3 (círculos celestes discretos, solo en sectores ya cargados)
+  // 4. Superponer fuentes del catálogo Gaia DR3 (círculos celestes discretos)
   if (state.showGaiaCat && state.skyView.gaiaSources.length > 0) {
     ctx.save();
     ctx.strokeStyle = "rgba(56, 189, 248, 0.70)";
     ctx.lineWidth = 1.2;
     const pxPerArcsec = W / ((state.fov / (state.skyView.zoom || 1)) * 3600);
     state.skyView.gaiaSources.forEach((src) => {
-      if (!isFitsPixelInReadyTile(src.x, src.y)) return;
       const { cx, cy } = fitsToSkyCanvas(src.x, src.y, W);
       if (cx < -10 || cx > W + 10 || cy < -10 || cy > H + 10) return;
       ctx.beginPath();
       ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
       ctx.stroke();
       // Línea de desplazamiento (movimiento propio Gaia pmra/pmdec en mas/año)
-      if (
-        state.showTemporalTrail &&
-        state.showPmVectors &&
-        Number.isFinite(src.pmra) &&
-        Number.isFinite(src.pmdec) &&
-        (src.pmra !== 0 || src.pmdec !== 0)
-      ) {
-        const dRa = (src.pmra / 1000) * Math.cos((src.dec * Math.PI) / 180);
-        const dDec = src.pmdec / 1000;
+      if (state.showPmVectors && Number.isFinite(src.pmra) && Number.isFinite(src.pmdec) && (src.pmra !== 0 || src.pmdec !== 0)) {
+        const dRa = (src.pmra / 1000) * Math.cos((src.dec * Math.PI) / 180); // ″/año en RA
+        const dDec = src.pmdec / 1000; // ″/año en Dec
         const mag = Math.hypot(dRa, dDec);
         if (mag > 0) {
           const isFast = mag >= 0.18;
           const len = Math.min(54, Math.max(9, mag * pxPerArcsec * 35));
-          const ux = -dRa / mag;
-          const uy = -dDec / mag;
+          const ux = -dRa / mag; // RA crece hacia la izquierda (Este) en proyección TAN Norte-arriba
+          const uy = -dDec / mag; // Dec crece hacia arriba en pantalla
+          // Línea desde la posición anterior (ox, oy) hasta la posición actual (cx, cy)
           const ox = cx - ux * len;
           const oy = cy - uy * len;
 
@@ -2479,10 +2543,12 @@ function renderContextSkyMap() {
           ctx.stroke();
           ctx.setLineDash([]);
 
+          // Punto de ubicación anterior
           ctx.beginPath();
           ctx.arc(ox, oy, isFast ? 2.6 : 2.0, 0, Math.PI * 2);
           ctx.stroke();
 
+          // Punta de flecha llegando a la ubicación actual
           const head = isFast ? 5.5 : 4.2;
           const ang = Math.atan2(cy - oy, cx - ox);
           ctx.beginPath();
@@ -2498,21 +2564,20 @@ function renderContextSkyMap() {
     ctx.restore();
   }
 
-  // 4b. Líneas de desplazamiento para dipolos móviles IA (solo si el movimiento estelar está visible y dentro del sector cargado)
+  // 4b. Líneas de desplazamiento para dipolos móviles IA y astros con movimiento propio medido
   const contextDipoles = (state.allAiDetections?.length
     ? state.allAiDetections
     : state.exploreData?.ai_detections || []
   ).filter((d) => d.type === "MOVING_DIPOLE" && d.neg_x_pix != null && d.neg_y_pix != null);
 
-  if (state.showTemporalTrail && contextDipoles.length > 0) {
+  if (contextDipoles.length > 0) {
     ctx.save();
     contextDipoles.forEach((det) => {
-      if (!isFitsPixelInReadyTile(det.x_pix, det.y_pix)) return;
       const p0 = fitsToSkyCanvas(det.neg_x_pix, det.neg_y_pix, W);
       const p1 = fitsToSkyCanvas(det.x_pix, det.y_pix, W);
       if (
-        (p0.cx < 0 || p0.cx > W || p0.cy < 0 || p0.cy > H) &&
-        (p1.cx < 0 || p1.cx > W || p1.cy < 0 || p1.cy > H)
+        (p0.cx < -40 || p0.cx > W + 40 || p0.cy < -40 || p0.cy > H + 40) &&
+        (p1.cx < -40 || p1.cx > W + 40 || p1.cy < -40 || p1.cy > H + 40)
       ) {
         return;
       }
@@ -2552,84 +2617,77 @@ function renderContextSkyMap() {
 
   // 4c. Rastro temporal progresivo multi-época (DSS2 ~1990 → 2MASS ~1999 → AllWISE 2010 → visitas SPHEREx)
   if (state.showTemporalTrail) {
-    drawStarTemporalTrailOnContext(ctx, W, H, false);
+    drawStarTemporalTrailOnContext(ctx, W, H);
   }
 
-  // Trayectoria histórica de gran movimiento propio (solo cuando esa región está en pantalla y el movimiento está activo)
+  // Trayectoria histórica de gran movimiento propio (ej. Estrella de Barnard, ε Indi B, WISE 0855)
   const km = state.timelineData?.known_motion;
-  if (state.showTemporalTrail && km && Number.isFinite(km.ref_ra) && Number.isFinite(km.current_ra)) {
+  if (km && Number.isFinite(km.ref_ra) && Number.isFinite(km.current_ra)) {
     const refPix = raDecToPixel(km.ref_ra, km.ref_dec);
     const curPix = raDecToPixel(km.current_ra, km.current_dec);
-    if (isFitsPixelInReadyTile(refPix.x, refPix.y) || isFitsPixelInReadyTile(curPix.x, curPix.y)) {
-      const pRef = fitsToSkyCanvas(refPix.x, refPix.y, W);
-      const pCur = fitsToSkyCanvas(curPix.x, curPix.y, W);
-      const refInView = pRef.cx >= -15 && pRef.cx <= W + 15 && pRef.cy >= -15 && pRef.cy <= H + 15;
-      const curInView = pCur.cx >= -15 && pCur.cx <= W + 15 && pCur.cy >= -15 && pCur.cy <= H + 15;
-      if ((refInView || curInView) && Math.hypot(pCur.cx - pRef.cx, pCur.cy - pRef.cy) >= 3) {
-        ctx.save();
-        ctx.strokeStyle = "rgba(251, 113, 133, 0.9)";
-        ctx.lineWidth = 2.0;
-        ctx.setLineDash([5, 3]);
-        ctx.beginPath();
-        ctx.moveTo(pRef.cx, pRef.cy);
-        ctx.lineTo(pCur.cx, pCur.cy);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.strokeStyle = "#38bdf8";
-        ctx.lineWidth = 1.7;
-        ctx.beginPath();
-        ctx.arc(pRef.cx, pRef.cy, 5, 0, Math.PI * 2);
-        ctx.stroke();
-
-        const ang = Math.atan2(pCur.cy - pRef.cy, pCur.cx - pRef.cx);
-        const head = 7;
-        ctx.fillStyle = "#fb7185";
-        ctx.beginPath();
-        ctx.moveTo(pCur.cx, pCur.cy);
-        ctx.lineTo(pCur.cx - head * Math.cos(ang - Math.PI / 6), pCur.cy - head * Math.sin(ang - Math.PI / 6));
-        ctx.lineTo(pCur.cx - head * Math.cos(ang + Math.PI / 6), pCur.cy - head * Math.sin(ang + Math.PI / 6));
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-  }
-
-  // 5. Retícula del píxel/objeto seleccionado (solo si está dentro de un sector cargado y en pantalla)
-  if (state.selectedPixel && isFitsPixelInReadyTile(state.selectedPixel.x, state.selectedPixel.y)) {
-    const { cx, cy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
-    if (cx >= -12 && cx <= W + 12 && cy >= -12 && cy <= H + 12) {
+    const pRef = fitsToSkyCanvas(refPix.x, refPix.y, W);
+    const pCur = fitsToSkyCanvas(curPix.x, curPix.y, W);
+    if (Math.hypot(pCur.cx - pRef.cx, pCur.cy - pRef.cy) >= 3) {
       ctx.save();
-      ctx.strokeStyle = "#10b981";
-      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = "rgba(251, 113, 133, 0.9)";
+      ctx.lineWidth = 2.0;
+      ctx.setLineDash([5, 3]);
       ctx.beginPath();
-      ctx.moveTo(cx - 10, cy);
-      ctx.lineTo(cx - 3, cy);
-      ctx.moveTo(cx + 3, cy);
-      ctx.lineTo(cx + 10, cy);
-      ctx.moveTo(cx, cy - 10);
-      ctx.lineTo(cx, cy - 3);
-      ctx.moveTo(cx, cy + 3);
-      ctx.lineTo(cx, cy + 10);
+      ctx.moveTo(pRef.cx, pRef.cy);
+      ctx.lineTo(pCur.cx, pCur.cy);
       ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      ctx.arc(pRef.cx, pRef.cy, 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      const ang = Math.atan2(pCur.cy - pRef.cy, pCur.cx - pRef.cx);
+      const head = 7;
+      ctx.fillStyle = "#fb7185";
+      ctx.beginPath();
+      ctx.moveTo(pCur.cx, pCur.cy);
+      ctx.lineTo(pCur.cx - head * Math.cos(ang - Math.PI / 6), pCur.cy - head * Math.sin(ang - Math.PI / 6));
+      ctx.lineTo(pCur.cx - head * Math.cos(ang + Math.PI / 6), pCur.cy - head * Math.sin(ang + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
       ctx.restore();
     }
   }
 
-  // 6. Astros identificados en el plano continuo (solo en sectores cargados y dentro del rango de visión)
+  // 5. Retícula del píxel/objeto seleccionado
+  if (state.selectedPixel) {
+    const { cx, cy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
+    ctx.save();
+    ctx.strokeStyle = "#10b981";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy);
+    ctx.lineTo(cx - 3, cy);
+    ctx.moveTo(cx + 3, cy);
+    ctx.lineTo(cx + 10, cy);
+    ctx.moveTo(cx, cy - 10);
+    ctx.lineTo(cx, cy - 3);
+    ctx.moveTo(cx, cy + 3);
+    ctx.lineTo(cx, cy + 10);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 6. Astros identificados en el plano continuo: anillo discreto siempre, etiqueta arriba al pasar el cursor (o con "Fijar nombres")
   if (state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
     state.skyView.namedObjects.forEach((obj) => {
-      if (!isFitsPixelInReadyTile(obj.x, obj.y)) return;
       const { cx, cy } = fitsToSkyCanvas(obj.x, obj.y, W);
-      if (cx < -16 || cx > W + 16 || cy < -16 || cy > H + 16) return;
+      if (cx < -24 || cx > W + 24 || cy < -24 || cy > H + 24) return;
       const isHovered = state.hoveredNamedObjectId === obj.id;
       const isSelected = state.selectedNamedObjectId === obj.id;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
       const ringColor = isHovered || isSelected ? "#34d399" : hasPlanets ? "#a78bfa" : "#fde047";
 
       ctx.save();
-      if (state.showTemporalTrail && obj.catalogRa != null && obj.catalogDec != null) {
+      if (obj.catalogRa != null && obj.catalogDec != null) {
         const catPix = raDecToPixel(obj.catalogRa, obj.catalogDec);
         const pCat = fitsToSkyCanvas(catPix.x, catPix.y, W);
         if (Math.hypot(cx - pCat.cx, cy - pCat.cy) >= 3.5) {
@@ -2793,18 +2851,15 @@ function renderCanvas() {
         } else if (
           isOrigin &&
           state.viewMode === "blink" &&
-          (state.selectedBand === "pair" || state.selectedBand === "manual_pair")
+          (state.selectedBand === "pair" || state.selectedBand === "manual_pair") &&
+          state.pairMeta?.earlyCanvas &&
+          state.pairMeta?.lateCanvas
         ) {
-          // Imagen REAL de la fecha que corresponde al paso actual. (Antes se mostraba un cuadro
-          // sintético con el fondo promediado y quieto: el sector central parecía congelado.)
-          // En un paso histórico (DSS2 / 2MASS / AllWISE) se ve la imagen de ese relevamiento.
           baseImg =
-            (syncState.activeFrame?.kind === "historic" ? getHistoricFrameImage(syncState.activeFrame) : null) ||
-            (tEpochs && tEpochs.length > 0 ? tEpochs[epIdx % tEpochs.length] : null) ||
-            (isEarlyBlinkPhase ? state.pairMeta?.earlyCanvas : state.pairMeta?.lateCanvas) ||
-            tCoadd;
+            getMultiEpochStepCanvas(syncState.activeStep, syncState.K, false) ||
+            (isEarlyBlinkPhase ? state.pairMeta.earlyCanvas : state.pairMeta.lateCanvas);
         } else if (tEpochs && tEpochs.length > 0) {
-          const tileEpIdx = isOrigin ? epIdx : syncState.activeStep % tEpochs.length;
+          const tileEpIdx = isOrigin ? epIdx : state.currentEpochIdx % tEpochs.length;
           baseImg = tEpochs[tileEpIdx];
         }
 
@@ -2840,9 +2895,8 @@ function renderCanvas() {
     : state.exploreData.ai_detections || [];
   if (state.showAIMarkers && detectionsToDraw.length > 0) {
     detectionsToDraw.forEach((det) => {
-      if (!isFitsPixelInReadyTile(det.x_pix, det.y_pix)) return;
       const { cx, cy } = fitsToSkyCanvas(det.x_pix, det.y_pix, W);
-      if (cx < -32 || cx > W + 32 || cy < -32 || cy > H + 32) return;
+      if (cx < -40 || cx > W + 40 || cy < -40 || cy > H + 40) return;
       const isSelected = state.selectedDetectionId === det.id;
 
       ctx.save();
@@ -2852,7 +2906,7 @@ function renderCanvas() {
         const nx = negPt.cx;
         const ny = negPt.cy;
 
-        if (hasNeg && state.showTemporalTrail) {
+        if (hasNeg) {
           // Línea de trayectoria ANTES → AHORA con flecha direccional
           ctx.strokeStyle = "rgba(251, 113, 133, 0.78)";
           ctx.lineWidth = 2.0;
@@ -2874,7 +2928,7 @@ function renderCanvas() {
           ctx.fill();
         }
 
-        if (state.viewMode === "blink" && hasNeg && state.showTemporalTrail) {
+        if (state.viewMode === "blink" && hasNeg) {
           // Secuencia multi-época sincronizada: avanza paso a paso entre (nx, ny) y (cx, cy) dejando rastro
           const activeX = nx + (cx - nx) * syncState.stepFrac;
           const activeY = ny + (cy - ny) * syncState.stepFrac;
@@ -2955,7 +3009,7 @@ function renderCanvas() {
             ctx.stroke();
             ctx.setLineDash([]);
           }
-          if (hasNeg && state.showTemporalTrail) {
+          if (hasNeg) {
             ctx.strokeStyle = "#38bdf8";
             ctx.lineWidth = 1.8;
             ctx.setLineDash([3, 3]);
@@ -3032,41 +3086,33 @@ function renderCanvas() {
     });
   }
 
-  // 2b. Rastro temporal progresivo de la estrella en el Visor Multi-Época SPHEREx (idéntico al Contexto infrarrojo y catálogos)
-  if (state.showTemporalTrail) {
-    drawStarTemporalTrailOnContext(ctx, W, H, true);
-  }
-
-  // 3. Retícula del píxel seleccionado en el plano continuo (solo si su sector está cargado y visible)
-  if (state.selectedPixel && isFitsPixelInReadyTile(state.selectedPixel.x, state.selectedPixel.y)) {
+  // 3. Retícula del píxel seleccionado en el plano continuo
+  if (state.selectedPixel) {
     const { cx: sx, cy: sy } = fitsToSkyCanvas(state.selectedPixel.x, state.selectedPixel.y, W);
-    if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) {
-      ctx.save();
-      ctx.strokeStyle = "#10b981";
-      ctx.lineWidth = 2.0;
-      ctx.beginPath();
-      ctx.moveTo(sx - 12, sy);
-      ctx.lineTo(sx - 3, sy);
-      ctx.moveTo(sx + 3, sy);
-      ctx.lineTo(sx + 12, sy);
-      ctx.moveTo(sx, sy - 12);
-      ctx.lineTo(sx, sy - 3);
-      ctx.moveTo(sx, sy + 3);
-      ctx.lineTo(sx, sy + 12);
-      ctx.stroke();
-      ctx.restore();
-    }
+    ctx.save();
+    ctx.strokeStyle = "#10b981";
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.moveTo(sx - 12, sy);
+    ctx.lineTo(sx - 3, sy);
+    ctx.moveTo(sx + 3, sy);
+    ctx.lineTo(sx + 12, sy);
+    ctx.moveTo(sx, sy - 12);
+    ctx.lineTo(sx, sy - 3);
+    ctx.moveTo(sx, sy + 3);
+    ctx.lineTo(sx, sy + 12);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // 4. Etiquetas de astros nombrados al pasar el cursor, el astro seleccionado (fijo) o con "Fijar nombres" activo
   if ((state.showNamedObjects || state.hoveredNamedObjectId || state.selectedNamedObjectId) && state.skyView.namedObjects && state.skyView.namedObjects.length > 0) {
     state.skyView.namedObjects.forEach((obj) => {
-      if (!isFitsPixelInReadyTile(obj.x, obj.y)) return;
       const isHovered = state.hoveredNamedObjectId === obj.id;
       const isSelected = state.selectedNamedObjectId === obj.id;
       if (!isHovered && !isSelected && !state.showNamedObjects) return;
       const { cx: ox, cy: oy } = fitsToSkyCanvas(obj.x, obj.y, W);
-      if (ox < 6 || ox > W - 6 || oy < 6 || oy > H - 6) return;
+      if (ox < -20 || ox > W + 20 || oy < -20 || oy > H + 20) return;
       const hasPlanets = (obj.planets && obj.planets.length > 0) || obj.kind === "planet";
       const nPlanets = obj.planets ? obj.planets.length : 0;
       const labelText = nPlanets > 0
@@ -3158,13 +3204,10 @@ function renderCanvas() {
           ? new Date((mjd - 40587) * 86400000).toISOString().replace("T", " ").slice(0, 19) + " UTC"
           : ep.obs_time || "sin fecha";
         const stepTitle = syncState.activeFrame?.badgeText || syncState.activeFrame?.title || `Fecha: ${date}`;
-        const isSyncedBand = state.selectedBand === "pair" || state.selectedBand === "manual_pair";
-        const showingHistoric = isSyncedBand && Boolean(getHistoricFrameImage(syncState.activeFrame));
-        document.getElementById("overlay-date").textContent = showingHistoric
-          ? `Paso ${syncState.activeStep + 1}/${syncState.K}: ${stepTitle} · otro telescopio, solo para comparar posición`
-          : isSyncedBand
-          ? `Paso ${syncState.activeStep + 1}/${syncState.K}: ${stepTitle} (${date})`
-          : `Fecha: ${date}`;
+        document.getElementById("overlay-date").textContent =
+          state.selectedBand === "pair" || state.selectedBand === "manual_pair"
+            ? `Paso ${syncState.activeStep + 1}/${syncState.K}: ${stepTitle} (${date})`
+            : `Fecha: ${date}`;
         document.getElementById("overlay-clean").textContent = `Píxeles limpios: ${ep.clean_pixels_pct}%`;
         document.getElementById("overlay-detector").textContent = `Banda: ${bandLabel} | Δλ: ${Number(ep.bandwidth_um || 0).toFixed(3)} µm`;
       } else {
@@ -3267,19 +3310,7 @@ function startBlinkTimer() {
     if (state.isLoading || !state.exploreData?.epochs?.length) return;
 
     const sync = getSynchronizedTemporalState();
-    let nextStep = (sync.activeStep + 1) % sync.K;
-    // Un paso histórico (DSS2 / 2MASS / AllWISE) muestra la imagen de ese relevamiento. Si todavía
-    // no cargó o el servicio falla, el visor no tiene nada nuevo que mostrar y quedaba quieto en la
-    // primera fecha: ese paso se salta (si quedan al menos 2 pasos SPHEREx para alternar).
-    const frames = sync.seqFrames || [];
-    const spherexSteps = frames.filter((f) => f.kind !== "historic").length;
-    if (spherexSteps >= 2) {
-      for (let guard = 0; guard < sync.K && frames[nextStep]?.kind === "historic"
-           && !isHistoricFrameImageReady(frames[nextStep]); guard++) {
-        nextStep = (nextStep + 1) % sync.K;
-      }
-    }
-    state.timelineBlinkStep = nextStep;
+    state.timelineBlinkStep = (sync.activeStep + 1) % sync.K;
     const nextSync = getSynchronizedTemporalState();
     state.pairBlinkPhase = nextSync.stepFrac < 0.5 ? 0 : 1;
 
@@ -4115,13 +4146,11 @@ function tlResolveComparatorPositions(data, stamps) {
 }
 
 /**
- * Dibuja tanto en "Contexto infrarrojo y catálogos" (#aladin-canvas) como en el
- * "Visor Multi-Época SPHEREx" (#spherex-canvas) el rastro temporal progresivo de cómo
- * se fue moviendo la estrella foto por foto a lo largo de la secuencia histórica activa.
- * Solo se dibuja cuando la región de la estrella está cargada y dentro del rango de visión actual.
+ * Dibuja en "Contexto infrarrojo y catálogos" (#aladin-canvas) el rastro temporal progresivo
+ * de cómo se fue moviendo la estrella foto por foto a lo largo de la secuencia histórica activa.
  */
-function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
-  if (!state.exploreData || !state.showTemporalTrail) return;
+function drawStarTemporalTrailOnContext(ctx, W, H) {
+  if (!state.exploreData) return;
   if (state.timelineData && (!state.timelineBlinkFrames || state.timelineBlinkFrames.length === 0)) {
     buildTimelineBlinkFrames(state.timelineData);
   }
@@ -4179,24 +4208,6 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
     return;
   }
 
-  // Verificar que el sector donde está el astro esté cargado y dentro del rango de visión actual del visor
-  const anchorFitsX = activeDipole
-    ? 0.5 * (activeDipole.neg_x_pix + activeDipole.x_pix)
-    : state.selectedPixel?.x ?? 63.5;
-  const anchorFitsY = activeDipole
-    ? 0.5 * (activeDipole.neg_y_pix + activeDipole.y_pix)
-    : state.selectedPixel?.y ?? 63.5;
-
-  if (!isFitsPixelInReadyTile(anchorFitsX, anchorFitsY)) {
-    return;
-  }
-
-  const rawAnchor = fitsToSkyCanvas(anchorFitsX, anchorFitsY, W);
-  // Si el usuario desplazó el mapa y la estrella salió del rango de visión, no dibujar nada en pantalla
-  if (rawAnchor.cx < 8 || rawAnchor.cx > W - 8 || rawAnchor.cy < 8 || rawAnchor.cy > H - 8) {
-    return;
-  }
-
   // 2) Armar la lista de cuadros temporales activos (por defecto todas las fotos mostradas)
   let seqFrames = state.timelineBlinkFrames;
   if (!seqFrames || seqFrames.length < 2) {
@@ -4219,7 +4230,12 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
   if (K < 2) return;
   const activeStep = (state.timelineBlinkStep || 0) % K;
 
-  // 3) Calcular vector unitario de dirección en el canvas (ux, uy) y anclas espaciales reales (sin clavar a los bordes)
+  // 3) Calcular vector unitario de dirección en el canvas (ux, uy) y anclas espaciales
+  const clampCanvas = (pt, padX = 28, padY = 34) => ({
+    cx: Math.max(padX, Math.min(W - padX, pt.cx)),
+    cy: Math.max(padY, Math.min(H - padY, pt.cy)),
+  });
+
   let ux = 0.85;
   let uy = -0.52;
   if (activeDipole) {
@@ -4268,17 +4284,17 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
     const midX = 0.5 * (rawEarly.cx + rawLate.cx);
     const midY = 0.5 * (rawEarly.cy + rawLate.cy);
     const rawSpan = Math.hypot(rawLate.cx - rawEarly.cx, rawLate.cy - rawEarly.cy);
-    const minSpxSpan = spxIndices.length > 1 ? Math.min(44, Math.max(20, (spxIndices.length - 1) * 13)) : 18;
+    const minSpxSpan = spxIndices.length > 1 ? Math.min(46, Math.max(20, (spxIndices.length - 1) * 14)) : 18;
     const effSpxSpan = Math.max(rawSpan, minSpxSpan);
 
-    const spxStart = {
+    const spxStart = clampCanvas({
       cx: midX - ux * (effSpxSpan * 0.5),
       cy: midY - uy * (effSpxSpan * 0.5),
-    };
-    const spxEnd = {
+    });
+    const spxEnd = clampCanvas({
       cx: midX + ux * (effSpxSpan * 0.5),
       cy: midY + uy * (effSpxSpan * 0.5),
-    };
+    });
 
     spxIndices.forEach((frameIdx, j) => {
       const t = spxIndices.length > 1 ? j / (spxIndices.length - 1) : 1;
@@ -4294,14 +4310,21 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
 
     if (histIndices.length > 0) {
       const anchor = spxIndices.length > 0 ? spxStart : spxEnd;
-      const availUpstream = Math.min(62, Math.max(32, histIndices.length * 18));
+      // Espacio disponible aguas arriba (-ux, -uy) dentro del recorte visible
+      const maxTx = ux > 0.05 ? (anchor.cx - 30) / ux : ux < -0.05 ? (anchor.cx - (W - 30)) / ux : 120;
+      const maxTy = uy > 0.05 ? (anchor.cy - 36) / uy : uy < -0.05 ? (anchor.cy - (H - 36)) / uy : 120;
+      const availUpstream = Math.max(32, Math.min(82, Math.min(Math.abs(maxTx), Math.abs(maxTy))));
       histIndices.forEach((frameIdx, j) => {
         const f = seqFrames[frameIdx];
         const fracFromEarliest = histIndices.length > 1 ? j / histIndices.length : 0.35;
         const distUpstream = availUpstream * (1 - fracFromEarliest * 0.72);
-        waypoints[frameIdx] = {
+        const pt = clampCanvas({
           cx: anchor.cx - ux * distUpstream,
           cy: anchor.cy - uy * distUpstream,
+        });
+        waypoints[frameIdx] = {
+          cx: pt.cx,
+          cy: pt.cy,
           kind: "historic",
           shortTag: f.shortTag || f.historicKey?.toUpperCase() || `HIST #${j + 1}`,
           title: f.badgeText || f.title || `Histórico #${j + 1}`,
@@ -4310,15 +4333,17 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
     }
   } else {
     // Estrella con movimiento propio de catálogo (ej. Barnard's Star, Gaia DR3) o centroide medido
-    const totalSpan = Math.min(88, Math.max(46, (K - 1) * 14));
-    const startPt = {
-      cx: rawAnchor.cx - ux * (totalSpan * 0.55),
-      cy: rawAnchor.cy - uy * (totalSpan * 0.55),
-    };
-    const endPt = {
-      cx: rawAnchor.cx + ux * (totalSpan * 0.45),
-      cy: rawAnchor.cy + uy * (totalSpan * 0.45),
-    };
+    const selPix = state.selectedPixel || { x: 63.5, y: 63.5 };
+    const anchor = clampCanvas(fitsToSkyCanvas(selPix.x, selPix.y, W), 42, 46);
+    const totalSpan = Math.min(96, Math.max(48, (K - 1) * 16));
+    const startPt = clampCanvas({
+      cx: anchor.cx - ux * (totalSpan * 0.55),
+      cy: anchor.cy - uy * (totalSpan * 0.55),
+    });
+    const endPt = clampCanvas({
+      cx: anchor.cx + ux * (totalSpan * 0.45),
+      cy: anchor.cy + uy * (totalSpan * 0.45),
+    });
     for (let i = 0; i < K; i++) {
       const t = K > 1 ? i / (K - 1) : 1;
       const f = seqFrames[i];
@@ -4408,7 +4433,6 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
   // Capa 3: Huellas temporales (nodos visitados 0 .. activeStep)
   for (let i = 0; i <= activeStep; i++) {
     const wp = waypoints[i];
-    if (wp.cx < -16 || wp.cx > W + 16 || wp.cy < -16 || wp.cy > H + 16) continue;
     const isCurrent = i === activeStep;
     const nodeColor = isCurrent
       ? "#34d399"
@@ -4431,13 +4455,13 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
     if (isCurrent || i === 0 || distPrev >= 15 || i === histIndices[histIndices.length - 1]) {
       const side = i % 2 === 0 ? 1 : -1;
       const lblOffset = isCurrent ? 15 : 12;
-      const lx = wp.cx + nx * side * lblOffset;
-      const ly = wp.cy + ny * side * lblOffset;
+      const lx = Math.max(24, Math.min(W - 24, wp.cx + nx * side * lblOffset));
+      const ly = Math.max(32, Math.min(H - 30, wp.cy + ny * side * lblOffset));
       const tagTxt = isCurrent ? `● ${i + 1}/${K} ${wp.shortTag}` : `${i + 1}·${wp.shortTag}`;
       ctx.font = isCurrent ? "bold 9.5px monospace" : "bold 8.5px monospace";
       const tw = ctx.measureText(tagTxt).width;
-      const bx = lx - tw / 2 - 3;
-      const by = ly - 6;
+      const bx = Math.max(4, Math.min(W - tw - 10, lx - tw / 2 - 3));
+      const by = Math.max(24, Math.min(H - 28, ly - 6));
 
       ctx.fillStyle = isCurrent ? "rgba(6, 78, 59, 0.92)" : "rgba(15, 23, 42, 0.86)";
       ctx.strokeStyle = nodeColor;
@@ -4458,7 +4482,7 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
 
   // Capa 4: Anillo y mira activa en la foto actual (activeStep) + indicador HUD de rastro temporal
   const curWp = waypoints[activeStep];
-  if (curWp && curWp.cx >= 0 && curWp.cx <= W && curWp.cy >= 0 && curWp.cy <= H) {
+  if (curWp) {
     ctx.strokeStyle = "rgba(52, 211, 153, 0.45)";
     ctx.lineWidth = 2.0;
     ctx.beginPath();
@@ -4471,12 +4495,12 @@ function drawStarTemporalTrailOnContext(ctx, W, H, isSpherexCanvas = false) {
     ctx.arc(curWp.cx, curWp.cy, 8.0, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Píldora HUD cuando la estrella está dentro del rango de visión
+    // Píldora HUD en la parte superior central del visor de Contexto
     const hudTxt = `Rastro temporal [${activeStep + 1}/${K}]: ${curWp.title}`;
     ctx.font = "bold 9.5px monospace";
     const hudW = Math.min(W - 20, ctx.measureText(hudTxt).width + 14);
     const hudX = Math.max(8, (W - hudW) / 2);
-    const hudY = isSpherexCanvas ? H - 24 : H - 44;
+    const hudY = H - 44;
     ctx.fillStyle = "rgba(2, 6, 23, 0.88)";
     ctx.strokeStyle = "rgba(52, 211, 153, 0.65)";
     ctx.lineWidth = 1.1;
@@ -6273,64 +6297,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   const chkTrail = document.getElementById("chk-temporal-trail");
-  const btnMotionMain = document.getElementById("btn-toggle-star-motion");
-  const btnMotionCtx = document.getElementById("btn-toggle-star-motion-context");
-  const chkGaia = document.getElementById("chk-gaia");
-  const chkPm = document.getElementById("chk-pm-vectors");
-  const lblPm = document.getElementById("lbl-pm-vectors");
-
-  const updateStarMotionButtonsUI = () => {
-    const visible = Boolean(state.showTemporalTrail);
-    if (chkTrail) {
-      chkTrail.checked = visible;
-    }
-    if (btnMotionMain) {
-      btnMotionMain.setAttribute("aria-pressed", String(visible));
-      btnMotionMain.textContent = visible
-        ? "Ocultar movimiento estelar"
-        : "Mostrar movimiento estelar";
-      btnMotionMain.className = visible
-        ? "px-3 py-1.5 rounded-lg text-xs bg-rose-950/70 border border-rose-500/50 text-rose-200 hover:bg-rose-900/80 transition font-semibold"
-        : "px-3 py-1.5 rounded-lg text-xs bg-emerald-950/70 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-900/80 transition font-semibold";
-    }
-    if (btnMotionCtx) {
-      btnMotionCtx.setAttribute("aria-pressed", String(visible));
-      btnMotionCtx.textContent = visible ? "Ocultar movimiento" : "Mostrar movimiento";
-      btnMotionCtx.className = visible
-        ? "px-2 py-0.5 rounded bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/40 text-rose-200 transition font-semibold"
-        : "px-2 py-0.5 rounded bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-500/40 text-emerald-200 transition font-semibold";
-    }
-  };
-
-  const setStarMotionVisible = (visible) => {
-    state.showTemporalTrail = Boolean(visible);
-    state.showPmVectors = Boolean(visible);
-    if (chkPm) {
-      chkPm.checked = Boolean(visible);
-    }
-    updateStarMotionButtonsUI();
-    renderCanvas();
-    renderContextSkyMap();
-  };
-
   if (chkTrail) {
     state.showTemporalTrail = Boolean(chkTrail.checked);
     chkTrail.addEventListener("change", (e) => {
-      setStarMotionVisible(Boolean(e.target.checked));
+      state.showTemporalTrail = Boolean(e.target.checked);
+      renderContextSkyMap();
     });
   }
-  if (btnMotionMain) {
-    btnMotionMain.addEventListener("click", () => {
-      setStarMotionVisible(!state.showTemporalTrail);
-    });
-  }
-  if (btnMotionCtx) {
-    btnMotionCtx.addEventListener("click", () => {
-      setStarMotionVisible(!state.showTemporalTrail);
-    });
-  }
-  updateStarMotionButtonsUI();
 
+  const chkGaia = document.getElementById("chk-gaia");
+  const chkPm = document.getElementById("chk-pm-vectors");
+  const lblPm = document.getElementById("lbl-pm-vectors");
   const syncGaiaPmState = () => {
     const gaiaEnabled = Boolean(chkGaia?.checked);
     state.showGaiaCat = gaiaEnabled;
