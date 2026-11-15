@@ -272,16 +272,19 @@ function getTileCanvasRect(gx, gy, canvasSize) {
 
 function drawSeamlessTileImage(ctx, img, rect) {
   if (!img) return;
+  // Las grillas propias miden 128 px, pero las imágenes de hips2fits miden 384 px: el recorte de
+  // origen se escala al tamaño real (antes solo se veía el cuadrante superior izquierdo ampliado).
+  const k = (img.naturalWidth || img.width || CUTOUT_NPIX) / CUTOUT_NPIX;
   if (rect.fullCutout) {
-    ctx.drawImage(img, 0, 0, CUTOUT_NPIX, CUTOUT_NPIX, rect.x, rect.y, rect.w, rect.h);
+    ctx.drawImage(img, 0, 0, CUTOUT_NPIX * k, CUTOUT_NPIX * k, rect.x, rect.y, rect.w, rect.h);
     return;
   }
   ctx.drawImage(
     img,
-    TILE_MARGIN_PIX,
-    TILE_MARGIN_PIX,
-    TILE_STEP_PIX,
-    TILE_STEP_PIX,
+    TILE_MARGIN_PIX * k,
+    TILE_MARGIN_PIX * k,
+    TILE_STEP_PIX * k,
+    TILE_STEP_PIX * k,
     rect.x,
     rect.y,
     rect.w,
@@ -782,11 +785,32 @@ function mapDetectionsToGlobalPlane(detections, isOriginTile = false) {
   });
 }
 
+// Dos marcas a menos de ~2 píxeles de SPHEREx (6,15″ c/u) son la misma estrella (mismo valor que el backend).
+const SAME_SOURCE_RADIUS_ARCSEC = 12.0;
+
+function isSameSourceDetection(a, b) {
+  const arcsecPerPix = (state.fov * 3600.0) / CUTOUT_NPIX;
+  const limitPx = SAME_SOURCE_RADIUS_ARCSEC / Math.max(1e-6, arcsecPerPix);
+  const pts = (d) => {
+    const out = [[d.x_pix, d.y_pix]];
+    if (d.neg_x_pix !== null && d.neg_x_pix !== undefined && d.neg_y_pix !== null && d.neg_y_pix !== undefined) {
+      out.push([d.neg_x_pix, d.neg_y_pix]);
+    }
+    return out;
+  };
+  if (Number.isFinite(a.ra) && Number.isFinite(b.ra) &&
+      angularDistanceDeg(a.ra, a.dec, b.ra, b.dec) * 3600.0 <= SAME_SOURCE_RADIUS_ARCSEC) {
+    return true;
+  }
+  return pts(a).some(([xa, ya]) => pts(b).some(([xb, yb]) => Math.hypot(xa - xb, ya - yb) <= limitPx));
+}
+
 function mergeTileDetections(newDetections) {
   const existing = state.allAiDetections || [];
   let added = false;
   newDetections.forEach((det) => {
-    const duplicate = existing.some((ex) => Math.hypot(ex.x_pix - det.x_pix, ex.y_pix - det.y_pix) < 3.5);
+    // Los sectores vecinos se solapan: la misma estrella puede venir detectada en dos sectores.
+    const duplicate = existing.some((ex) => isSameSourceDetection(ex, det));
     if (!duplicate) {
       existing.push(det);
       added = true;
@@ -1532,13 +1556,30 @@ function getSynchronizedTemporalState() {
       : pairIndices.length >= 2
       ? pairIndices
       : epochs.map((_, i) => i);
-  const mappedPoolPos = candidateIndices.length > 0
-    ? Math.min(candidateIndices.length - 1, Math.floor(stepFrac * candidateIndices.length))
-    : 0;
+  // Paso → imagen SPHEREx del visor, por FECHA (antes era por posición en la lista, y varios
+  // pasos caían en la misma exposición: el visor parecía congelado en el primer cuadro).
+  const yearOf = (idx) => {
+    const mjd = tlParseMjd(epochs[idx]?.obs_time);
+    return Number.isFinite(mjd) ? tlYearFromMjd(mjd) : NaN;
+  };
+  const datedCandidates = candidateIndices.filter((i) => Number.isFinite(yearOf(i)));
+  let mappedIdx;
+  if (activeFrame?.kind === "historic" && datedCandidates.length) {
+    // Antes de SPHEREx no hay imagen propia: se muestra la primera fecha disponible.
+    mappedIdx = datedCandidates.reduce((a, b) => (yearOf(b) < yearOf(a) ? b : a));
+  } else if (Number.isFinite(activeFrame?.year) && activeFrame?.kind === "spherex" && datedCandidates.length) {
+    mappedIdx = datedCandidates.reduce((a, b) =>
+      Math.abs(yearOf(b) - activeFrame.year) < Math.abs(yearOf(a) - activeFrame.year) ? b : a);
+  } else {
+    const pos = candidateIndices.length > 0
+      ? Math.min(candidateIndices.length - 1, Math.floor(stepFrac * candidateIndices.length))
+      : 0;
+    mappedIdx = candidateIndices[pos] ?? 0;
+  }
   const correspondingEpochIdx =
     Number.isInteger(activeFrame?.epochIdx) && activeFrame.epochIdx >= 0 && activeFrame.epochIdx < epochs.length
       ? activeFrame.epochIdx
-      : candidateIndices[mappedPoolPos] ?? 0;
+      : mappedIdx;
 
   return {
     seqFrames,
@@ -1548,168 +1589,6 @@ function getSynchronizedTemporalState() {
     activeFrame,
     correspondingEpochIdx,
   };
-}
-
-/**
- * Construye (con caché) un cuadro de 128×128 píxeles para el paso `stepIdx` de `totalSteps`
- * donde las estrellas de fondo permanecen 100% estáticas y el cambio temporal (movimiento
- * o variación de brillo de la estrella) se muestra con alta nitidez tanto en el Visor
- * Multi-Época SPHEREx (`isContextColor = false`) como en el Contexto infrarrojo (`isContextColor = true`).
- */
-function getMultiEpochStepCanvas(stepIdx, totalSteps, isContextColor = false) {
-  const pm = state.pairMeta;
-  if (!pm || !pm.earlyGrid || !pm.lateGrid) return null;
-  const K = Math.max(2, totalSteps || 2);
-  const step = Math.max(0, Math.min(K - 1, stepIdx || 0));
-  if (!pm.stepCache) pm.stepCache = new Map();
-
-  const cacheKey = `${isContextColor ? "ctx" : "spx"}:${step}:${K}:${state.invertPixels ? 1 : 0}:${state.stretchLinearity.toFixed(2)}:${state.contrastGain.toFixed(2)}:${state.selectedDetectionId || 0}`;
-  if (pm.stepCache.has(cacheKey)) {
-    return pm.stepCache.get(cacheKey);
-  }
-
-  const w = 128;
-  const h = 128;
-  const t = K > 1 ? step / (K - 1) : 1;
-  const earlyGrid = pm.earlyGrid;
-  const lateGrid = pm.lateGrid;
-
-  const detections = (state.allAiDetections?.length
-    ? state.allAiDetections
-    : state.exploreData?.ai_detections || []
-  ).filter((d) => d.type === "MOVING_DIPOLE" && d.neg_x_pix != null && d.neg_y_pix != null);
-
-  // Pre-calcular posiciones interpoladas y huellas previas de cada dipolo móvil en coordenadas de imagen (px, py con py = h - 1 - y_pix)
-  const dipoleSpots = detections.map((d) => {
-    const x0 = Number(d.neg_x_pix);
-    const y0 = h - 1 - Number(d.neg_y_pix);
-    const x1 = Number(d.x_pix);
-    const y1 = h - 1 - Number(d.y_pix);
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const dist = Math.hypot(dx, dy);
-    const ux = dist > 0.2 ? dx / dist : 0;
-    const uy = dist > 0.2 ? dy / dist : 0;
-    // Extender levemente la línea visual si el salto sub-píxel es corto para que cada paso se distinga con nitidez
-    const midX = 0.5 * (x0 + x1);
-    const midY = 0.5 * (y0 + y1);
-    const effSpan = Math.max(dist, 3.4);
-    const sx0 = midX - ux * (effSpan * 0.5);
-    const sy0 = midY - uy * (effSpan * 0.5);
-    const sx1 = midX + ux * (effSpan * 0.5);
-    const sy1 = midY + uy * (effSpan * 0.5);
-
-    const trail = [];
-    for (let j = 0; j <= step; j++) {
-      const tj = K > 1 ? j / (K - 1) : 1;
-      trail.push({
-        x: sx0 + (sx1 - sx0) * tj,
-        y: sy0 + (sy1 - sy0) * tj,
-        isCurrent: j === step,
-        ageFrac: step > 0 ? j / step : 1,
-      });
-    }
-    return { x0, y0, x1, y1, sx0, sy0, sx1, sy1, trail };
-  });
-
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext("2d");
-  const imgData = ctx.createImageData(w, h);
-  const inv = state.invertPixels;
-
-  for (let py = 0; py < h; py++) {
-    // Coordenada FITS vertical (Norte arriba: fila 0 del canvas corresponde a yFits = h - 1 - py o directa según grillas)
-    for (let px = 0; px < w; px++) {
-      const pIdx = py * w + px;
-      const eVal = earlyGrid[pIdx];
-      const lVal = lateGrid[pIdx];
-      const diff = lVal - eVal;
-      const absDiff = Math.abs(diff);
-
-      // Fondo estático libre de parpadeo donde |ΔSNR| es pequeño
-      const staticVal = 0.5 * (eVal + lVal);
-      // Suprimir lóbulos estáticos en los extremos del dipolo para que la PSF sintetizada se desplace limpia paso a paso
-      let baseVal = absDiff > 0.65 ? Math.min(eVal, lVal) * 0.82 : staticVal;
-
-      // Interpolación progresiva de fuentes variables o cambios de brillo
-      const boost = absDiff > 0.65 ? Math.tanh((absDiff - 0.65) / 1.85) * 2.5 : 0.0;
-      const interpSignal = eVal * (1 - t) + lVal * t + (2 * t - 1) * boost * 0.9;
-
-      // Contribución PSF nítida de los objetos en movimiento en el paso actual + persistencia leve de pasos previos
-      let spotSnr = 0;
-      let trailGlow = 0;
-      for (let dIdx = 0; dIdx < dipoleSpots.length; dIdx++) {
-        const dp = dipoleSpots[dIdx];
-        for (let sIdx = 0; sIdx < dp.trail.length; sIdx++) {
-          const pt = dp.trail[sIdx];
-          const r2 = (px - pt.x) * (px - pt.x) + (py - pt.y) * (py - pt.y);
-          if (pt.isCurrent) {
-            if (r2 < 14.0) {
-              spotSnr = Math.max(spotSnr, 8.5 * Math.exp(-r2 / 2.35));
-            }
-          } else if (r2 < 6.5) {
-            trailGlow = Math.max(trailGlow, (1.8 + 1.4 * pt.ageFrac) * Math.exp(-r2 / 1.55));
-          }
-        }
-      }
-
-      const finalSnr = spotSnr > 0.15 || trailGlow > 0.15
-        ? baseVal + spotSnr + trailGlow * 0.65
-        : interpSignal;
-
-      const i = pIdx * 4;
-      if (!isContextColor) {
-        const g = snrToGrayscaleByte(finalSnr);
-        imgData.data[i] = g;
-        imgData.data[i + 1] = g;
-        imgData.data[i + 2] = g;
-        imgData.data[i + 3] = 255;
-      } else {
-        // Paleta infrarroja profunda para Contexto infrarrojo y catálogos (#aladin-canvas) con realce nítido del paso temporal
-        const gByte = snrToGrayscaleByte(finalSnr);
-        const rawNorm = inv ? 1.0 - gByte / 255.0 : gByte / 255.0;
-        const n = Math.pow(Math.max(0, rawNorm), 1.08);
-        let r = Math.min(255, Math.round(4 + 215 * Math.pow(n, 1.32) + 36 * Math.pow(n, 3.0)));
-        let g = Math.min(255, Math.round(9 + 188 * Math.pow(n, 1.08) + 58 * Math.pow(n, 2.4)));
-        let b = Math.min(255, Math.round(22 + 165 * Math.pow(n, 0.86) + 68 * Math.pow(n, 2.0)));
-
-        // Si el píxel pertenece al pulso activo o al rastro de pasos visitados, darle nitidez cromática distintiva
-        if (spotSnr > 0.35) {
-          const wSpot = Math.min(1, spotSnr / 6.5);
-          // Pulso actual brillante (núcleo blanco-esmeralda/ámbar de alto contraste)
-          r = Math.min(255, Math.round(r * (1 - wSpot * 0.45) + 180 * wSpot));
-          g = Math.min(255, Math.round(g * (1 - wSpot * 0.65) + 255 * wSpot));
-          b = Math.min(255, Math.round(b * (1 - wSpot * 0.5) + 225 * wSpot));
-        } else if (trailGlow > 0.25) {
-          const wTrail = Math.min(1, trailGlow / 3.0);
-          // Huellas previas en tono cian luminoso
-          r = Math.min(255, Math.round(r * (1 - wTrail * 0.4) + 56 * wTrail));
-          g = Math.min(255, Math.round(g * (1 - wTrail * 0.5) + 198 * wTrail));
-          b = Math.min(255, Math.round(b * (1 - wTrail * 0.6) + 248 * wTrail));
-        } else if (absDiff > 0.85) {
-          // Fuente variable puntual: realce cálido según fase temporal
-          const wVar = Math.min(1, (absDiff - 0.85) / 4.0) * t;
-          r = Math.min(255, Math.round(r + 65 * wVar));
-          g = Math.min(255, Math.round(g + 45 * wVar));
-        }
-
-        imgData.data[i] = inv ? 255 - r : r;
-        imgData.data[i + 1] = inv ? 255 - g : g;
-        imgData.data[i + 2] = inv ? 255 - b : b;
-        imgData.data[i + 3] = 255;
-      }
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  if (pm.stepCache.size > 48) {
-    const firstKey = pm.stepCache.keys().next().value;
-    pm.stepCache.delete(firstKey);
-  }
-  pm.stepCache.set(cacheKey, c);
-  return c;
 }
 
 function rebakeAllOpticalCanvases() {
@@ -2414,6 +2293,24 @@ function ensureExternalSurveyImage(survey, ra, dec, fov) {
   return null;
 }
 
+/** Clave de SURVEY_HIPS_MAP de un paso histórico de la secuencia ('dss2' | '2mass' | 'allwise'). */
+function historicSurveyKeyOfFrame(frame) {
+  if (!frame || frame.kind !== "historic") return null;
+  const raw = String(frame.historicKey || String(frame.frameKey || "").replace(/^hist:/, "")).toLowerCase();
+  const key = raw === "twomass" ? "2mass" : raw;
+  return SURVEY_HIPS_MAP[key] ? key : null;
+}
+
+/** Imagen real del relevamiento histórico para el campo actual (null si todavía no cargó o falló). */
+function getHistoricFrameImage(frame) {
+  const key = historicSurveyKeyOfFrame(frame);
+  return key ? ensureExternalSurveyImage(key, state.ra, state.dec, state.fov) : null;
+}
+
+function isHistoricFrameImageReady(frame) {
+  return Boolean(getHistoricFrameImage(frame));
+}
+
 function renderContextSkyMap() {
   const canvas = document.getElementById("aladin-canvas");
   if (!canvas) return;
@@ -2456,9 +2353,13 @@ function renderContextSkyMap() {
         isOrigin && state.contextSurvey !== "spherex"
           ? ensureExternalSurveyImage(state.contextSurvey, state.ra, state.dec, state.fov)
           : null;
+      // Sector central: imagen real del paso actual (relevamiento histórico o fecha SPHEREx).
       const dynamicOriginSky =
         isOrigin && syncTemporal
-          ? getMultiEpochStepCanvas(syncTemporal.activeStep, syncTemporal.K, true)
+          ? (syncTemporal.activeFrame?.kind === "historic" ? getHistoricFrameImage(syncTemporal.activeFrame) : null) ||
+            (state.epochImages?.length
+              ? state.epochImages[syncTemporal.correspondingEpochIdx % state.epochImages.length]
+              : null)
           : null;
       const neighborBlinkImg =
         !isOrigin && syncTemporal && tile && tile.status === "ready" && tile.epochImages?.length
@@ -2894,10 +2795,14 @@ function renderCanvas() {
           state.viewMode === "blink" &&
           (state.selectedBand === "pair" || state.selectedBand === "manual_pair")
         ) {
+          // Imagen REAL de la fecha que corresponde al paso actual. (Antes se mostraba un cuadro
+          // sintético con el fondo promediado y quieto: el sector central parecía congelado.)
+          // En un paso histórico (DSS2 / 2MASS / AllWISE) se ve la imagen de ese relevamiento.
           baseImg =
-            getMultiEpochStepCanvas(syncState.activeStep, syncState.K, false) ||
+            (syncState.activeFrame?.kind === "historic" ? getHistoricFrameImage(syncState.activeFrame) : null) ||
+            (tEpochs && tEpochs.length > 0 ? tEpochs[epIdx % tEpochs.length] : null) ||
             (isEarlyBlinkPhase ? state.pairMeta?.earlyCanvas : state.pairMeta?.lateCanvas) ||
-            (tEpochs && tEpochs.length > 0 ? tEpochs[epIdx % tEpochs.length] : tCoadd);
+            tCoadd;
         } else if (tEpochs && tEpochs.length > 0) {
           const tileEpIdx = isOrigin ? epIdx : syncState.activeStep % tEpochs.length;
           baseImg = tEpochs[tileEpIdx];
@@ -3253,10 +3158,13 @@ function renderCanvas() {
           ? new Date((mjd - 40587) * 86400000).toISOString().replace("T", " ").slice(0, 19) + " UTC"
           : ep.obs_time || "sin fecha";
         const stepTitle = syncState.activeFrame?.badgeText || syncState.activeFrame?.title || `Fecha: ${date}`;
-        document.getElementById("overlay-date").textContent =
-          state.selectedBand === "pair" || state.selectedBand === "manual_pair"
-            ? `Paso ${syncState.activeStep + 1}/${syncState.K}: ${stepTitle} (${date})`
-            : `Fecha: ${date}`;
+        const isSyncedBand = state.selectedBand === "pair" || state.selectedBand === "manual_pair";
+        const showingHistoric = isSyncedBand && Boolean(getHistoricFrameImage(syncState.activeFrame));
+        document.getElementById("overlay-date").textContent = showingHistoric
+          ? `Paso ${syncState.activeStep + 1}/${syncState.K}: ${stepTitle} · otro telescopio, solo para comparar posición`
+          : isSyncedBand
+          ? `Paso ${syncState.activeStep + 1}/${syncState.K}: ${stepTitle} (${date})`
+          : `Fecha: ${date}`;
         document.getElementById("overlay-clean").textContent = `Píxeles limpios: ${ep.clean_pixels_pct}%`;
         document.getElementById("overlay-detector").textContent = `Banda: ${bandLabel} | Δλ: ${Number(ep.bandwidth_um || 0).toFixed(3)} µm`;
       } else {
@@ -3359,7 +3267,19 @@ function startBlinkTimer() {
     if (state.isLoading || !state.exploreData?.epochs?.length) return;
 
     const sync = getSynchronizedTemporalState();
-    state.timelineBlinkStep = (sync.activeStep + 1) % sync.K;
+    let nextStep = (sync.activeStep + 1) % sync.K;
+    // Un paso histórico (DSS2 / 2MASS / AllWISE) muestra la imagen de ese relevamiento. Si todavía
+    // no cargó o el servicio falla, el visor no tiene nada nuevo que mostrar y quedaba quieto en la
+    // primera fecha: ese paso se salta (si quedan al menos 2 pasos SPHEREx para alternar).
+    const frames = sync.seqFrames || [];
+    const spherexSteps = frames.filter((f) => f.kind !== "historic").length;
+    if (spherexSteps >= 2) {
+      for (let guard = 0; guard < sync.K && frames[nextStep]?.kind === "historic"
+           && !isHistoricFrameImageReady(frames[nextStep]); guard++) {
+        nextStep = (nextStep + 1) % sync.K;
+      }
+    }
+    state.timelineBlinkStep = nextStep;
     const nextSync = getSynchronizedTemporalState();
     state.pairBlinkPhase = nextSync.stepFrac < 0.5 ? 0 : 1;
 

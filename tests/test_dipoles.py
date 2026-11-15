@@ -110,6 +110,30 @@ class DipoleTests(unittest.TestCase):
         image[52, 69:76], image[52, 78:85] = -50, 50
         self.assertFalse(any(d["type"] == "MOVING_DIPOLE" for d in self.detect(image)))
 
+    def test_one_star_with_several_residual_peaks_is_reported_once(self):
+        """Una estrella brillante deja varios picos pegados en la resta: es una sola detección."""
+        image = self.background()
+        for dx, dy, amp in ((0, 0, 60), (5, 2, 45), (-3, 5, 40), (4, -5, -35)):
+            image += gaussian_source((64 + dx, 64 + dy), amp)
+        detections = self.detect(image)
+        self.assertEqual(len(detections), 1)
+        self.assertIn("Agrupa", detections[0]["description"])
+
+    def test_two_well_separated_stars_are_kept_apart(self):
+        image = self.background() + gaussian_source((40, 64), 50) + gaussian_source((90, 64), 45)
+        self.assertEqual(len(self.detect(image)), 2)
+
+    def test_merge_prefers_the_dipole_that_explains_both_lobes(self):
+        from src.ai_detector import merge_same_source_detections
+        dets = [
+            dict(type="VARIABLE_MONOPOLE", x_pix=72.0, y_pix=52.0, neg_x_pix=None, neg_y_pix=None, snr_score=30.0, description="m"),
+            dict(type="MOVING_DIPOLE", x_pix=80.0, y_pix=52.0, neg_x_pix=72.5, neg_y_pix=52.0, snr_score=12.0, description="d"),
+            dict(type="VARIABLE_MONOPOLE", x_pix=20.0, y_pix=100.0, neg_x_pix=None, neg_y_pix=None, snr_score=9.0, description="lejos"),
+        ]
+        merged = merge_same_source_detections(dets, link_px=8.5)
+        self.assertEqual(sorted(d["type"] for d in merged), ["MOVING_DIPOLE", "VARIABLE_MONOPOLE"])
+        self.assertEqual(next(d for d in merged if d["type"] == "VARIABLE_MONOPOLE")["description"], "lejos")
+
     def test_supported_pair_reports_its_morphology(self):
         dipole = self.detect(self.background() + gaussian_source(NEW_POSITION) - gaussian_source(OLD_POSITION))[0]
         self.assertGreaterEqual(dipole["positive_support_pixels"], 3)

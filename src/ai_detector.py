@@ -46,6 +46,57 @@ def _compute_baseline_years(epochs_meta: List[Dict[str, Any]]) -> float:
     return (max(dates) - min(dates)) / 365.25 if len(dates) >= 2 else 0.0
 
 
+# Dos marcas a menos de ~2 píxeles de SPHEREx (6,15″ c/u) no se pueden separar como fuentes
+# distintas con la PSF del instrumento: se consideran la misma estrella.
+SAME_SOURCE_RADIUS_ARCSEC = 12.0
+
+
+def _detection_points(det: Dict[str, Any]) -> List[Tuple[float, float]]:
+    """Posiciones de una detección en la grilla común: lóbulo positivo y, si existe, el negativo."""
+    points = [(float(det["x_pix"]), float(det["y_pix"]))]
+    if det.get("neg_x_pix") is not None and det.get("neg_y_pix") is not None:
+        points.append((float(det["neg_x_pix"]), float(det["neg_y_pix"])))
+    return points
+
+
+def merge_same_source_detections(detections: List[Dict[str, Any]], link_px: float) -> List[Dict[str, Any]]:
+    """
+    Agrupa (enlace simple) las detecciones cuyas posiciones están a menos de `link_px` píxeles
+    y deja una por grupo: el dipolo más significativo si lo hay (explica los dos lóbulos),
+    si no, la marca de mayor SNR.
+    """
+    n = len(detections)
+    if n < 2:
+        return list(detections)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    points = [_detection_points(d) for d in detections]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if any(np.hypot(xa - xb, ya - yb) <= link_px for xa, ya in points[i] for xb, yb in points[j]):
+                parent[find(i)] = find(j)
+
+    groups: Dict[int, List[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+
+    merged: List[Dict[str, Any]] = []
+    for members in groups.values():
+        best = max(members, key=lambda i: (detections[i]["type"] == "MOVING_DIPOLE", detections[i]["snr_score"]))
+        det = dict(detections[best])
+        if len(members) > 1:
+            det["description"] = (f"{det['description']} Agrupa {len(members)} picos de la misma fuente "
+                                  f"(< {SAME_SOURCE_RADIUS_ARCSEC:.0f}\").")
+        merged.append(det)
+    return merged
+
+
 def _lobe_features(image: np.ndarray, x: float, y: float, sign: int,
                    sigma: float, radius: int) -> Optional[Dict[str, float]]:
     """Morfología del núcleo conectado; un píxel aislado no verifica movimiento."""
@@ -136,7 +187,8 @@ def detect_anomalies_on_diff(
     used_neg = set()
     det_id = 1
 
-    for p_idx, (px, py, pval) in enumerate(pos_peaks[:10]):
+    # Margen extra de picos: varios pueden ser la misma fuente y se fusionan más abajo.
+    for p_idx, (px, py, pval) in enumerate(pos_peaks[:20]):
         matched_dipole = False
         if len(neg_peaks) > 0 and pos_features[p_idx] is not None:
             dists = cdist([[px, py]], neg_peaks[:, :2])[0]
@@ -262,6 +314,10 @@ def detect_anomalies_on_diff(
         })
         det_id += 1
 
+    # Una misma estrella deja varios picos en la resta (núcleo saturado, residuos de PSF, anillos).
+    # Se agrupan las marcas cercanas y se conserva una sola por fuente.
+    link_px = max(SAME_SOURCE_RADIUS_ARCSEC / arcsec_per_px, 1.5 * float(psf_fwhm_pixels or 0.0), 4.0)
+    detections = merge_same_source_detections(detections, link_px)
     sorted_dets = sorted(detections, key=lambda d: d["snr_score"], reverse=True)[:6]
     # Cruzar con Gaia DR3 y AllWISE en vivo las 3 detecciones más significativas
     for idx, det in enumerate(sorted_dets, start=1):
