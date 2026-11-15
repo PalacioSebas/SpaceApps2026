@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Aprendé en 3D · Papastronomy</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #080f19; color: #f5eee6; font-family: system-ui, sans-serif; }
+    header { max-width: 1440px; margin: auto; padding: 25px 32px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #263340; }
+    .brand { font-size: 12px; letter-spacing: .14em; font-weight: 750; }
+    .brand span { color: #889aab; font-weight: 400; letter-spacing: .03em; margin-left: 14px; }
+    header a { color: #b9d4e2; font-size: 13px; text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+    main { max-width: 1440px; margin: auto; padding: 36px 32px; }
+    footer { max-width: 1440px; margin: auto; padding: 0 32px 28px; color: #8b9aaa; font-size: 12px; line-height: 1.6; }
+    footer p { margin: 5px 0; }
+    @media (max-width: 600px) { header, main { padding: 20px 16px; } header { align-items: flex-start; } .brand span { display: block; margin: 5px 0 0; } footer { padding: 0 16px 24px; } }
+  </style>
+  <script src="./content.js" defer></script>
+  <script src="./viewer.js" defer></script>
+  <script src="./page.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="brand">PAPASTRONOMY <span>Atlas interactivo / 01</span></div>
+    <a id="return-link" href="../../#explorador" hidden>← Ver observaciones</a>
+  </header>
+  <main>
+    <papastronomy-object-viewer explanation="simple"></papastronomy-object-viewer>
+    <noscript>Activá JavaScript para explorar el objeto. Una enana marrón es un objeto subestelar que puede estudiarse en infrarrojo.</noscript>
+  </main>
+  <footer>
+    <p>Una forma de entender los objetos del explorador. Las conclusiones científicas requieren observaciones.</p>
+    <p id="return-hint" hidden>Tu exploración sigue abierta en la pestaña anterior. Podés volver a ella conservando el campo y la selección.</p>
+  </footer>
+</body>
+</html>

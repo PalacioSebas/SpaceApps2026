@@ -8,12 +8,16 @@
   const TOPICS = Object.freeze([
     "¿Qué es SPHEREx?", "¿Qué estoy viendo en este campo?", "¿Puedo usar la resta temporal?",
     "¿Qué significa el espectro?", "¿Por qué las imágenes se ven distintas?", "¿Puede confirmar un planeta?",
+    "¿Qué es una enana marrón?",
   ]);
   const REFERENCES = Object.freeze({
     mission: { title: "NASA · misión SPHEREx", kind: "Referencia oficial", url: "https://science.nasa.gov/mission/spherex/",
       facts: ["Descripción de la misión y su relevamiento espectral del cielo."] },
     archive: { title: "IRSA · archivo SPHEREx", kind: "Referencia oficial", url: "https://irsa.ipac.caltech.edu/Missions/spherex.html",
       facts: ["Acceso a los productos, documentación y herramientas de SPHEREx."] },
+    brownDwarf: { title: "NASA · What Makes Brown Dwarfs Unique?", kind: "Referencia oficial",
+      url: "https://science.nasa.gov/mission/webb/science-overview/science-explainers/what-makes-brown-dwarfs-unique/",
+      facts: ["Introducción a los objetos subestelares y su estudio en infrarrojo. No identifica al candidato seleccionado."] },
   });
   const normalize = value => String(value || "").slice(0, 400).toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -33,6 +37,7 @@
     if (/candidato|dipolo|monopolo|seleccionad|esta deteccion|la deteccion/.test(text)) return "candidate";
     if (/detector|detecciones|resultados/.test(text)) return "detector";
     if (/espectro|fotometr|curva de luz/.test(text)) return "spectrum";
+    if (/que (es|son|significa).*enana[s]? marron|explica.*enana[s]? marron|aprend.*3d|explor.*3d|modelo 3d|ver.*enana.*3d/.test(text)) return "brownDwarf";
     if (/imagen|visor|borros|pixel|damero|rgb|falso color/.test(text)) return "images";
     if (/empez|empiez|empec|comenz|inicio|guiame|ayud|recorrido|ejemplo|hola/.test(text)) return "start";
     return "unknown";
@@ -59,6 +64,13 @@
     const dataAvailable = info && !context.loading;
     const method = (title, facts) => sources.push({ title, kind: "Guía de esta app", facts });
     if (intent === "mission") return [REFERENCES.mission, REFERENCES.archive];
+    if (intent === "brownDwarf") {
+      method("Aprendé en 3D · ilustración educativa", [
+        "Esfera genérica con colores, nubes y velocidad ilustrativos. No reconstruye un objeto real ni utiliza mediciones del campo.",
+        "El acceso al modelo abre otra pestaña y conserva las observaciones y la conversación actuales.",
+      ]);
+      return [REFERENCES.brownDwarf, ...sources];
+    }
     if (dataAvailable && ["view", "compare", "detector", "candidate", "images"].includes(intent)) {
       const facts = [];
       if (Number.isFinite(info.ra) && Number.isFinite(info.dec)) facts.push(`Centro: RA ${info.ra.toFixed(5)}°, Dec ${info.dec.toFixed(5)}°.`);
@@ -120,6 +132,7 @@
   ]);
 
   function suggestionsFor(context, topic = null) {
+    if (topic === "brownDwarf") return ["¿Qué significa el espectro?", "¿Qué es SPHEREx?"];
     if (!hasData(context)) return context.loading
       ? ["¿Qué es SPHEREx?", "¿Qué significa el espectro?"]
       : ["Ayudame a empezar", "Configurá la app para mí", "¿Qué es SPHEREx?"];
@@ -135,13 +148,14 @@
       types: [selectedCandidate(context) ? candidate : "¿Puedo usar la resta temporal?", "¿Y cómo lo compruebo?"],
       spectrum: [hasPhotometry(context) ? brightness : "¿Cómo lo compruebo?", "¿Por qué las imágenes se ven distintas?"],
       brightness: ["¿Qué significa el espectro?", "¿Cómo lo compruebo?"],
-      mission: ["Ayudame a empezar", "¿Qué estoy viendo en este campo?"],
+      mission: ["¿Qué es una enana marrón?", "¿Qué estoy viendo en este campo?"],
       configure: ["¿Qué estoy viendo en este campo?", "¿Qué significa el espectro?"],
     };
     return byTopic[topic] || ["¿Qué estoy viendo en este campo?", candidate, brightness];
   }
 
   function actionsFor(intent, context) {
+    if (intent === "brownDwarf") return [{ id: "learn3d", label: "Explorar en 3D ↗" }, { id: "explorer", label: "Ver observaciones" }];
     if (["configure", "unknown", "clarify"].includes(intent)) return [];
     if (!hasData(context)) return [{ id: "explorer", label: "Abrir explorador" }];
     if (["candidate", "types", "detector", "compare", "limits"].includes(intent)) return [{ id: "detector", label: "Ir al detector" }];
@@ -221,6 +235,10 @@
       text = "Un dipolo es un par de lóbulos, uno positivo y otro negativo, en la resta de imágenes. Puede aparecer cuando una fuente cambió de posición. Un monopolo es un residuo concentrado que puede indicar un cambio de brillo.\nAmbos son candidatos para revisar: una diferencia de PSF, calibración o un artefacto también puede producir residuos.";
     } else if (intent === "mission") {
       text = "SPHEREx es una misión de la NASA que observa el cielo en distintas longitudes de onda para estudiar estrellas y galaxias. Esta app permite explorar sus recortes, comparar observaciones y medir cómo cambia el brillo entre longitudes de onda.\n\nAbajo tenés la descripción oficial de la misión y el archivo de datos que usamos.";
+    } else if (intent === "brownDwarf") {
+      text = detailed
+        ? "Una enana marrón es un objeto subestelar que no mantiene la fusión estable de hidrógeno de una estrella de secuencia principal. Su evolución térmica depende de la masa y la edad, y su atmósfera modifica el espectro que observamos.\nEl visor 3D representa un ejemplo genérico: permite explorar atmósfera, temperatura y emisión infrarroja con paletas conceptuales. No reconstruye WISE 0855 ni Epsilon Indi B; tampoco clasifica el candidato actual ni calcula su temperatura."
+        : "Una enana marrón es un objeto que no sostiene la fusión de hidrógeno como una estrella. Las más frías son muy tenues en luz visible y se estudian en infrarrojo.\nPodés explorar una ilustración en 3D, rotarla y conocer su atmósfera. Es un ejemplo educativo, no una imagen de WISE 0855 o Epsilon Indi B ni una explicación de la identidad del candidato seleccionado.";
     } else if (intent === "view") {
       text = `Estás mirando ${info.matched_target_name || "un campo por coordenadas"}.`;
       if (Number.isInteger(info.total_frames)) text += ` Hay ${info.total_frames} recortes cargados`;
@@ -246,7 +264,7 @@
     } else if (intent === "images") {
       text = "El visor izquierdo muestra la exposición o el producto que elegiste; el contexto local muestra una mediana. El damero indica zonas sin datos válidos. La grilla de 128 × 128 no agrega detalle a los recortes originales.\nEl RGB es falso color de vistas estiradas; no permite medir temperatura. Para medir brillo o cambios usá el espectro y la resta calibrada.";
     } else {
-      text = "Esta demo responde consultas predefinidas. Puedo ayudarte a empezar, proponer ajustes o explicar SPHEREx, el campo actual, el detector, un candidato, las imágenes y el espectro. Probá las preguntas sugeridas.";
+      text = "Esta demo responde consultas predefinidas. Puedo ayudarte a empezar, proponer ajustes o explicar SPHEREx, las enanas marrones, el campo actual, el detector, un candidato, las imágenes y el espectro. Probá las preguntas sugeridas.";
     }
     return complete(intent, text, context);
   }
@@ -280,6 +298,7 @@
       images: "Pausá el visor y revisá la banda y la fecha de cada exposición. Para estudiar cambios entre fechas, consultá si la resta temporal está habilitada.",
       view: "En el explorador, pausá la secuencia y seleccioná una fuente. Después podés medir su espectro o revisar el detector de cambios.",
       mission: "Empezá por un objetivo de la cabecera. Recorré sus imágenes y seleccioná una fuente para medir el brillo en distintas longitudes de onda.",
+      brownDwarf: "Abrí Explorar en 3D y recorré los temas de atmósfera, temperatura e infrarrojo. Después volvé a las observaciones para revisar un espectro real. El modelo no comprueba la identidad de una fuente ni mide sus propiedades.",
       start: "Abrí el explorador, elegí un objeto de la cabecera y pulsá Pausar. Tocá una fuente para ver su espectro.",
       limits: "Contrastá el candidato con las observaciones originales y los catálogos. Una identificación necesita evidencia adicional; el asistente no puede confirmar un planeta.",
     } : {
@@ -292,6 +311,7 @@
       images: "Una fuente puede verse distinta en dos bandas porque emite diferente cantidad de luz en cada una. Eso puede ocurrir aunque no se haya movido ni cambiado con el tiempo.",
       view: "El mapa reúne observaciones del mismo campo, pero pueden tener bandas y fechas diferentes. El contexto local resume un grupo de ellas con una mediana.",
       mission: "Observar distintas longitudes de onda permite estudiar cómo cambia la luz de estrellas y galaxias. En la app podés explorar esa información mediante imágenes y espectros.",
+      brownDwarf: "La ilustración ayuda a imaginar un objeto subestelar. Para conocer las propiedades de una fuente real necesitamos observaciones; el aspecto y los colores del modelo no son mediciones de esa fuente.",
       start: "Las imágenes sirven para explorar posiciones y aspecto; el espectro mide brillo por longitud de onda y la resta temporal busca cambios entre observaciones comparables.",
       limits: "Un residuo puede tener varias explicaciones. Confirmar un objeto exige contrastar mediciones y observaciones adicionales; una señal aislada no alcanza.",
     };
@@ -322,7 +342,17 @@
     return response;
   }
 
-  function mount({ getContext, applySettings, onExplore, onNavigate }) {
+  // El anfitrión decide la ruta del módulo portable. Solo se admiten enlaces
+  // HTTP(S) del mismo origen; no se navega automáticamente desde una respuesta.
+  function learningLink(href, base) {
+    if (typeof href !== "string" || !href.trim()) return null;
+    try {
+      const url = new URL(href, base);
+      return /^https?:$/.test(url.protocol) && url.origin === new URL(base).origin ? url.href : null;
+    } catch { return null; }
+  }
+
+  function mount({ getContext, applySettings, onExplore, onNavigate, getLearning3DUrl }) {
     const doc = root.document;
     const panel = doc.getElementById("assistant-section");
     const explorer = doc.getElementById("explorer-section");
@@ -526,6 +556,21 @@
       }
       const actions = doc.createElement("div"); actions.className = "assistant-response-actions";
       for (const action of response.actions) {
+        if (action.id === "learn3d") {
+          const href = learningLink(getLearning3DUrl?.(), root.location.href);
+          if (!href) continue;
+          const link = doc.createElement("a");
+          link.href = href; link.target = "_blank"; link.rel = "noopener noreferrer";
+          link.textContent = action.label;
+          link.setAttribute("aria-label", "Explorar una enana marrón en 3D (abre una nueva pestaña)");
+          link.addEventListener("click", event => {
+            const currentHref = learningLink(getLearning3DUrl?.(), root.location.href);
+            if (!currentHref) { event.preventDefault(); return; }
+            link.href = currentHref;
+          });
+          actions.appendChild(link);
+          continue;
+        }
         const button = doc.createElement("button"); button.type = "button"; button.textContent = action.label;
         button.dataset.assistantAction = action.id;
         button.addEventListener("click", () => {
@@ -640,5 +685,5 @@
     refresh();
     return { refresh };
   }
-  root.DemoAssistant = Object.freeze({ PROMPTS, TOPICS, classify, reply, propose, suggestionsFor, mount });
+  root.DemoAssistant = Object.freeze({ PROMPTS, TOPICS, classify, reply, propose, suggestionsFor, learningLink, mount });
 })(globalThis);

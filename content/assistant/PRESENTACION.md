@@ -56,4 +56,10 @@ Si no hay candidatos reales, mostrar el resultado real sin candidatos y explicar
 
 ## Cierre de la demostración
 
+### Extensión opcional: de las observaciones al objeto 3D
+
+Si el visor portable está integrado, continuar el primer recorrido con **«¿Qué es una enana marrón?»**. Abrir sus fuentes y pulsar **Explorar en 3D**. Rotar la esfera, alternar las paletas y recorrer atmósfera, temperatura e infrarrojo. Cambiar la explicación simple/técnica y regresar a la pestaña del explorador: comprobar que el campo, la selección y la conversación se conservan.
+
+Presentarlo como una ilustración de una clase de objetos. El modelo no identifica la fuente observada ni representa un mapa de WISE 0855 o Epsilon Indi B. Si no hay observaciones disponibles, se puede mostrar la guía y el 3D sin afirmar que se cargó un campo. Si el visor no está integrado, omitir ese acceso y conservar la explicación con sus fuentes.
+
 Volver al explorador y comprobar que el campo y los controles se conservan. El mensaje del MVP es que una persona puede orientarse, consultar datos y revisar resultados con ayuda de explicaciones y fuentes; el asistente no ejecuta por conversación una validación científica que no exista en el backend.

@@ -12,6 +12,7 @@ El material todavía **no está conectado al chat**. Prepararlo no cambia la pá
 | [sources.json](sources.json) | Referencias oficiales, contratos del producto y fuentes que necesitan datos de cada consulta. |
 | [demo-scenarios.json](demo-scenarios.json) | Tres recorridos con preparación, pasos, verificaciones y alternativas. |
 | [validate.py](validate.py) | Verificación local de estructura y referencias, con la biblioteca estándar de Python. |
+| [test_contract.py](test_contract.py) | Pruebas del contrato y del rechazo de contenido inválido, ejecutables sin la app. |
 | [PRESENTACION.md](PRESENTACION.md) | Guion breve para ensayar o compartir con el equipo. |
 
 Los JSON usan UTF-8 y `schema_version: 1`. No hay un motor de chat, credenciales, modelos, datos FITS ni observaciones de ejemplo en este paquete.
@@ -21,6 +22,8 @@ Los JSON usan UTF-8 y `schema_version: 1`. No hay un motor de chat, credenciales
 El MVP usa acceso demo y perfiles declarados, con explicaciones simples o técnicas. Los perfiles no restringen funciones; los ajustes manuales tienen prioridad. El asistente usa respuestas integradas y resultados suministrados por la app.
 
 Las acciones del catálogo son intenciones, no instrucciones ejecutables. `open_explorer`, `open_detector` y `open_spectrum` representan navegación. `prepare_settings` solo prepara una propuesta revisable. Sus nombres no dependen del HTML ni de la API de esta rama. El integrador decide cómo conectarlos a su interfaz y omite los que todavía no estén disponibles.
+
+`open_learning_3d` representa el acceso opcional al módulo educativo `static/learn-3d/`, que se traslada copiando esa carpeta completa. La entrada `brown_dwarf` ofrece una guía general incluso sin datos cargados. En el chat actual existe una respuesta equivalente en `static/demo-assistant.js`, con un enlace provisto por el anfitrión mediante `getLearning3DUrl`; el chat aún no lee estos JSON. Al integrar, omitir la acción si falta el visor y no usar una ilustración como evidencia del candidato seleccionado.
 
 No se incluyen comandos para ejecutar código, consultas científicas automáticas ni acciones de autenticación real.
 
@@ -89,6 +92,11 @@ Antes de conectarlo, revisar con el compañero qué resultados informa el detect
 
 ```bash
 python content/assistant/validate.py
+python -m unittest discover -s content/assistant -p test_contract.py -v
 ```
 
 El comando verifica JSON, IDs, referencias, condiciones, variables y recorridos. También comprueba las alternativas de las respuestas. No hace solicitudes de red, no importa la aplicación y no escribe en sus cachés. No sustituye la revisión del contenido ni las pruebas del futuro adaptador.
+
+Las 15 pruebas de `test_contract.py` comprueban las condiciones declaradas para campos pendientes, comparaciones desconocidas o no disponibles, ausencia de candidatos, selección y fotometría. Verifican que los contadores permitan cero sin asignarlo por defecto y que las respuestas cuantificadas exijan sus valores y unidades. Además, alteran copias en memoria para comprobar que el validador rechace IDs duplicados, fuentes rotas, condiciones inválidas, variables sin requisitos, ciclos de alternativas y acciones fuera del alcance o sin clic explícito.
+
+Estas pruebas viajan con la carpeta y también se incluyen en la suite habitual mediante `tests/test_assistant_content.py`. No ejecutan el chat ni prueban cómo un adaptador futuro transforma datos: la prioridad de ajustes manuales, la invalidación de selecciones viejas, la interpolación segura y el tratamiento de valores ausentes deben comprobarse al conectar esa base. Las pruebas del chat actual siguen en `scripts/check_assistant.cjs`.

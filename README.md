@@ -4,6 +4,12 @@
 
 Para continuar el desarrollo desde otra PC o una nueva conversación con Codex, leer [Contexto y continuidad del MVP](docs/CONTEXTO_CODEX.md).
 
+### Aprendé en 3D
+
+La navegación y el asistente incluyen un acceso a una enana marrón educativa con rotación, zoom, animación, paletas artísticas visible/infrarroja y explicaciones simples o técnicas. Se abre en otra pestaña para conservar las observaciones. No es una reconstrucción de WISE 0855 o Epsilon Indi B ni una medición científica.
+
+El módulo es independiente y portable: copiar la carpeta [static/learn-3d](static/learn-3d/README.md) para integrarlo en otra versión. Con la app iniciada se accede desde `http://127.0.0.1:8000/static/learn-3d/index.html`.
+
 ---
 
 ## Acceso demo y perfil personalizable

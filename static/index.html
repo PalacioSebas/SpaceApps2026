@@ -221,7 +221,7 @@
       #demo-dialog-title { padding-right: 20px; font-size: 21px; }
     }
     @media (max-width: 1023px) { header.glass-panel { position: static; } }
-    .app-navigation { display: flex; gap: 6px; margin: 0 0 18px; border-bottom: 1px solid #26394d; padding-bottom: 10px; }
+    .app-navigation { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; border-bottom: 1px solid #26394d; padding-bottom: 10px; }
     .app-navigation a { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid transparent; border-radius: 8px; color: #8fa8c1; font-size: 12px; font-weight: 600; }
     .app-navigation a:hover { color: #c7e9fa; background: #12263a; }
     .app-navigation a[aria-current="page"] { color: #a9dff7; background: #143149; border-color: #2f607e; }
@@ -293,8 +293,8 @@
     .assistant-answer-details summary { cursor: pointer; }
     .assistant-answer-details p { margin-top: 10px; white-space: pre-line; line-height: 1.7; color: #a5bdd3; }
     .assistant-response-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-    .assistant-response-actions button { min-height: 33px; padding: 7px 11px; border: 1px solid #3d7796; border-radius: 7px; color: #bfe9ff; background: #153c55; font-size: 11px; }
-    .assistant-response-actions button:hover { background: #20536e; }
+    .assistant-response-actions button, .assistant-response-actions a { display: inline-flex; align-items: center; min-height: 33px; padding: 7px 11px; border: 1px solid #3d7796; border-radius: 7px; color: #bfe9ff; background: #153c55; font-size: 11px; text-decoration: none; }
+    .assistant-response-actions button:hover, .assistant-response-actions a:hover { background: #20536e; }
     .assistant-choices button { border-color: #5387a5; background: #173c54; font-size: 12px; padding: 9px 12px; }
     .assistant-followups button { padding: 5px 7px; color: #a1c7dd; border: 1px solid #314c64; border-radius: 6px; font-size: 10px; text-align: left; }
     .assistant-followups button:hover { background: #18364c; }
@@ -367,6 +367,7 @@
       <nav class="app-navigation embed-hide" aria-label="Secciones de la aplicación">
         <a id="nav-explorer" href="#explorador" aria-current="page">Explorador</a>
         <a id="btn-open-assistant" href="#asistente">Asistente</a>
+        <a data-learn-3d href="/static/learn-3d/index.html?from=explorer" target="_blank" rel="noopener noreferrer" aria-label="Aprendé en 3D (abre una nueva pestaña)">Aprendé en 3D ↗</a>
       </nav>
       <div id="explorer-tools">
       <form id="coord-form" class="exploration-form">
@@ -790,6 +791,7 @@
         <div class="assistant-context-card"><span>Contexto actual</span><p id="assistant-context">Sin campo cargado</p></div>
         <details id="assistant-guide-menu" class="assistant-guide-menu" open><summary>Guías rápidas</summary><div id="assistant-topics" class="assistant-topics"></div></details>
         <p class="assistant-sidebar-note">Las respuestas usan el campo y la selección del explorador. Podés volver a las observaciones en cualquier momento.</p>
+        <a data-learn-3d href="/static/learn-3d/index.html?from=explorer" target="_blank" rel="noopener noreferrer">Explorá una enana marrón en 3D ↗</a>
       </aside>
       <div class="assistant-chat">
         <div class="assistant-header"><div><h3>Conversación</h3><p id="assistant-disclosure">Respuestas integradas · sin LLM</p></div><a id="assistant-close" class="assistant-back-link" href="#explorador">← Ver observaciones</a></div>

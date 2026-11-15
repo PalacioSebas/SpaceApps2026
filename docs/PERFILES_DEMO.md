@@ -75,6 +75,10 @@ La conversación vive solo en memoria durante la visita, con un máximo de 30 me
 
 Para mostrar la idea en una presentación: entrar con un perfil, abrir el asistente, consultar una guía y sus fuentes, pedir ayuda para empezar, revisar y aplicar una configuración, seleccionar un candidato real si está disponible y pedir su explicación.
 
+La guía **¿Qué es una enana marrón?** ofrece explicaciones simples o técnicas y una referencia NASA. Su acción **Explorar en 3D** abre el objeto educativo genérico en otra pestaña, conservando la conversación y el campo. El estilo se toma del perfil vigente al abrirlo y puede cambiarse en el visor. La guía funciona sin campo o durante una carga; no clasifica candidatos ni usa la ilustración como evidencia de una fuente real.
+
+Al montar el chat en otra base, `getLearning3DUrl()` debe devolver la URL HTTP(S) del módulo en el mismo origen. Si falta ese adaptador o la URL no es válida, se omite el enlace. No se debe copiar una ruta fija del proyecto antiguo. El módulo está documentado en `static/learn-3d/README.md`.
+
 ## Verificación
 
 ```bash

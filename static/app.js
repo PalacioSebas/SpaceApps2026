@@ -118,6 +118,11 @@ function rememberDemoSettings(patch) {
 function updateDemoSummary() {
   if (!demoStore) return;
   const profile = demoStore.get();
+  document.querySelectorAll('[data-learn-3d]').forEach(link => {
+    const url = new URL(link.href);
+    url.searchParams.set('explanation', profile?.explanations === 'tecnica' ? 'technical' : 'simple');
+    link.href = url.href;
+  });
   document.getElementById("demo-user-label").textContent = profile
     ? `${profile.alias} · ${DemoProfiles.PRESETS[profile.level].label}` : "Exploración como invitado";
   document.getElementById("btn-demo-profile").textContent = profile ? "Mi perfil" : "Entrar con un perfil";
@@ -3802,6 +3807,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   demoAppReady = true;
   if (!state.embed) demoAssistantUI = DemoAssistant.mount({
     getContext: getAssistantContext, applySettings: applyAssistantSettings,
+    getLearning3DUrl: () => document.querySelector('[data-learn-3d]')?.href,
     onNavigate: target => {
       const destinations = { explorer: "input-ra", detector: "detector-title", spectrum: "spectrum-panel-title" };
       const id = destinations[target];

@@ -2,6 +2,15 @@
   "schema_version": 1,
   "sources": [
     {
+      "id": "nasa_brown_dwarfs",
+      "kind": "official_reference",
+      "title": "NASA · What Makes Brown Dwarfs Unique?",
+      "url": "https://science.nasa.gov/mission/webb/science-overview/science-explainers/what-makes-brown-dwarfs-unique/",
+      "reviewed_on": "2026-11-14",
+      "supports": ["Introducción a los objetos subestelares y su estudio en infrarrojo."],
+      "does_not_support": ["Identificación del candidato seleccionado, reconstrucción 3D de una fuente o propiedades medidas en esta app."]
+    },
+    {
       "id": "nasa_spherex",
       "kind": "official_reference",
       "title": "NASA · misión SPHEREx",

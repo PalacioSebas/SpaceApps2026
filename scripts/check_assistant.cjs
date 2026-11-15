@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const context = vm.createContext({});
+const context = vm.createContext({ URL });
 for (const script of ['demo-profiles.js', 'demo-assistant.js']) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../static', script), 'utf8'), context);
 }
@@ -124,3 +124,28 @@ assert.ok(!assistant.reply('¿Y cómo lo compruebo?', selected, assistant.reply(
   'No volver a sugerir la pregunta recién respondida');
 assert.ok(assistant.suggestionsFor({...selected, selectedDetectionId:null}).some(q => /resultados/.test(q)),
   'Si hay candidatos sin selección, ofrecer ver los resultados');
+
+// La guía y el modelo son accesibles incluso sin campo o durante una carga.
+for (const prompt of ['¿Qué es una enana marrón?', 'Explicame las enanas marrones', 'Explorar en 3D']) {
+  assert.equal(assistant.classify(prompt), 'brownDwarf');
+  for (const ctx of [{}, {...base, loading:true}, selected]) {
+    const response = assistant.reply(prompt, ctx);
+    assert.ok(response.actions.some(action => action.id === 'learn3d'));
+    assert.ok(response.sources.some(source => source.url?.includes('what-makes-brown-dwarfs-unique')));
+    assert.equal(response.sources.some(source => source.kind === 'Datos de esta consulta'), false);
+    assert.equal(response.proposal, undefined);
+    assert.match(response.text, /educativ[oa]/);
+  }
+}
+assert.equal(assistant.classify('¿El candidato es una enana marrón?'), 'candidate', 'La guía no clasifica una detección');
+assert.match(assistant.reply('¿Qué es una enana marrón?', technical).text, /secuencia principal/);
+assert.doesNotMatch(assistant.reply('¿Qué es una enana marrón?', base).text, /secuencia principal/);
+const dwarf = assistant.reply('¿Qué es una enana marrón?', base);
+assert.match(assistant.reply('¿Y cómo lo compruebo?', base, dwarf.memory).text, /observaciones/);
+assert.ok(assistant.TOPICS.includes('¿Qué es una enana marrón?'));
+assert.equal(assistant.learningLink('/static/learn-3d/index.html?explanation=technical', 'http://localhost:8000/#asistente'),
+  'http://localhost:8000/static/learn-3d/index.html?explanation=technical');
+for (const href of [null, '', 'javascript:alert(1)', 'https://example.org/model', '//example.org/model', 'file:///model']) {
+  assert.equal(assistant.learningLink(href, 'http://localhost:8000/'), null);
+}
+console.log('Asistente → 3D: guía general, estilos, fuentes, continuidad y ruta local revisable: OK.');

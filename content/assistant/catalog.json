@@ -72,6 +72,12 @@
   },
   "actions": [
     {
+      "id": "open_learning_3d",
+      "label": "Explorar en 3D",
+      "effect": "navigation",
+      "requires_explicit_click": true
+    },
+    {
       "id": "open_explorer",
       "label": "Ver observaciones",
       "effect": "navigation",
@@ -1397,6 +1403,28 @@
       "follow_up_ids": [
         "start"
       ],
+      "fallback_ids": []
+    },
+    {
+      "id": "brown_dwarf",
+      "topic": "brown_dwarf",
+      "questions": ["¿Qué es una enana marrón?", "Explicame las enanas marrones", "Quiero explorar el modelo 3D"],
+      "priority": 10,
+      "when": {},
+      "requires": [],
+      "answers": {
+        "simple": {
+          "summary": "Una enana marrón no sostiene la fusión de hidrógeno como una estrella. Las más frías se estudian en infrarrojo.",
+          "detail": "El modelo 3D es una ilustración educativa genérica: podés rotarlo y recorrer sus temas. No reconstruye WISE 0855 ni Epsilon Indi B y no identifica al candidato seleccionado. Para medir una fuente real, revisá sus observaciones y su espectro."
+        },
+        "technical": {
+          "summary": "Es un objeto subestelar sin fusión estable de hidrógeno de secuencia principal; su atmósfera modifica el espectro observado.",
+          "detail": "El visor procedural muestra paletas, nubes y velocidad ilustrativas. No aplica curvas instrumentales ni produce fotometría o temperaturas. La acción 3D depende de que el anfitrión haya integrado el módulo portable."
+        }
+      },
+      "source_ids": ["nasa_brown_dwarfs"],
+      "action_ids": ["open_learning_3d", "open_explorer"],
+      "follow_up_ids": ["spectrum_definition", "mission"],
       "fallback_ids": []
     },
     {
