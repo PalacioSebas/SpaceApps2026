@@ -14,7 +14,7 @@ export function Challenge() {
   return (
     <section id="challenge" aria-labelledby="challenge-title" className="relative py-28 md:py-40">
       <div className="mx-auto grid max-w-7xl gap-14 px-5 md:px-8 lg:grid-cols-12 lg:gap-20">
-        <Reveal className="relative lg:col-span-5">
+        <Reveal className="relative self-start lg:col-span-5">
           <figure className="relative overflow-hidden rounded-2xl border border-line">
             <Image
               src="/images/challenge-ir.png"

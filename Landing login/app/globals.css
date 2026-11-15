@@ -1,0 +1,136 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: dark;
+
+  --void: #05070d;
+  --navy: #0a1020;
+  --midnight: #101b35;
+  --cyan: #55d6ff;
+  --violet: #9b8cff;
+  --amber: #f5b851;
+  --stellar: #f3f5fa;
+  --muted: #8a96ad;
+  --line: rgba(243, 245, 250, 0.08);
+  --line-strong: rgba(243, 245, 250, 0.14);
+
+  --background: var(--void);
+  --foreground: var(--stellar);
+  --card: var(--navy);
+  --card-foreground: var(--stellar);
+  --popover: var(--navy);
+  --popover-foreground: var(--stellar);
+  --primary: var(--stellar);
+  --primary-foreground: var(--void);
+  --secondary: var(--midnight);
+  --secondary-foreground: var(--stellar);
+  --muted-foreground: var(--muted);
+  --accent: var(--midnight);
+  --accent-foreground: var(--stellar);
+  --destructive: #ff6b6b;
+  --border: var(--line-strong);
+  --input: var(--line-strong);
+  --ring: var(--cyan);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --font-sans: 'Geist', 'Geist Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', ui-monospace, monospace;
+
+  --color-void: var(--void);
+  --color-navy: var(--navy);
+  --color-midnight: var(--midnight);
+  --color-cyan: var(--cyan);
+  --color-violet: var(--violet);
+  --color-amber: var(--amber);
+  --color-stellar: var(--stellar);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+@layer components {
+  .coord-grid {
+    background-image:
+      linear-gradient(to right, var(--line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: radial-gradient(ellipse at 50% 40%, #000 30%, transparent 80%);
+  }
+
+  .glass {
+    background-color: color-mix(in oklab, var(--navy) 62%, transparent);
+    border: 1px solid var(--line-strong);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+
+  .tech-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
