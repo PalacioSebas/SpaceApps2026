@@ -8,7 +8,8 @@ consultar [arranque de la landing](landing/README.md).
 
 El módulo portable [Aprendé en 3D](static/learn-3d/README.md) está disponible en
 `http://127.0.0.1:8000/static/learn-3d/index.html` y desde la cabecera de la
-landing en escritorio. Conserva sus dos objetos educativos con una interfaz
+landing en escritorio. Incluye una enana marrón, una estrella joven con disco
+y una estrella roja pulsante tipo Mira, con una interfaz
 adaptada a la paleta y tipografía de la landing. El encabezado permite alternar
 Español / English, incluidos los contenidos y recorridos, sin reiniciar la vista.
 

@@ -29,6 +29,7 @@ assert.ok(Object.isFrozen(content) && Object.isFrozen(content.topics[0]));
 assert.match(content.limits,/no reconstruye/i);
 const objects = context.window.Papastronomy3DObjects;
 assert.equal(objects['brown-dwarf'],content,'Se conserva el contrato previo');
+assert.deepEqual(Object.keys(objects), ['brown-dwarf','young-star','mira-star'], 'El catálogo agrega una Mira sin reemplazar los objetos anteriores');
 for (const object of Object.values(objects)) {
   assert.ok(Object.isFrozen(object));
   for (const topic of object.topics) {
@@ -205,6 +206,88 @@ for (const [key,value] of Object.entries(originalSnapshot)) assert.equal(viewer[
 viewer.attributes.lang='es';viewer.attributes.object='brown-dwarf';viewer.attributes.explanation='simple';
 viewer.selectObject('brown-dwarf');viewer.setPlaying(false);
 
+// La Mira agrega una comparación de fases independiente de las escenas anteriores.
+viewer.attributes.object='mira-star';viewer.selectObject('mira-star');
+assert.equal(viewer.objectKind,2);
+assert.equal(viewer.content,objects['mira-star']);
+assert.equal(node('h1').textContent,objects['mira-star'].title);
+assert.equal(node('.topics').children.length,3);
+assert.equal(node('.hotspots').children.length,3);
+assert.equal(node('.pulsation-row').hidden,false,'El control de fase sólo aparece en la estrella pulsante');
+assert.equal(node('.disk-row').hidden,true,'La Mira no recibe el control del disco joven');
+assert.equal(viewer.engine,engine,'La nueva escena reutiliza el renderizador existente');
+assert.match(objects['mira-star'].limits,/ilustrativ|conceptual|genéric/i);
+viewer.setPlaying(true);
+assert.equal(frames.size,1);
+for(const time of [1000,1050]) {
+  const [frameId,callback]=frames.entries().next().value;
+  frames.delete(frameId);callback(time);
+}
+assert.ok(viewer.phase > 0,'La animación avanza la pulsación');
+assert.ok(Number(node('.phase-slider').value) > 0,'La fase mostrada acompaña la animación');
+assert.equal(frames.size,1,'La pulsación mantiene un solo ciclo de animación');
+viewer.setPulsationPhase(.25);
+assert.equal(viewer.phase,3,'La fase manual es un cuarto del ciclo ilustrativo');
+assert.equal(viewer.playing,false,'Comparar una fase manual pausa la animación');
+assert.equal(frames.size,0);
+assert.equal(Number(node('.phase-slider').value),.25);
+assert.match(node('.phase-output').textContent,/25/);
+viewer.setPulsationPhase(.75);
+assert.equal(viewer.phase,9);
+assert.equal(Number(node('.phase-slider').value),.75);
+assert.match(node('.phase-output').textContent,/75/);
+viewer.setPulsationPhase(-10);assert.equal(viewer.phase,0);
+viewer.setPulsationPhase(10);assert.equal(viewer.phase,12,'El valor manual se limita a un ciclo');
+assert.equal(Number(node('.phase-slider').value),1);
+assert.match(node('.phase-output').textContent,/100/,'El extremo del deslizador conserva el 100% del ciclo');
+for(const invalid of [NaN,Infinity,-Infinity]) {
+  viewer.setPulsationPhase(invalid);
+  assert.equal(viewer.phase,12,'Una fase no finita no contamina el estado ni el shader');
+}
+viewer.reset();assert.equal(viewer.phase,0);assert.equal(viewer.zoom,1);
+assert.equal(Number(node('.phase-slider').value),0);
+viewer.engine=null;viewer.setPulsationPhase(.5);
+assert.equal(viewer.phase,6);
+assert.equal(Number(node('.phase-slider').value),.5,'El estado de fase se actualiza aun sin GPU');
+assert.match(node('.phase-output').textContent,/50/);
+viewer.engine=engine;
+
+viewer.setPulsationPhase(.4);viewer.setMode(0);viewer.setZoom(1.16);
+viewer.yaw=.82;viewer.pitch=.31;viewer.selectTopic(1);viewer.setPlaying(true);
+const beforeMiraGuide={yaw:viewer.yaw,pitch:viewer.pitch,zoom:viewer.zoom,phase:viewer.phase,
+  infrared:viewer.infrared,diskVisible:viewer.diskVisible,playing:viewer.playing,topicIndex:viewer.topicIndex};
+viewer.startGuide();
+assert.equal(viewer.phase,0,'El primer paso de la guía prepara la fase inicial');
+assert.equal(viewer.playing,false);assert.equal(frames.size,0);
+viewer.nextTopic();assert.equal(viewer.phase,3,'El segundo paso prepara otra fase para comparar el brillo');
+viewer.nextTopic();assert.equal(viewer.phase,9);assert.equal(viewer.infrared,1);
+viewer.setPulsationPhase(.6);viewer.setZoom(1.2);viewer.yaw=.9;
+const miraLanguageKeys=['objectKind','topicIndex','yaw','pitch','zoom','phase','infrared','playing','guided','guideSnapshot'];
+const miraBeforeLanguage=Object.fromEntries(miraLanguageKeys.map(key=>[key,viewer[key]]));
+viewer.attributes.lang='en';viewer.attributeChangedCallback('lang');
+assert.equal(viewer.content,locales.en['mira-star']);
+assert.equal(node('h1').textContent,locales.en['mira-star'].title);
+assert.equal(node('.guide-task p').textContent,locales.en['mira-star'].topics[2].activity);
+assert.equal(node('.pulsation-row').hidden,false);
+assert.equal(node('.phase-slider')['aria-valuetext'],uiLocales.en.pulsationPhaseValue.replace('{percent}','60'));
+for(const key of miraLanguageKeys)assert.equal(viewer[key],miraBeforeLanguage[key],`Traducir la Mira conserva ${key}`);
+viewer.attributes.lang='es';viewer.attributeChangedCallback('lang');
+viewer.nextTopic();assert.equal(viewer.guided,false);
+for(const [key,value] of Object.entries(beforeMiraGuide))assert.equal(viewer[key],value,`Salir de la guía Mira restaura ${key}`);
+assert.equal(frames.size,1);
+viewer.motion={matches:true};viewer.startGuide();viewer.stopGuide();
+assert.equal(viewer.playing,false,'El recorrido no reanuda movimiento con reducción activa');
+assert.equal(frames.size,0);viewer.motion={matches:false};
+viewer.startGuide();viewer.selectObject('young-star');
+assert.equal(viewer.guided,false,'Cambiar de objeto cierra el recorrido de la Mira');
+assert.equal(node('.pulsation-row').hidden,true);
+assert.equal(node('.disk-row').hidden,false);
+viewer.selectObject('brown-dwarf');assert.equal(node('.pulsation-row').hidden,true);
+assert.equal(node('.disk-row').hidden,true);
+viewer.phase=4;viewer.setPulsationPhase(.8);
+assert.equal(viewer.phase,4,'El control de fase no cambia la enana marrón');
+viewer.attributes.object='brown-dwarf';viewer.attributes.explanation='simple';viewer.setPlaying(false);
+
 viewer.setPlaying(true);
 assert.equal(frames.size,1);
 viewer.setPlaying(true);
@@ -234,7 +317,7 @@ assert.equal(node('.play').disabled,true);
 viewer.selectTopic(1);
 assert.equal(node('.explanation').textContent,content.topics[1].simple,'El contenido funciona sin GPU');
 viewer.startGuide();assert.equal(viewer.guided,true);viewer.stopGuide();
-console.log('3D: dos objetos, cambio de escena, estilos, temas, paletas, zoom, pausa, visibilidad, liberación y ausencia de WebGL: OK.');
+console.log('3D: tres objetos, fases de Mira, recorrido reversible, idiomas, pausa, visibilidad, liberación y ausencia de WebGL: OK.');
 
 const pageCode=fs.readFileSync(path.join(__dirname,'page.js'),'utf8');
 
@@ -270,7 +353,7 @@ function createPage(query = '', savedLanguage = null, storageDenied = false) {
   };
   const pageContext = {
     URL,URLSearchParams,localStorage:storage,
-    window:{Papastronomy3DI18n:uiLocales,localStorage:storage,addEventListener() {}},
+    window:{Papastronomy3DI18n:uiLocales,Papastronomy3DObjects:objects,Papastronomy3DLocales:locales,localStorage:storage,addEventListener() {}},
     location:new URL('https://example.test/models/index.html' + query),
     document:{
       title:'',documentElement:{lang:'es-AR'},
@@ -315,6 +398,20 @@ assert.equal(createPage('',page.state.savedLanguage).attributes.lang,'es','La el
 page.attributes.object='brown-dwarf';page.state.handlers['.object-picker']();
 assert.equal(page.context.location.searchParams.get('object'),'brown-dwarf');
 assert.equal(page.context.location.searchParams.get('lang'),'es');
+
+const miraPage=createPage('?object=mira-star&explanation=technical&lang=en&from=explorer','es');
+assert.equal(miraPage.attributes.object,'mira-star','El enlace directo admite el tercer objeto del catálogo');
+assert.equal(miraPage.attributes.explanation,'technical');
+assert.equal(miraPage.attributes.lang,'en');
+miraPage.click('es');
+assert.equal(miraPage.context.location.searchParams.get('object'),'mira-star','Cambiar idioma conserva el enlace a la Mira');
+assert.equal(miraPage.context.location.searchParams.get('explanation'),'technical');
+assert.equal(miraPage.context.location.searchParams.get('from'),'explorer');
+miraPage.attributes.object='young-star';miraPage.state.handlers['.object-picker']();
+assert.equal(miraPage.context.location.searchParams.get('object'),'young-star');
+for(const requested of ['__proto__','constructor','toString']) {
+  assert.equal(createPage(`?object=${requested}`).attributes.object,'brown-dwarf',`La URL no acepta una clave heredada: ${requested}`);
+}
 
 assert.equal(createPage('', 'en').attributes.lang,'en','Recupera la preferencia guardada');
 assert.equal(createPage().attributes.lang,'es','Sin preferencia, comienza en español');

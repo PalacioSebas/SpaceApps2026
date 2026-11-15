@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const assetBase = new URL('.', document.currentScript.src);
+  const MIRA_CYCLE_SECONDS = 12;
   const vertex = `attribute vec2 position;
     varying vec2 screen;
     void main() { screen = position; gl_Position = vec4(position, 0.0, 1.0); }`;
@@ -69,7 +70,35 @@
       vec3 haloColor=mix(vec3(.95,.44,.12),vec3(.96,.26,.35),infrared);
       return over(body,vec4(haloColor*halo,halo));
     }
+    vec4 miraStar(vec2 p) {
+      // Ciclo educativo: radio, brillo y gránulos no ajustados a una estrella real.
+      float angle=mod(phase,${MIRA_CYCLE_SECONDS.toFixed(1)})*(6.28318530718/${MIRA_CYCLE_SECONDS.toFixed(1)});
+      float radius=.84+.10*sin(angle);
+      float r=length(p);
+      float outside=max(0.0,r-radius);
+      float halo=.20*exp(-outside*11.0)*(1.0-smoothstep(.18,.44,outside));
+      vec3 haloColor=mix(vec3(.98,.20,.055),vec3(.84,.12,.35),infrared);
+      vec4 atmosphere=vec4(haloColor*halo,halo);
+      if (r >= radius) return atmosphere;
+      vec3 normal=vec3(p,sqrt(max(0.0,radius*radius-dot(p,p))))/radius;
+      vec3 local=toLocal(normal);
+      float grain=cloud(local*4.8+vec3(phase*.015,0.0,0.0));
+      float detail=noise(local*23.0+vec3(0.0,phase*.018,0.0));
+      float cells=smoothstep(.26,.73,grain);
+      vec3 visible=mix(vec3(.34,.035,.012),vec3(1.0,.46,.15),cells);
+      visible=mix(visible,vec3(1.0,.68,.30),smoothstep(.64,.81,grain)*.45);
+      vec3 ir=mix(vec3(.25,.035,.30),vec3(1.0,.36,.16),cells);
+      float limb=.38+.62*pow(normal.z,.35);
+      float brightness=.80+.12*cos(angle-.45);
+      vec3 color=mix(visible,ir,infrared)*limb*brightness*(.85+.15*detail);
+      float alpha=1.0-smoothstep(radius-.006,radius,r);
+      return over(vec4(color*alpha,alpha),atmosphere);
+    }
     void main() {
+      if (objectKind > 1.5) {
+        gl_FragColor=miraStar(screen*vec2(aspect,1.0)/(.67*zoom));
+        return;
+      }
       if (objectKind > .5) {
         gl_FragColor=youngStar(screen*vec2(aspect,1.0)/(.48*zoom));
         return;
@@ -201,6 +230,7 @@
         <div class="controls"><div class="modes" role="group" aria-label="Representación artística" data-i18n-aria="modesLabel"><button type="button" data-mode="0" data-i18n="visible" aria-pressed="true">Visible · ilustración</button><button type="button" data-mode="1" data-i18n="infrared" aria-pressed="false">Infrarrojo · falso color</button></div>
           <div class="tools"><button class="play" type="button"></button><button class="reset" type="button" data-i18n="reset">Restablecer vista</button><label class="zoom"><span data-i18n="zoom">Zoom</span><input type="range" min="0.75" max="1.35" step="0.01" value="1" aria-label="Zoom del objeto" data-i18n-aria="zoomLabel"><output>1.00×</output></label></div></div>
         <div class="disk-row" hidden><button class="disk-toggle" type="button" aria-pressed="true">Ocultar disco</button><p class="disk-note"></p></div>
+        <div class="pulsation-row" hidden><label class="pulsation-control"><span data-i18n="pulsationPhase">Fase del ciclo ilustrativo</span><input class="phase-slider" type="range" min="0" max="1" step="0.01" value="0" aria-label="Fase del ciclo ilustrativo" data-i18n-aria="pulsationPhase"><output class="phase-output">0%</output></label><p class="pulsation-note" data-i18n="pulsationNote">Animá para ver la pulsación o elegí una fase para comparar. El ritmo y la amplitud son ilustrativos.</p></div>
         <p class="guide-status" role="status" aria-live="polite"></p>
         <p class="caption" role="status"></p><p class="limits" id="limits"></p>`;
       this.$=selector=>this.shadowRoot.querySelector(selector);
@@ -218,6 +248,7 @@
       this.$('.guide-start').addEventListener('click',()=>this.startGuide(),{signal});
       this.$('.guide-exit').addEventListener('click',()=>this.stopGuide(),{signal});
       this.$('.disk-toggle').addEventListener('click',()=>this.setDiskVisible(!this.diskVisible),{signal});
+      this.$('.phase-slider').addEventListener('input',event=>this.setPulsationPhase(Number(event.target.value)),{signal});
       this.shadowRoot.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>this.setMode(Number(button.dataset.mode)),{signal}));
       this.$('.play').addEventListener('click',()=>this.setPlaying(!this.playing),{signal});
       this.$('.reset').addEventListener('click',()=>this.reset(),{signal});
@@ -284,9 +315,10 @@
     selectObject(id) {
       if (this.guided) this.stopGuide();
       this.content=Object.hasOwn(this.objects,id) ? this.objects[id] : this.objects['brown-dwarf'];
-      this.objectKind=this.content.id === 'young-star' ? 1 : 0;
+      this.objectKind=this.content.id === 'mira-star' ? 2 : this.content.id === 'young-star' ? 1 : 0;
       this.renderObjectContent();
       this.$('.disk-row').hidden=this.objectKind !== 1;
+      this.$('.pulsation-row').hidden=this.objectKind !== 2;
       this.announceGuide(null);
       this.reset();this.setDiskVisible(true);this.selectTopic(0);this.setMode(this.infrared);this.updateGuideUI();
     }
@@ -303,8 +335,8 @@
       this.$('.tag').textContent=this.content.disclosure;
       this.$('.limits').textContent=this.content.limits;
       this.canvas.setAttribute('aria-label',this.t('canvasLabel',{title:this.content.title}));
-      this.$('.orbit').hidden=this.objectKind === 1;
-      this.$('.hint').textContent=this.t(this.objectKind === 1 ? 'hintStar' : 'hintDwarf');
+      this.$('.orbit').hidden=this.objectKind !== 0;
+      this.$('.hint').textContent=this.t(this.objectKind === 2 ? 'hintMira' : this.objectKind === 1 ? 'hintStar' : 'hintDwarf');
       for (const container of ['.topics','.hotspots']) {
         this.$(container).replaceChildren();
         this.content.topics.forEach((topic,index)=>{
@@ -349,6 +381,21 @@
       this.$('.disk-note').textContent=this.t(this.diskVisible ? 'diskVisible' : 'diskHidden');
       this.draw();
     }
+    setPulsationPhase(value) {
+      if (this.objectKind !== 2 || !Number.isFinite(Number(value))) return;
+      this.setPlaying(false);
+      this.phase=Math.max(0,Math.min(1,Number(value)))*MIRA_CYCLE_SECONDS;
+      this.draw();
+    }
+    updatePulsationUI() {
+      if (this.objectKind !== 2) return;
+      const remainder=((this.phase % MIRA_CYCLE_SECONDS)+MIRA_CYCLE_SECONDS)%MIRA_CYCLE_SECONDS;
+      const fraction=this.phase > 0 && remainder < 1e-9 ? 1 : remainder/MIRA_CYCLE_SECONDS;
+      const percent=Math.round(fraction*100);
+      this.$('.phase-slider').value=String(fraction);
+      this.$('.phase-slider').setAttribute('aria-valuetext',this.t('pulsationPhaseValue',{percent}));
+      this.$('.phase-output').textContent=`${percent}%`;
+    }
     nextTopic() {
       if (this.guided && this.topicIndex === this.content.topics.length-1) { this.stopGuide(true); return; }
       this.selectTopic((this.topicIndex+1)%this.content.topics.length);
@@ -363,6 +410,12 @@
     }
     applyGuideStep() {
       this.setPlaying(false);
+      if (this.objectKind === 2) {
+        this.yaw=.4;this.pitch=-.12;
+        this.phase=[0,3,9][this.topicIndex] || 0;
+        this.setZoom(1);this.setMode(this.topicIndex === 2 ? 1 : 0);this.draw();
+        return;
+      }
       this.yaw=.4;
       this.pitch=this.objectKind === 1 ? (this.topicIndex === 2 ? .22 : .65) : -.12;
       this.setZoom(this.objectKind === 0 && this.topicIndex === 1 ? 1.15 : 1);
@@ -414,10 +467,13 @@
       try { this.engine=renderer(this.canvas); this.lost=false; }
       catch (error) { console.warn('Aprendé en 3D:',error.message); }
       this.$('.fallback').hidden=Boolean(this.engine);
-      for (const selector of ['.play','.reset','input']) this.$(selector).disabled=!this.engine;
+      for (const selector of ['.play','.reset','input','.phase-slider']) this.$(selector).disabled=!this.engine;
       this.setPlaying(this.playing); this.draw();
     }
-    draw() { if (this.engine && !this.lost) this.engine.draw(this); }
+    draw() {
+      this.updatePulsationUI();
+      if (this.engine && !this.lost) this.engine.draw(this);
+    }
     cancelFrame() { cancelAnimationFrame(this.frame);this.frame=0;this.previousTime=null; }
     schedule() {
       this.cancelFrame();

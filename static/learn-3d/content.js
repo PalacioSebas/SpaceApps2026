@@ -77,6 +77,46 @@
     },
     reviewedOn: '2026-11-14',
   };
+  const miraStar = {
+    id: 'mira-star',
+    title: 'Estrella roja pulsante · tipo Mira',
+    subtitle: 'Una estrella que cambia. Un ciclo para explorar.',
+    category: 'Estrellas variables',
+    disclosure: 'Ilustración educativa · gigante roja genérica',
+    limits: 'El tamaño, la textura, los colores y el brillo son ilustrativos y no están a escala. El ciclo no representa el período ni la curva de luz de R Draconis. Esta escena no reconstruye esa estrella ni utiliza mediciones del explorador.',
+    topics: [
+      {
+        id: 'pulsation', number: '01', title: 'Una estrella que se expande y contrae', short: 'Pulsación',
+        activity: 'Pulsá Animar objeto y seguí el borde de la estrella. Después mové Fase del ciclo ilustrativo para detenerla y comparar distintos momentos.',
+        simple: 'Las variables tipo Mira son gigantes rojas frías que pulsan. Sus capas exteriores se expanden y contraen. El cambio de tamaño del dibujo está elegido para que puedas seguirlo con facilidad.',
+        technical: 'Las variables tipo Mira son gigantes rojas con pulsaciones de largo período. Aquí se representa un ciclo geométrico simplificado, sin resolver la dinámica estelar ni ajustar radio, masa o período a R Draconis.',
+        takeaway: 'El ciclo ayuda a imaginar una pulsación; su duración no mide el período de una estrella.',
+        source: 'pulsation',
+      },
+      {
+        id: 'brightness', number: '02', title: 'El brillo también cambia', short: 'Brillo',
+        activity: 'Mové lentamente Fase del ciclo ilustrativo y compará el brillo y el halo en dos posiciones. El control pausa la animación para que puedas observar cada estado.',
+        simple: 'La luz que recibimos de una estrella pulsante puede cambiar con el tiempo. El brillo y el halo de esta escena acompañan el ciclo de forma artística. R Draconis es uno de los casos del desafío que invita a estudiar esas variaciones.',
+        technical: 'Los cambios de brillo de las variables pulsantes se investigan con observaciones en distintas fechas. La escena no calcula flujos ni una curva de luz; tampoco fija una relación física entre radio y brillo para R Draconis.',
+        takeaway: 'Para estudiar una variación real, compará observaciones de fechas y bandas conocidas.',
+        source: 'variability',
+      },
+      {
+        id: 'infrared', number: '03', title: 'Otra mirada con luz infrarroja', short: 'Infrarrojo',
+        activity: 'Dejá una fase fija y alterná Visible e Infrarrojo. Compará las paletas sin confundir el cambio de representación con un cambio real de la estrella.',
+        simple: 'SPHEREx estudia el cielo también en luz infrarroja cercana. Mirar distintas longitudes de onda aporta información complementaria. Esta paleta asigna colores elegidos a una ilustración; no muestra una observación del telescopio.',
+        technical: 'La espectrofotometría permite estudiar cómo se distribuye la luz entre bandas. Esta representación no sintetiza el espectro estelar ni aplica las respuestas de los filtros SPHEREx. Sus colores no permiten obtener una temperatura o un flujo.',
+        takeaway: 'Las bandas observadas aportan datos; una paleta conceptual aporta una explicación.',
+        source: 'spherex',
+      },
+    ],
+    sources: {
+      pulsation: { title: 'NASA · Mira, una gigante roja pulsante', url: 'https://science.nasa.gov/image-article/apod-2006-july-22-mira-the-wonderful-star/' },
+      variability: { title: 'NASA · Pulsaciones y cambios de brillo en R Aquarii', url: 'https://science.nasa.gov/missions/hubble/nasas-hubble-sees-a-stellar-volcano/' },
+      spherex: { title: 'NASA · Misión SPHEREx', url: 'https://science.nasa.gov/mission/spherex/' },
+    },
+    reviewedOn: '2026-11-15',
+  };
   // Las traducciones conservan identificadores, orden y referencias científicas.
   const brownDwarfEn = {
     ...content,
@@ -156,15 +196,54 @@
       rwAur: { ...youngStar.sources.rwAur, title: 'NASA · Investigating RW Aur A’s Dimming Events' },
     },
   };
+  const miraStarEn = {
+    ...miraStar,
+    title: 'Pulsating red star · Mira type',
+    subtitle: 'A changing star. A cycle to explore.',
+    category: 'Variable stars',
+    disclosure: 'Educational illustration · generic red giant',
+    limits: 'The size, texture, colors and brightness are illustrative and are not to scale. The cycle does not represent the period or light curve of R Draconis. This scene does not reconstruct that star or use measurements from the explorer.',
+    topics: [
+      {
+        ...miraStar.topics[0],
+        title: 'A star that expands and contracts', short: 'Pulsation',
+        activity: 'Select Animate object and follow the edge of the star. Then move Illustrative cycle phase to pause it and compare different moments.',
+        simple: 'Mira-type variables are cool red giants that pulsate. Their outer layers expand and contract. The size change in the illustration is chosen so you can follow it easily.',
+        technical: 'Mira-type variables are red giants with long-period pulsations. This scene represents a simplified geometric cycle without solving stellar dynamics or fitting the radius, mass or period of R Draconis.',
+        takeaway: 'The cycle helps illustrate a pulsation; its duration does not measure a star’s period.',
+      },
+      {
+        ...miraStar.topics[1],
+        title: 'Brightness changes too', short: 'Brightness',
+        activity: 'Slowly move Illustrative cycle phase and compare the brightness and halo at two positions. The control pauses the animation so you can inspect each state.',
+        simple: 'The light we receive from a pulsating star can change over time. The brightness and halo in this scene follow the cycle artistically. R Draconis is one of the challenge cases that invites us to study these variations.',
+        technical: 'Brightness changes in pulsating variables are investigated using observations from different dates. This scene does not calculate fluxes or a light curve, or impose a physical relationship between radius and brightness for R Draconis.',
+        takeaway: 'To study a real variation, compare observations with known dates and bands.',
+      },
+      {
+        ...miraStar.topics[2],
+        title: 'Another view with infrared light', short: 'Infrared',
+        activity: 'Keep the phase fixed and switch between Visible and Infrared. Compare the palettes without mistaking a change in representation for a real change in the star.',
+        simple: 'SPHEREx also studies the sky in near-infrared light. Different wavelengths provide complementary information. This palette assigns chosen colors to an illustration; it does not show a telescope observation.',
+        technical: 'Spectrophotometry can investigate how light is distributed across bands. This representation does not synthesize a stellar spectrum or apply SPHEREx filter responses. Its colors cannot provide a temperature or flux.',
+        takeaway: 'Observed bands provide data; a conceptual palette provides an explanation.',
+      },
+    ],
+    sources: {
+      pulsation: { ...miraStar.sources.pulsation, title: 'NASA · Mira, a Pulsating Red Giant' },
+      variability: { ...miraStar.sources.variability, title: 'NASA · Pulsations and Brightness Changes in R Aquarii' },
+      spherex: { ...miraStar.sources.spherex, title: 'NASA · SPHEREx Mission' },
+    },
+  };
   // Evita que el anfitrión o una instancia alteren el contenido de las demás.
   function freeze(value) {
     Object.values(value).forEach(item => { if (item && typeof item === 'object') freeze(item); });
     return Object.freeze(value);
   }
   window.Papastronomy3DContent = freeze(content);
-  window.Papastronomy3DObjects = freeze({ 'brown-dwarf': content, 'young-star': youngStar });
+  window.Papastronomy3DObjects = freeze({ 'brown-dwarf': content, 'young-star': youngStar, 'mira-star': miraStar });
   window.Papastronomy3DLocales = freeze({
     es: window.Papastronomy3DObjects,
-    en: { 'brown-dwarf': brownDwarfEn, 'young-star': youngStarEn },
+    en: { 'brown-dwarf': brownDwarfEn, 'young-star': youngStarEn, 'mira-star': miraStarEn },
   });
 })();

@@ -175,3 +175,40 @@ la landing. Todo aprobado. Se comparó la parte de shader/renderizador con el
 respaldo: no cambió. La validación visual en navegador sigue pendiente.
 
 Consultar `landing/README.md` para instalar y arrancar ambos servidores.
+
+## Estrella roja pulsante en el visor 3D (15/11/2026)
+
+Después de restaurar `feature/user-friendly` a `origin/main` (`0fed3ca`),
+el usuario eligió agregar una estrella roja pulsante tipo Mira. El cambio
+se limita al módulo portable `static/learn-3d/` y su documentación;
+el explorador científico y la landing conservan su código.
+
+El catálogo incorpora `mira-star` como tercer objeto en español e inglés.
+La escena es una gigante roja genérica relacionada educativamente con el
+caso R Draconis, sin reconstruir esa fuente ni usar datos del explorador.
+Tiene una rama propia del shader (`objectKind=2`), granulación, halo y cambios
+ilustrativos de radio y brillo. El ciclo visual dura 12 segundos; no representa
+un período observado ni fija una relación física entre radio y luminosidad.
+Las ramas de la enana marrón y la estrella joven se conservan.
+
+El control **Fase del ciclo ilustrativo** aparece sólo para Mira, pausa la
+animación y permite comparar posiciones. El recorrido usa fases 0/25/75%
+para pulsación, brillo e infrarrojo; al salir recupera la vista, fase y pausa
+anteriores. Cambiar idioma conserva ese estado. El módulo respeta movimiento
+reducido y pausa cuando no es visible. No necesita servicios remotos.
+
+Acceso directo: `/static/learn-3d/index.html?object=mira-star`; agregar
+`&lang=en` para inglés. `page.js` valida el objeto contra el catálogo y
+conserva la enana marrón como predeterminada ante valores desconocidos.
+Las referencias NASA de los temas se revisaron el 15/11/2026.
+
+Verificación de esta incorporación: sintaxis de los cuatro scripts, checks
+de estado/idiomas/fase/recorrido y los seis recursos servidos por HTTP200.
+Se compiló y enlazó el shader con ANGLE/EGL en la NVIDIA RTX3070Ti, sin abrir
+ni automatizar el navegador. Doce comparaciones GPU de las escenas originales
+contra HEAD dieron diferencia RGBA máxima cero. Se inspeccionaron renders
+de Mira en fases 0/25/75%, paleta infrarroja y zoom1.35; la fotosfera entra en
+el encuadre y la transparencia del halo conserva RGB cero donde alfa es cero.
+La interacción en un navegador real sigue pendiente; los controles se probaron
+con el DOM simulado del módulo. Los renders y el harness de QA son temporales
+y no forman parte del proyecto.

@@ -33,7 +33,9 @@
   }
   languageButtons.forEach(button => button.addEventListener('click', () => chooseLanguage(button.dataset.language, true)));
   chooseLanguage(language);
-  viewer.setAttribute('object', params.get('object') === 'young-star' ? 'young-star' : 'brown-dwarf');
+  const objects = window.Papastronomy3DObjects || {};
+  const requestedObject = params.get('object');
+  viewer.setAttribute('object', Object.hasOwn(objects, requestedObject) ? requestedObject : 'brown-dwarf');
   viewer.setAttribute('explanation', params.get('explanation') === 'technical' ? 'technical' : 'simple');
   viewer.shadowRoot.querySelector('.object-picker').addEventListener('change', updateUrl);
   if (params.get('from') === 'explorer') {
