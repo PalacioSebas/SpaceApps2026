@@ -1,0 +1,12 @@
+# Datos científicos y entornos locales: no forman parte del bundle web.
+data/
+.venv/
+.venv-*/
+venv/
+.matplotlib/
+**/__pycache__/
+**/node_modules/
+**/.next/
+.git/
+.env
+.env.*

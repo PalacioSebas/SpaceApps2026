@@ -91,6 +91,37 @@ def _locate_image_hdu(hdul: fits.HDUList):
     raise ValueError("El FITS no contiene ninguna imagen 2D")
 
 
+def _spectral_values_um(spectral_wcs, x: float, y: float) -> Tuple[float, float]:
+    """Evalúa centro/ancho en el píxel nativo y los convierte explícitamente a µm.
+
+    La API numérica de WCS puede normalizar ejes a SI. Por eso sus valores
+    se asocian a ``world_axis_units`` antes de extraer números para la API.
+    No se adivinan unidades ausentes ni se convierten frecuencias en anchos
+    de longitud de onda: ambos ejes deben expresar longitudes compatibles.
+    """
+    values = spectral_wcs.pixel_to_world_values(x, y)
+    if len(values) != 2:
+        raise ValueError("El WCS espectral debe devolver centro y ancho de banda")
+    units = getattr(spectral_wcs, "world_axis_units", ())
+    converted = []
+    for axis, value in enumerate(values):
+        if isinstance(value, u.Quantity):
+            quantity = value
+        else:
+            try:
+                unit = units[axis]
+            except (IndexError, KeyError, TypeError) as exc:
+                raise ValueError("El WCS espectral no declara las unidades de ambos ejes") from exc
+            if not isinstance(unit, (str, u.UnitBase)) or not str(unit).strip():
+                raise ValueError("El WCS espectral no declara las unidades de ambos ejes")
+            quantity = u.Quantity(value, unit=unit)
+        result = float(quantity.to_value(u.um))
+        if not np.isfinite(result):
+            raise ValueError("El WCS espectral devolvió un valor no finito")
+        converted.append(result)
+    return converted[0], converted[1]
+
+
 def _infer_wavelength(hdul: fits.HDUList, img_hdu, header, x: float, y: float) -> Tuple[float, float]:
     """(longitud de onda µm, ancho de banda µm). Devuelve (0.0, 0.0) si no se puede."""
     # 1) WCS espectral (key='W') de SPHEREx
@@ -101,17 +132,21 @@ def _infer_wavelength(hdul: fits.HDUList, img_hdu, header, x: float, y: float) -
             del spec_header[k]
         spectral_wcs = WCS(spec_header, hdul, key="W", fix=False)
         spectral_wcs.sip = None
-        wl, bw = spectral_wcs.pixel_to_world(x, y)
-        wl_value = float(getattr(wl, "value", wl))
-        bw_value = float(getattr(bw, "value", bw))
+    except Exception:
+        pass
+    else:
+        try:
+            wl_value, bw_value = _spectral_values_um(spectral_wcs, x, y)
+        except Exception:
+            # A present WCS with an invalid value/unit at this pixel is not a
+            # missing WCS: a header/center fallback would label the wrong sample.
+            return 0.0, 0.0
         # Algunos FITS publican el centro espectral pero no el ancho de banda.
         # SPHEREx tiene una resolución aproximada R~100, por lo que usamos
         # Δλ≈λ/100 como estimación explícita en vez de mostrar cero.
         if bw_value <= 0 and wl_value > 0:
             bw_value = wl_value / 100.0
         return wl_value, bw_value
-    except Exception:
-        pass
     # 2) llaves de header comunes
     for hdr in (img_hdu.header, hdul[0].header):
         for key in ("WAVELENGTH_CENTER_UM", "WAVELENGTH_UM", "WAVELENGTH", "CENWAV"):
@@ -264,7 +299,7 @@ def load_and_clean_real_fits(fits_files: List[Path], ra: float | None = None,
     if ra is not None and dec is not None and frame["spectral_wcs"] is not None:
         x, y = frame["wcs"].all_world2pix([[ra, dec]], 0)[0]
         if np.isfinite(x) and np.isfinite(y):
-            wl, bw = frame["spectral_wcs"].pixel_to_world_values(x, y)
+            wl, bw = _spectral_values_um(frame["spectral_wcs"], x, y)
             if np.isfinite(wl) and np.isfinite(bw) and wl > 0 and bw > 0:
                 wavelength, bandwidth = float(wl), float(bw)
 
@@ -546,7 +581,7 @@ def extract_real_spectrum_at_coord(
 
             wl, bw = fr["wavelength_center_um"], fr["bandwidth_um"]
             if fr["spectral_wcs"] is not None:
-                wl, bw = (float(np.asarray(v)) for v in fr["spectral_wcs"].pixel_to_world_values(x, y))
+                wl, bw = _spectral_values_um(fr["spectral_wcs"], x, y)
             if not all(np.isfinite(v) for v in (wl, bw, flux, unc)) or wl <= 0:
                 continue
             points.append(

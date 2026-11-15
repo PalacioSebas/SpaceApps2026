@@ -73,6 +73,7 @@ const state = {
   spectrumSequence: 0,
   isLoading: false,
   catalogStatus: {},
+  referenceCatalogs: {},
   temporalSearch: false,
   showNamedObjects: false,
   selectedNamedObjectId: null,
@@ -2234,6 +2235,7 @@ async function prefetchWideCatalogsAndStars(centerRa, centerDec, sequence) {
 
 async function loadFieldCatalogs(sequence) {
   state.catalogStatus = { gaia: "consultando", allwise: "consultando" };
+  state.referenceCatalogs = {};
   state.catalogCentersQueried = [{ ra: state.ra, dec: state.dec }];
   const refreshBadge = () => {
     document.getElementById("aladin-catalog-badge").textContent =
@@ -2274,17 +2276,54 @@ async function loadFieldCatalogs(sequence) {
         const data = await res.json();
         if (sequence !== state.exploreSequence) return;
         const key = catalog === "gaia" ? "gaiaSources" : "wiseSources";
+        // Preserve the actual response: mosaic accumulation and snapped labels
+        // are not catalog measurements for this field.
+        state.referenceCatalogs[catalog] = { ...data, queryFov: effFov, sequence };
         mergeCatalogSources(key, data.sources || []);
         state.catalogStatus[catalog] = `${state.skyView[key].length}${data.truncated ? "+" : ""} · ${data.service || "catálogo"}`;
       } catch (error) {
         if (sequence !== state.exploreSequence || error.name === "AbortError") return;
         state.catalogStatus[catalog] = "no disponible";
+        state.referenceCatalogs[catalog] = { sources: [], error: "Catálogo no disponible", sequence };
       }
       refreshBadge();
       updateCatalogSelectionSummary();
       renderContextSkyMap();
     }),
   ]);
+  if (sequence === state.exploreSequence) syncAstronomicalReference();
+}
+
+let astronomicalReference = null;
+
+function getAstronomicalReferenceContext() {
+  const context = { ra: state.ra, dec: state.dec, fov: state.fov };
+  if (state.exploreData && state.selectedPixel) {
+    context.selected = pixelToRaDec(state.selectedPixel.x, state.selectedPixel.y);
+  }
+  for (const catalog of ["gaia", "allwise"]) {
+    const snapshot = state.referenceCatalogs[catalog];
+    if (snapshot?.sequence === state.exploreSequence) context[catalog] = snapshot;
+  }
+  return context;
+}
+
+function syncAstronomicalReference() {
+  // Optional reference services must never interrupt SPHEREx exploration.
+  try { astronomicalReference?.sync(); }
+  catch (error) { console.warn("No se pudo sincronizar la referencia astronómica:", error); }
+}
+
+function mountAstronomicalReference() {
+  const container = document.getElementById("cds-reference-panel");
+  if (!container || !window.PapastronomyAladinReference) return;
+  try {
+    astronomicalReference = window.PapastronomyAladinReference.mount(container, {
+      getContext: getAstronomicalReferenceContext,
+    });
+  } catch (error) {
+    console.warn("No se pudo iniciar la referencia astronómica:", error);
+  }
 }
 
 function updateCatalogSelectionSummary() {
@@ -5712,6 +5751,7 @@ async function exploreCoordinates(ra, dec, fov, maxEpochs = state.frameLimit, te
       : firstDipole || (matchedTarget?.proper_motion ? null : originDetections[0]);
     state.selectedDetectionId = top?.id || null;
     state.selectedPixel = top ? { x: top.x_pix, y: top.y_pix } : { x: 63.5, y: 63.5 };
+    syncAstronomicalReference();
     renderAIDetectionsList(state.allAiDetections);
     state.skyView.zoom = getDefaultSkyZoom();
     updateAladinView(ra, dec, fov);
@@ -6394,6 +6434,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   window.PapastronomyIntegration?.activate();
+  mountAstronomicalReference();
   await exploreCoordinates(state.ra, state.dec, state.fov, state.temporalSearch ? Math.min(32,state.frameLimit) : state.frameLimit, state.temporalSearch);
   startBlinkTimer();
 });

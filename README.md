@@ -150,7 +150,6 @@ Nasa/
 ├── data/
 │   └── cache/                   # Caché local de recortes FITS reales y catálogos JSON
 ├── start_project.py             # Lanzador multiplataforma con autoverificación de entorno
-├── setup_cache_and_inspect.py   # Inicializador y verificador de caché real de IRSA
 ├── estado actual del proyecto.md# Checklist actualizado contra los objetivos de la NASA
 ├── AGENTS.md                    # Reglas de exploración del grafo de código con Reducto
 ├── requirements.txt             # Dependencias de Python
@@ -189,7 +188,6 @@ Si ya está abierto, detenerlo con Ctrl+C antes de iniciar otra instancia.
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
-py .\setup_cache_and_inspect.py
 .\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -197,10 +195,20 @@ py .\setup_cache_and_inspect.py
 
 ## 6. Pruebas Automatizadas y Rendimiento
 
-### Ejecución de la suite de tests (98 tests unitarios y de integración)
+### Ejecución de la suite de tests unitarios y de integración
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+El panel **Aladin Lite · referencia del cielo**, debajo del resumen de catálogos, permite comparar el campo con fondos DSS2, 2MASS y AllWISE. Se carga al abrirlo y requiere conexión y WebGL2. **Sincronizar campo** actualiza el campo y la selección; navegar por esa referencia no cambia la consulta SPHEREx. Sus enlaces VOTable exportan Gaia y AllWISE para herramientas como TOPCAT o Aladin Desktop.
+
+La evaluación de herramientas, las unidades espectrales, las pruebas y los límites de validación están en [ASTRONOMICAL_TOOLS_REPORT.md](ASTRONOMICAL_TOOLS_REPORT.md). Las comprobaciones del complemento y su conexión con el explorador se ejecutan con Node.js:
+
+```powershell
+node static/aladin-reference/check.cjs
+node tests/check_astronomical_tools.cjs
+```
+
 La suite verifica:
 - Consultas SIA combinadas al conjunto uniforme **`spherex_dr1` + `spherex_qr3`** y respaldo TAP (`tests/test_regressions.py`).
 - Calibración fotométrica relativa e igualación de PSF ante cambios de ganancia y fondo (`tests/test_difference.py`).

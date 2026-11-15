@@ -50,6 +50,7 @@ from src.pipeline import (
     extract_real_spectrum_at_coord,
 )
 from src.timeline import collect_cached_frames, compute_timeline
+from src.astronomical_tools import router as astronomical_tools_router
 from src.ai_detector import detect_anomalies_on_diff, classify_spectrum_molecules, _crossmatch_cached
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -78,6 +79,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(astronomical_tools_router)
 
 
 @app.get("/api/targets")

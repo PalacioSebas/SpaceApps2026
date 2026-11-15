@@ -1,0 +1,20 @@
+.papastronomy-aladin-reference { margin-top: 16px; font: 12px/1.65 system-ui, sans-serif; color: #cbd5e1; }
+.papastronomy-aladin-reference * { box-sizing: border-box; }
+.papastronomy-aladin-reference [hidden] { display: none !important; }
+.papastronomy-aladin-reference details { border: 1px solid #334155; border-radius: 10px; background: #070e1b; }
+.papastronomy-aladin-reference summary { padding: 12px 14px; cursor: pointer; color: #7dd3fc; font-weight: 600; }
+.papastronomy-aladin-reference .aladin-reference-body { padding: 0 14px 14px; }
+.papastronomy-aladin-reference .aladin-reference-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.papastronomy-aladin-reference button, .papastronomy-aladin-reference select { padding: 7px 9px; border: 1px solid #475569; border-radius: 6px; background: #0f172a; color: #e2e8f0; font: inherit; }
+.papastronomy-aladin-reference button { cursor: pointer; }
+.papastronomy-aladin-reference button:disabled { cursor: default; opacity: .5; }
+.papastronomy-aladin-reference label { display: flex; align-items: center; gap: 7px; }
+.papastronomy-aladin-reference :focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
+.papastronomy-aladin-reference .aladin-reference-status { color: #cbd5e1; margin: 10px 0; }
+.papastronomy-aladin-reference .aladin-reference-iframe { display: block; width: 100%; height: 380px; min-height: 320px; border: 1px solid #334155; border-radius: 7px; background: #030712; }
+.papastronomy-aladin-reference .aladin-reference-note { margin: 10px 0; color: #94a3b8; font-size: 11px; }
+.papastronomy-aladin-reference .aladin-reference-position { margin: 9px 0; color: #a5f3fc; font: 10px/1.7 ui-monospace, monospace; overflow-wrap: anywhere; }
+.papastronomy-aladin-reference .aladin-reference-catalogs p { margin: 4px 0; font-size: 11px; overflow-wrap: anywhere; }
+.papastronomy-aladin-reference .aladin-reference-links { display: flex; flex-wrap: wrap; gap: 9px 14px; margin: 13px 0; }
+.papastronomy-aladin-reference a { color: #7dd3fc; text-decoration: underline; text-underline-offset: 3px; font-size: 11px; }
+.papastronomy-aladin-reference .aladin-reference-credit { margin: 10px 0 0; color: #94a3b8; font-size: 10px; }

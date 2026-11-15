@@ -37,7 +37,7 @@ from scipy.stats import chi2 as chi2_dist
 
 from src.analysis import observation_mjd
 from src.config import CACHE_DIR, MANDATORY_TARGETS
-from src.pipeline import _get_frame
+from src.pipeline import _get_frame, _spectral_values_um
 
 logger = logging.getLogger("spherex.timeline")
 
@@ -345,9 +345,10 @@ def measure_frame(fr: Dict[str, Any], ra: float, dec: float) -> Optional[Dict[st
     wl, bw = fr["wavelength_center_um"], fr["bandwidth_um"]
     if fr.get("spectral_wcs") is not None:
         try:
-            wl, bw = (float(np.asarray(v)) for v in fr["spectral_wcs"].pixel_to_world_values(x, y))
+            wl, bw = _spectral_values_um(fr["spectral_wcs"], x, y)
         except Exception:
-            pass
+            # Do not replace an invalid native-pixel wavelength with the center.
+            return None
     if not all(np.isfinite(v) for v in (wl, bw, flux, unc)) or wl <= 0:
         return None
     return {
