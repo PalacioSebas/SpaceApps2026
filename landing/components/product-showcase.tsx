@@ -56,7 +56,7 @@ function AppMockup() {
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md border border-line bg-navy px-3 py-1.5 font-mono text-[10px] text-muted sm:max-w-sm">
             <Search className="h-3 w-3 shrink-0" />
-            <span className="truncate">RA 000.0000° · Dec +00.0000° · FoV 0.10°</span>
+            <span className="truncate">RA 133.7951° · Dec −07.2451° · FoV 0.05°</span>
           </div>
           <span className="hidden rounded-full border border-violet/40 bg-violet/10 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-violet sm:inline">
             {t.showcase.sampleData}
@@ -69,9 +69,9 @@ function AppMockup() {
             <Panel title={t.showcase.targetPanel}>
               <div className="space-y-2 font-mono text-[10px]">
                 {[
-                  ["RA", "000.0000°"],
-                  ["Dec", "+00.0000°"],
-                  ["FoV", "0.10°"],
+                  ["RA", "133.7951°"],
+                  ["Dec", "−07.2451°"],
+                  ["FoV", "0.05°"],
                   [t.showcase.frameLabel, "ICRS"],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between rounded border border-line bg-navy/80 px-2 py-1.5">
@@ -101,7 +101,7 @@ function AppMockup() {
           {/* Sky viewer */}
           <div className="relative col-span-12 overflow-hidden rounded-lg border border-line md:col-span-8 lg:col-span-6">
             <Image
-              src="/images/field.png"
+              src="/images/showcase-field.png"
               alt=""
               width={1024}
               height={1024}
@@ -170,7 +170,7 @@ function AppMockup() {
               <ul className="space-y-1.5 font-mono text-[9.5px]">
                 <li className="flex justify-between">
                   <span className="text-muted">{t.showcase.candidates}</span>
-                  <span className="text-stellar">—</span>
+                  <span className="text-stellar">2</span>
                 </li>
                 <li className="flex justify-between">
                   <span className="text-muted">{t.showcase.difference}</span>

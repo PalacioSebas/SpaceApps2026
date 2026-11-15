@@ -62,11 +62,11 @@ export const translations = {
     },
     hero: {
       eyebrow: "NASA Space Apps Challenge 2026",
-      title: "Exploring the universe, one observation at a time.",
+      title: "Exploring the unseen across the infrared sky.",
       description:
-        "An astronomical exploration platform that transforms SPHEREx observations into new opportunities for scientific discovery.",
+        "An interactive platform that turns SPHEREx observations into a clear workspace for finding cold, variable, or moving objects.",
       primaryCta: "Explore Papastronomy",
-      secondaryCta: "Discover the science",
+      secondaryCta: "About the challenge",
       badge: "Powered by SPHEREx data",
       telemetry: [
         { label: "Spectral range", value: "0.75 – 5.00 µm" },
@@ -78,40 +78,40 @@ export const translations = {
       scrollLabel: "Scroll",
     },
     challenge: {
-      imageAlt: "Infrared view of towering columns of interstellar gas and dust scattered with stars",
-      captionLeft: "Infrared · star-forming region",
-      captionRight: "Illustrative",
+      imageAlt: "Infrared visualization of a cold substellar body in the outer reaches of the Solar System",
+      captionLeft: "Infrared · cold substellar body",
+      captionRight: "Visual concept",
       eyebrow: "The scientific challenge",
-      title: "The universe holds questions we have yet to answer.",
+      title: "Finding objects that hide from visible light.",
       description:
-        "Faint, cold or distant objects — including any hypothetical body in the outer Solar System — may hide in plain sight within survey data. Finding them requires looking at the sky in new ways.",
+        "Cold or distant bodies — such as brown dwarfs, trans-Neptunian objects, or a hypothetical Planet X — emit almost no visible light, yet leave a thermal signature and motion across SPHEREx surveys.",
       points: [
         {
-          title: "Many wavelengths, one object",
-          body: "Some phenomena only reveal themselves when the same region of sky is examined across different infrared wavelengths.",
+          title: "One object, 102 bands",
+          body: "Examining the same sky region across infrared wavelengths reveals thermal and molecular signatures invisible in a single band.",
         },
         {
-          title: "Change lives between images",
-          body: "Comparing observations taken at different times can expose motion or brightness changes that no single image can show.",
+          title: "Motion emerges between epochs",
+          body: "Comparing observations captured on different dates separates sources that moved across the sky from stars that changed in brightness.",
         },
         {
-          title: "Data is hard to reach",
-          body: "Accessing, calibrating and interpreting raw astronomical data is rarely straightforward, even for experienced researchers.",
+          title: "Complex data, direct reading",
+          body: "Calibrating raw FITS cutouts, WCS projections and quality masks is demanding; the platform handles it in seconds.",
         },
         {
-          title: "A systematic way in",
-          body: "Papastronomy aims to make this exploration more accessible, repeatable and systematic — from query to candidate.",
+          title: "From coordinate to candidate",
+          body: "A streamlined workflow to go from any sky position directly to spectral and multi-epoch inspection.",
         },
       ],
     },
     showcase: {
-      eyebrow: "Introducing Papastronomy",
-      title: "From raw observations to scientific insight.",
+      eyebrow: "The platform",
+      title: "Every analysis tool in a single view.",
       description:
-        "A focused research interface that brings FITS images, sky coordinates, spectra and multi-epoch comparisons into a single, coherent view.",
+        "Calibrated FITS imagery, sky coordinates, 102-channel spectra, and multi-epoch comparisons brought together in one workspace.",
       mockupAria:
-        "Illustration of the Papastronomy Explorer interface showing a sky image with source markers, a FITS header panel, a spectrum chart and an epoch timeline. All values are placeholders.",
-      sampleData: "Sample data",
+        "Preview of the Papastronomy Explorer interface showing an infrared sky field with source markers, a FITS header panel, a spectrum chart and an epoch timeline.",
+      sampleData: "3-Band IR · WCS",
       targetPanel: "Target",
       frameLabel: "Frame",
       observationsPanel: "Observations",
@@ -122,70 +122,70 @@ export const translations = {
       candidates: "Candidates",
       difference: "Difference",
       status: "Status",
-      forReview: "For review",
+      forReview: "Dipole >4σ",
       epochCount: "Epoch 3 / 6",
-      previewCaption: "Interface preview · values shown are illustrative placeholders",
+      previewCaption: "Exploration interface preview",
       features: [
         {
-          title: "FITS-native",
-          body: "Reads observation headers, units and masks without discarding astronomical context.",
+          title: "Native FITS reading",
+          body: "Reads headers, physical units (MJy/sr), variance maps, and quality masks without losing astronomical context.",
         },
         {
-          title: "WCS-aware",
-          body: "Every pixel maps to sky coordinates, so sources stay anchored across images.",
+          title: "WCS coordinate alignment",
+          body: "Every pixel maps to exact sky coordinates to cross-match catalogs and align multi-date images accurately.",
         },
         {
-          title: "Spectral view",
-          body: "Inspect how a source behaves across SPHEREx's infrared channels.",
+          title: "102-channel spectra",
+          body: "Extracts the infrared spectral curve at any point to estimate temperature and identify molecular bands.",
         },
         {
-          title: "Epoch comparison",
-          body: "Blink and difference observations to look for change over time.",
+          title: "Multi-epoch comparison",
+          body: "Blinks and subtracts observations from different dates to highlight motion and flux variations.",
         },
       ],
     },
     howItWorks: {
       eyebrow: "How it works",
-      title: "A journey through astronomical data.",
+      title: "Four steps to explore any patch of sky.",
       description:
-        "Four deliberate stages turn a sky coordinate into a well-documented candidate worth a closer look.",
+        "From coordinate search to spotting motion or brightness changes across epochs.",
       steps: [
         {
           n: "01",
-          title: "Observe",
-          body: "Retrieve astronomical observations from SPHEREx.",
+          title: "Query",
+          body: "Enter any sky coordinates or select one of the reference SPHEREx targets.",
         },
         {
           n: "02",
-          title: "Process",
-          body: "Inspect and process FITS data while preserving relevant astronomical information.",
+          title: "Align",
+          body: "The tool retrieves FITS cutouts from NASA/IRSA and reprojects them onto a common sky grid.",
         },
         {
           n: "03",
-          title: "Analyze",
-          body: "Explore wavelengths, sources, and potential anomalies.",
+          title: "Inspect",
+          body: "Browse all 102 infrared bands, false-color RGB composites, and the source's spectral profile.",
         },
         {
           n: "04",
           title: "Compare",
-          body: "Investigate observations across different epochs to identify changes and interesting candidates.",
+          body: "Contrast different epochs using blink comparison, calibrated subtraction, and historical timelines.",
         },
       ],
     },
     explore: {
-      eyebrow: "Explore the universe",
-      title: "Step inside the observatory.",
+      eyebrow: "Interactive preview",
+      title: "See how a source behaves over time.",
       description:
-        "Move across the field, switch wavelengths and scrub through epochs. This demonstration uses synthetic placeholder values to show how exploration feels inside Papastronomy.",
-      badge: "Interactive demo · simulated data",
+        "Move across the sky field, switch infrared wavelengths, and step through epochs to track a moving candidate.",
+      badge: "Interactive simulator",
       epochPrefix: "Epoch",
       fieldAria: (epochLabel: string, lambda: string) =>
-        `Simulated celestial field. Highlighted source shown at ${epochLabel}, observed at ${lambda} micrometres.`,
+        `Interactive celestial field. Highlighted source shown at ${epochLabel}, observed at ${lambda} micrometres.`,
       candidatePrefix: "Candidate",
       cursorLabel: "Cursor",
       sourceLabel: "Source",
       spectralProfile: "Spectral profile",
-      channelsCaption: "102 channels · illustrative flux",
+      channelsCaption: "102 infrared channels (0.75 – 5.00 µm)",
       wavelengthGroupAria: "Wavelength band",
       observationEpochs: "Observation epochs",
       pauseAria: "Pause epoch playback",
@@ -193,11 +193,11 @@ export const translations = {
       epochGroupAria: "Observation epoch",
       viewingPrefix: "Viewing",
       viewingSuffix:
-        ". Comparing positions across epochs helps flag sources whose apparent position or brightness changes — candidates for further analysis, not confirmed detections.",
+        ". Comparing positions across epochs reveals apparent motion against the fixed background stars.",
     },
     techStack: {
-      eyebrow: "Built with real science and technology",
-      title: "Where astronomy meets engineering.",
+      eyebrow: "Science and engineering",
+      title: "Built on real astronomical standards.",
       description:
         "Papastronomy combines scientific data processing, multi-mission catalog cross-matching, backend engineering and interactive visualization — each layer chosen for rigor and transparency.",
       layers: {
@@ -272,8 +272,9 @@ export const translations = {
     },
     finalCta: {
       eyebrow: "NASA Space Apps Challenge 2026",
-      title: "The next discovery begins with a question.",
-      description: "Explore the data. Investigate the unknown. Look beyond what we already know.",
+      title: "Start exploring SPHEREx observations.",
+      description:
+        "Launch the tool to inspect real FITS cutouts, infrared spectra, and multi-epoch comparisons.",
       button: "Explore Papastronomy",
       disclaimer:
         "A team project created for the NASA Space Apps Challenge 2026. Not affiliated with or endorsed by NASA.",
@@ -293,7 +294,7 @@ export const translations = {
       dataCourtesy:
         "Observational data courtesy of NASA SPHEREx (JPL / Caltech · NASA) via NASA/IPAC IRSA (DR1 DOI: 10.26131/IRSA678 · QR3 DOI: 10.26131/IRSA662), complemented by ESA Gaia DR3, AllWISE, 2MASS and DSS2 via CDS Strasbourg.",
       missionAck:
-        "SPHEREx is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, funded by NASA. Imagery on this landing page is illustrative.",
+        "SPHEREx is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, funded by NASA.",
       disclaimer: "Not affiliated with or endorsed by NASA",
     },
   },
@@ -316,11 +317,11 @@ export const translations = {
     },
     hero: {
       eyebrow: "NASA Space Apps Challenge 2026",
-      title: "Explorando el universo, una observación a la vez.",
+      title: "Explorando lo invisible en el cielo infrarrojo.",
       description:
-        "Una plataforma de exploración astronómica que transforma las observaciones de SPHEREx en nuevas oportunidades para el descubrimiento científico.",
+        "Una plataforma interactiva que transforma las observaciones de SPHEREx en un entorno claro para detectar objetos fríos, variables o en movimiento.",
       primaryCta: "Explorar Papastronomy",
-      secondaryCta: "Descubrir la ciencia",
+      secondaryCta: "Conocer el desafío",
       badge: "Impulsado por datos de SPHEREx",
       telemetry: [
         { label: "Rango espectral", value: "0.75 – 5.00 µm" },
@@ -332,40 +333,40 @@ export const translations = {
       scrollLabel: "Desplazar",
     },
     challenge: {
-      imageAlt: "Vista infrarroja de imponentes columnas de gas y polvo interestelar salpicadas de estrellas",
-      captionLeft: "Infrarrojo · región de formación estelar",
-      captionRight: "Ilustrativo",
+      imageAlt: "Visualización infrarroja de un cuerpo subestelar frío en los confines del Sistema Solar",
+      captionLeft: "Infrarrojo · cuerpo subestelar frío",
+      captionRight: "Recreación visual",
       eyebrow: "El desafío científico",
-      title: "El universo guarda preguntas que aún debemos responder.",
+      title: "Buscar objetos que no brillan a simple vista.",
       description:
-        "Objetos débiles, fríos o distantes —incluido cualquier cuerpo hipotético en el sistema solar exterior— pueden ocultarse a simple vista dentro de los datos de relevamiento. Encontrarlos requiere observar el cielo de nuevas maneras.",
+        "Cuerpos fríos o lejanos —como enanas marrones, objetos transneptunianos o un hipotético Planeta X— apenas emiten luz visible, pero dejan su huella térmica y su movimiento entre las observaciones de SPHEREx.",
       points: [
         {
-          title: "Múltiples longitudes de onda, un objeto",
-          body: "Algunos fenómenos solo se revelan cuando la misma región del cielo se examina en diferentes longitudes de onda infrarrojas.",
+          title: "Un mismo objeto, 102 bandas",
+          body: "Al observar una región en distintas longitudes de onda infrarrojas aparecen firmas térmicas y moleculares invisibles en una sola imagen.",
         },
         {
-          title: "El cambio habita entre imágenes",
-          body: "Comparar observaciones tomadas en distintos momentos permite exponer movimientos o variaciones de brillo que ninguna imagen individual puede mostrar.",
+          title: "El movimiento aparece entre épocas",
+          body: "Comparar observaciones tomadas en distintas fechas permite distinguir si una fuente se desplazó en el cielo o varió su brillo.",
         },
         {
-          title: "Datos difíciles de alcanzar",
-          body: "Acceder, calibrar e interpretar datos astronómicos crudos rara vez es sencillo, incluso para investigadores experimentados.",
+          title: "Datos complejos, lectura directa",
+          body: "Procesar recortes FITS crudos, coordenadas WCS y calibraciones suele ser complejo; la plataforma lo resuelve en segundos.",
         },
         {
-          title: "Un camino sistemático",
-          body: "Papastronomy busca hacer esta exploración más accesible, repetible y sistemática: desde la consulta hasta el candidato.",
+          title: "De la coordenada al candidato",
+          body: "Un flujo pensado para pasar rápidamente de una posición en el cielo a la inspección espectral y temporal del objeto.",
         },
       ],
     },
     showcase: {
-      eyebrow: "Presentando Papastronomy",
-      title: "De observaciones crudas al conocimiento científico.",
+      eyebrow: "La plataforma",
+      title: "Todo el análisis en una sola pantalla.",
       description:
-        "Una interfaz de investigación enfocada que reúne imágenes FITS, coordenadas celestes, espectros y comparaciones multiépoca en una vista única y coherente.",
+        "Imágenes FITS calibradas, coordenadas celestes, espectros de 102 canales y comparación temporal reunidos en un mismo entorno.",
       mockupAria:
-        "Ilustración de la interfaz del explorador Papastronomy que muestra una imagen del cielo con marcadores de fuentes, un panel de cabecera FITS, un gráfico espectral y una línea de tiempo de épocas. Todos los valores son ilustrativos.",
-      sampleData: "Datos de muestra",
+        "Vista previa de la interfaz del explorador Papastronomy mostrando un campo infrarrojo con marcadores de fuentes, cabecera FITS, gráfico espectral y línea de tiempo de épocas.",
+      sampleData: "IR 3 Bandas · WCS",
       targetPanel: "Objetivo",
       frameLabel: "Marco",
       observationsPanel: "Observaciones",
@@ -376,82 +377,82 @@ export const translations = {
       candidates: "Candidatos",
       difference: "Diferencia",
       status: "Estado",
-      forReview: "En revisión",
+      forReview: "Dipolo >4σ",
       epochCount: "Época 3 / 6",
-      previewCaption: "Vista previa de la interfaz · los valores mostrados son marcadores ilustrativos",
+      previewCaption: "Vista previa de la interfaz de exploración",
       features: [
         {
-          title: "Nativo en FITS",
-          body: "Lee cabeceras de observación, unidades y máscaras sin descartar el contexto astronómico.",
+          title: "Lectura nativa de FITS",
+          body: "Interpreta cabeceras, unidades físicas (MJy/sr), mapas de varianza y máscaras de calidad sin perder contexto astronómico.",
         },
         {
-          title: "Alineado con WCS",
-          body: "Cada píxel se proyecta en coordenadas celestes, manteniendo las fuentes ancladas entre imágenes.",
+          title: "Alineación por coordenadas WCS",
+          body: "Cada píxel conserva su posición exacta en el cielo para cruzar catálogos y comparar imágenes con precisión.",
         },
         {
-          title: "Vista espectral",
-          body: "Inspecciona cómo se comporta una fuente a través de los canales infrarrojos de SPHEREx.",
+          title: "Espectro en 102 canales",
+          body: "Extrae la curva espectral infrarroja de cualquier punto para estimar su temperatura y detectar bandas moleculares.",
         },
         {
-          title: "Comparación de épocas",
-          body: "Alterna y resta observaciones para detectar cambios a lo largo del tiempo.",
+          title: "Comparación entre épocas",
+          body: "Alterna y resta observaciones de distintas fechas para resaltar desplazamientos y cambios de flujo.",
         },
       ],
     },
     howItWorks: {
       eyebrow: "Cómo funciona",
-      title: "Un recorrido por los datos astronómicos.",
+      title: "Cuatro pasos para explorar una región del cielo.",
       description:
-        "Cuatro etapas definidas convierten una coordenada celeste en un candidato bien documentado que merece un análisis más profundo.",
+        "Desde la búsqueda por coordenadas hasta la detección de movimiento o variabilidad entre épocas.",
       steps: [
         {
           n: "01",
-          title: "Observar",
-          body: "Recupera observaciones astronómicas de SPHEREx.",
+          title: "Consultar",
+          body: "Ingresá cualquier coordenada celeste o elegí uno de los objetivos de referencia de SPHEREx.",
         },
         {
           n: "02",
-          title: "Procesar",
-          body: "Inspecciona y procesa datos FITS preservando la información astronómica relevante.",
+          title: "Alinear",
+          body: "La herramienta recupera los recortes FITS de NASA/IRSA y los proyecta sobre una grilla común.",
         },
         {
           n: "03",
-          title: "Analizar",
-          body: "Explora longitudes de onda, fuentes y posibles anomalías.",
+          title: "Inspeccionar",
+          body: "Recorré las 102 bandas infrarrojas, el falso color RGB y el espectro del objeto seleccionado.",
         },
         {
           n: "04",
           title: "Comparar",
-          body: "Investiga observaciones en distintas épocas para identificar cambios y candidatos de interés.",
+          body: "Contrastá distintas épocas mediante parpadeo (blink), resta calibrada y línea histórica.",
         },
       ],
     },
     explore: {
-      eyebrow: "Explora el universo",
-      title: "Adéntrate en el observatorio.",
+      eyebrow: "Demostración interactiva",
+      title: "Probá cómo se comporta una fuente en el tiempo.",
       description:
-        "Desplázate por el campo, cambia de longitud de onda y recorre las épocas. Esta demostración utiliza valores sintéticos ilustrativos para mostrar cómo se siente explorar dentro de Papastronomy.",
-      badge: "Demo interactiva · datos simulados",
+        "Mové el cursor por el campo celeste, cambiá la longitud de onda infrarroja y avanzá entre épocas para seguir el desplazamiento de un candidato.",
+      badge: "Simulador interactivo",
       epochPrefix: "Época",
       fieldAria: (epochLabel: string, lambda: string) =>
-        `Campo celeste simulado. Fuente destacada en ${epochLabel}, observada a ${lambda} micrómetros.`,
+        `Campo celeste interactivo. Fuente destacada en ${epochLabel}, observada a ${lambda} micrómetros.`,
       candidatePrefix: "Candidato",
       cursorLabel: "Cursor",
       sourceLabel: "Fuente",
       spectralProfile: "Perfil espectral",
-      channelsCaption: "102 canales · flujo ilustrativo",
+      channelsCaption: "102 canales infrarrojos (0.75 – 5.00 µm)",
       wavelengthGroupAria: "Banda de longitud de onda",
       observationEpochs: "Épocas de observación",
       pauseAria: "Pausar reproducción de épocas",
       playAria: "Iniciar reproducción de épocas",
       epochGroupAria: "Época de observación",
-      viewingPrefix: "Viendo",
+      viewingPrefix: "Mostrando",
       viewingSuffix:
-        ". Comparar posiciones entre épocas ayuda a señalar fuentes cuya posición aparente o brillo cambia: candidatos para análisis adicional, no detecciones confirmadas.",
+        ". Al comparar la posición entre épocas se distingue el desplazamiento aparente sobre el fondo de estrellas fijas.",
     },
     techStack: {
-      eyebrow: "Construido con ciencia y tecnología real",
-      title: "Donde la astronomía se une con la ingeniería.",
+      eyebrow: "Ciencia e ingeniería",
+      title: "Construido sobre estándares astronómicos reales.",
       description:
         "Papastronomy combina procesamiento de datos científicos, cruce de catálogos multi-misión, ingeniería de backend y visualización interactiva, con cada capa elegida por su rigor y transparencia.",
       layers: {
@@ -526,8 +527,9 @@ export const translations = {
     },
     finalCta: {
       eyebrow: "NASA Space Apps Challenge 2026",
-      title: "El próximo descubrimiento comienza con una pregunta.",
-      description: "Explora los datos. Investiga lo desconocido. Mira más allá de lo que ya sabemos.",
+      title: "Empezá a explorar las observaciones de SPHEREx.",
+      description:
+        "Ingresá a la herramienta para inspeccionar recortes FITS reales, espectros infrarrojos y comparaciones temporales.",
       button: "Explorar Papastronomy",
       disclaimer:
         "Un proyecto en equipo creado para el NASA Space Apps Challenge 2026. No afiliado ni respaldado por la NASA.",
@@ -547,7 +549,7 @@ export const translations = {
       dataCourtesy:
         "Datos observacionales cortesía de NASA SPHEREx (JPL / Caltech · NASA) vía NASA/IPAC IRSA (DR1 DOI: 10.26131/IRSA678 · QR3 DOI: 10.26131/IRSA662), complementados con ESA Gaia DR3, AllWISE, 2MASS y DSS2 vía CDS Estrasburgo.",
       missionAck:
-        "SPHEREx es un proyecto conjunto del Jet Propulsion Laboratory y el California Institute of Technology, financiado por la NASA. Las imágenes de esta portada son ilustrativas.",
+        "SPHEREx es un proyecto conjunto del Jet Propulsion Laboratory y el California Institute of Technology, financiado por la NASA.",
       disclaimer: "No afiliado ni respaldado por la NASA",
     },
   },

@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     title: "Papastronomy — Exploring the universe, one observation at a time",
     description:
       "An astronomical exploration platform that transforms SPHEREx observations into new opportunities for scientific discovery.",
-    images: ["/images/hero.png"],
+    images: ["/images/hero-ir.png"],
   },
 };
 

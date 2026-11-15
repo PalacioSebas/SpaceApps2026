@@ -18,7 +18,7 @@ export function Hero() {
     >
       <Parallax speed={0.3} className="absolute inset-0 -z-20">
         <Image
-          src="/images/hero.png"
+          src="/images/hero-ir.png"
           alt=""
           fill
           priority

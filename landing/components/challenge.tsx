@@ -17,7 +17,7 @@ export function Challenge() {
         <Reveal className="relative lg:col-span-5">
           <figure className="relative overflow-hidden rounded-2xl border border-line">
             <Image
-              src="/images/challenge.png"
+              src="/images/challenge-ir.png"
               alt={t.challenge.imageAlt}
               width={1024}
               height={1280}
@@ -26,8 +26,8 @@ export function Challenge() {
             />
             <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-void/80 via-transparent to-transparent" />
             <div aria-hidden="true" className="coord-grid absolute inset-0 opacity-40 mix-blend-screen" />
-            <div aria-hidden="true" className="absolute inset-x-0 top-0 h-1/3 overflow-hidden">
-              <div className="animate-scan h-full w-full bg-gradient-to-b from-transparent via-cyan/10 to-transparent" />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+              <div className="animate-scan h-1/3 w-full bg-gradient-to-b from-transparent via-cyan/12 to-transparent" />
             </div>
             <figcaption className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-5 font-mono text-[10px] uppercase tracking-[0.2em] text-stellar/80">
               <span>{t.challenge.captionLeft}</span>
