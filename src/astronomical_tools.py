@@ -1,0 +1,167 @@
+"""Portable, bounded exports of the catalog data already supplied by the backend.
+
+This router does not cross-identify sources, propagate epochs, or invent metadata
+that query_catalog_field does not provide. All serialization is in memory.
+"""
+
+from io import BytesIO
+import logging
+import math
+from numbers import Integral
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
+
+
+router = APIRouter(prefix="/api/tools", tags=["Astronomical tools"])
+logger = logging.getLogger("spherex.tools")
+MAX_CATALOG_ROWS = 2000
+
+
+def query_catalog_field(catalog: str, ra: float, dec: float, fov: float) -> dict[str, Any]:
+    """Reuse the existing cache/fallback policy; keep heavy imports out of router setup."""
+    from src.irsa_client import query_catalog_field as query
+
+    return query(catalog, ra, dec, fov)
+
+
+def _finite_number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if bool(getattr(value, "mask", False)):
+            return None
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _catalog_votable(catalog: str, result: dict[str, Any], ra: float, dec: float, fov: float) -> bytes:
+    """Build a VOTable without writing a table, catalog, or cache to disk."""
+    import numpy as np
+    from astropy import units as u
+    from astropy.io.votable import from_table
+    from astropy.io.votable.tree import Info, Param
+    from astropy.table import Column, MaskedColumn, Table
+
+    if not isinstance(result, dict) or not isinstance(result.get("sources"), list):
+        raise ValueError("Invalid backend catalog response")
+    source_rows = result["sources"]
+    capped = len(source_rows) > MAX_CATALOG_ROWS
+    rows = []
+    invalid_positions = 0
+    for source in source_rows[:MAX_CATALOG_ROWS]:
+        if not isinstance(source, dict):
+            invalid_positions += 1
+            continue
+        source_ra = _finite_number(source.get("ra"))
+        source_dec = _finite_number(source.get("dec"))
+        if source_ra is None or source_dec is None or not 0 <= source_ra <= 360 or not -90 <= source_dec <= 90:
+            invalid_positions += 1
+            continue
+        rows.append((source, source_ra, source_dec))
+
+    # Numeric floating-point IDs may already have lost integer precision. Preserve
+    # exact strings/integers only; missing or lossy identifiers remain masked.
+    identifiers, identifier_mask = [], []
+    for source, _, _ in rows:
+        value = source.get("id")
+        valid = isinstance(value, str) and bool(value) or isinstance(value, Integral) and not isinstance(value, bool)
+        identifiers.append(str(value) if valid else "")
+        identifier_mask.append(not valid)
+
+    table = Table(masked=True)
+    table.add_column(MaskedColumn(identifiers, name="source_id", dtype=f"U{max([1, *map(len, identifiers)])}", mask=identifier_mask,
+        description="Exact identifier supplied by the catalog backend. Missing or floating-point identifiers have a BINARY2 null flag and empty payload; no identity or release is inferred."))
+    table.add_column(Column([source_ra for _, source_ra, _ in rows], name="ra", dtype="float64", unit=u.deg,
+        description="Catalog right ascension as supplied. Reference epoch and uncertainty are not provided; no epoch transformation has been applied."))
+    table.add_column(Column([source_dec for _, _, source_dec in rows], name="dec", dtype="float64", unit=u.deg,
+        description="Catalog declination as supplied. Reference epoch and uncertainty are not provided; no epoch transformation has been applied."))
+    motion_description = (
+        "Apparent catalog motion; may include parallax. This is not interchangeable with Gaia proper motion. Reference epoch and uncertainty are not provided."
+        if catalog == "allwise" else
+        "Catalog motion as supplied by the Gaia backend. Release, reference epoch and uncertainty are not provided; no propagation is performed."
+    )
+    for name, unit, description in (
+        ("mag", u.mag, "Catalog magnitude, not SPHEREx flux. Band and uncertainty metadata are not supplied by this response."),
+        ("pmra", u.mas / u.yr, f"RA-direction motion. {motion_description}"),
+        ("pmdec", u.mas / u.yr, f"Dec-direction motion. {motion_description}"),
+    ):
+        values = [_finite_number(source.get(name)) for source, _, _ in rows]
+        table.add_column(MaskedColumn([np.nan if value is None else value for value in values], name=name,
+            dtype="float64", mask=[value is None for value in values], unit=unit, description=description))
+
+    votable = from_table(table)
+    votable.description = "Catalog rows near a requested sky region. Angular proximity is not a verified source identification. No measurements are generated by this export."
+    resource = votable.resources[0]
+    exported_table = resource.tables[0]
+    exported_table.name = f"papastronomy_{catalog}"
+    fields = {field.name: field for field in exported_table.fields}
+    fields["source_id"].ucd = "meta.id;meta.main"
+    fields["ra"].ucd = "pos.eq.ra;meta.main"
+    fields["dec"].ucd = "pos.eq.dec;meta.main"
+    fields["mag"].ucd = "phot.mag"
+
+    upstream_flag = result.get("truncated")
+    reported_truncation = "true" if upstream_flag is True else "false" if upstream_flag is False else "not_supplied"
+    overflow = upstream_flag is True or capped
+    service = result.get("service") if isinstance(result.get("service"), str) else "not_supplied"
+    metadata = {
+        "requested_catalog": catalog,
+        "backend_service": service,
+        "backend_version": str(result.get("version", "not_supplied")),
+        "backend_truncated": reported_truncation,
+        "export_row_cap": str(MAX_CATALOG_ROWS),
+        "backend_rows_returned": str(len(source_rows)),
+        "rows_considered": str(min(len(source_rows), MAX_CATALOG_ROWS)),
+        "rows_exported": str(len(rows)),
+        "invalid_position_rows_omitted": str(invalid_positions),
+        "unavailable_identifier_rows": str(sum(identifier_mask)),
+        "export_cap_applied": str(capped).lower(),
+        "completeness": "not_verified",
+        "catalog_release": "not_supplied_by_backend",
+        "reference_epoch": "not_supplied_by_backend",
+        "astrometric_uncertainties": "not_supplied_by_backend",
+        "coordinate_policy": "Positions as supplied by backend; no epoch or frame conversion.",
+        "association_policy": "Nearby catalog rows, not verified counterparts or source identifications.",
+        "provenance_note": "Service label comes from the existing backend and can describe a fallback/cache. Release, epoch and completeness were not independently established.",
+        "motion_kind": "apparent_catalog_motion" if catalog == "allwise" else "catalog_motion_as_supplied",
+    }
+    # INFO values preserve arbitrary Unicode/XML characters as metadata. Astropy
+    # PARAM string converters escape text before the XML writer, which otherwise
+    # causes escaped service labels to survive a read-back as literal entities.
+    for name, value in metadata.items():
+        resource.infos.append(Info(name=name, value=value))
+    for name, value in (("requested_ra_deg", ra), ("requested_dec_deg", dec), ("requested_fov_deg", fov)):
+        resource.params.append(Param(votable, name=name, datatype="double", unit="deg", value=value))
+    query_status = Info(name="QUERY_STATUS", value="OVERFLOW" if overflow else "OK")
+    query_status.content = "Upstream truncation or export row cap reported." if overflow else "Export serialization succeeded; catalog completeness is not verified."
+    resource.infos.append(query_status)
+    resource.infos.append(Info(name="COMPLETENESS", value="not_verified"))
+    output = BytesIO()
+    # BINARY2 serializes all null flags. Astropy readers currently ignore string
+    # null flags (issue 8995), so missing IDs also carry an empty string payload.
+    votable.to_xml(output, tabledata_format="binary2")
+    return output.getvalue()
+
+
+@router.get("/catalog.vot", response_class=Response)
+def export_catalog_votable(
+    catalog: str = Query(..., pattern="^(gaia|allwise)$"),
+    ra: float = Query(..., ge=0.0, le=360.0),
+    dec: float = Query(..., ge=-90.0, le=90.0),
+    fov: float = Query(0.05, gt=0.005, le=1.0),
+) -> Response:
+    try:
+        result = query_catalog_field(catalog, ra, dec, fov)
+        content = _catalog_votable(catalog, result, ra, dec, fov)
+    except Exception as exc:
+        logger.warning("Catalog export unavailable for %s (%s)", catalog, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="No se pudo exportar el catálogo. Intentá nuevamente más tarde.") from exc
+    filename = f"papastronomy_{catalog}_ra{ra:.6f}_dec{dec:+.6f}_fov{fov:.6f}.vot"
+    return Response(content=content, media_type="application/x-votable+xml", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    })

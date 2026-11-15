@@ -1,38 +1,20 @@
+"use client";
+
 import { Reveal } from "./reveal";
 import { SectionHeading } from "./section-heading";
+import { useLanguage } from "@/lib/i18n";
 
-type Tech = { name: string; tag: string; layer: "Science" | "Backend" | "Interface"; body: string; wide?: boolean };
-
-const stack: Tech[] = [
-  {
-    name: "NASA SPHEREx",
-    tag: "Mission data",
-    layer: "Science",
-    body: "All-sky infrared spectral survey observations across 102 channels from 0.75 to 5.00 µm.",
-    wide: true,
-  },
-  { name: "FITS", tag: "Data format", layer: "Science", body: "The standard container for astronomical images and metadata." },
-  { name: "WCS", tag: "Coordinates", layer: "Science", body: "World Coordinate System mapping pixels to positions on the sky." },
-  { name: "Astropy", tag: "Astronomy", layer: "Backend", body: "Core library for FITS I/O, coordinates and units." },
-  { name: "NumPy / SciPy", tag: "Numerics", layer: "Backend", body: "Array processing, filtering and numerical analysis." },
-  { name: "Python", tag: "Language", layer: "Backend", body: "The scientific processing pipeline." },
-  { name: "FastAPI", tag: "API", layer: "Backend", body: "A typed, fast HTTP layer serving processed observations." },
-  {
-    name: "JavaScript",
-    tag: "Visualization",
-    layer: "Interface",
-    body: "Interactive in-browser rendering of images, spectra and epoch comparisons.",
-    wide: true,
-  },
-];
-
-const layerColor: Record<Tech["layer"], string> = {
+const layerColor = {
   Science: "text-cyan",
   Backend: "text-violet",
   Interface: "text-stellar",
-};
+} as const;
+
+type LayerKey = keyof typeof layerColor;
 
 export function TechStack() {
+  const { t } = useLanguage();
+
   return (
     <section id="technology" aria-labelledby="technology-title" className="relative py-28 md:py-40">
       <div className="mx-auto max-w-7xl px-5 md:px-8">
@@ -41,16 +23,16 @@ export function TechStack() {
             <SectionHeading
               id="technology-title"
               index="05"
-              eyebrow="Built with real science and technology"
-              title="Where astronomy meets engineering."
-              description="Papastronomy combines scientific data processing, backend engineering and interactive visualization — each layer chosen for rigor and transparency."
+              eyebrow={t.techStack.eyebrow}
+              title={t.techStack.title}
+              description={t.techStack.description}
             />
             <Reveal delay={120}>
               <ul className="mt-10 flex flex-wrap gap-x-6 gap-y-2 font-mono text-[10px] uppercase tracking-[0.2em]">
-                {(Object.keys(layerColor) as Tech["layer"][]).map((layer) => (
+                {(Object.keys(layerColor) as LayerKey[]).map((layer) => (
                   <li key={layer} className="flex items-center gap-2 text-muted">
                     <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full bg-current ${layerColor[layer]}`} />
-                    {layer}
+                    {t.techStack.layers[layer]}
                   </li>
                 ))}
               </ul>
@@ -58,24 +40,26 @@ export function TechStack() {
           </div>
 
           <ul className="grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:col-span-7 lg:grid-cols-3">
-            {stack.map((t, i) => (
+            {t.techStack.items.map((item, i) => (
               <Reveal
                 as="li"
-                key={t.name}
+                key={item.name}
                 delay={i * 60}
                 className={`group relative flex min-h-44 flex-col justify-between bg-void p-6 transition-colors duration-500 hover:bg-navy ${
-                  t.wide ? "lg:col-span-2" : ""
+                  "wide" in item && item.wide ? "lg:col-span-2" : ""
                 }`}
               >
                 <div className="flex items-start justify-between gap-4">
-                  <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${layerColor[t.layer]}`}>{t.tag}</span>
+                  <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${layerColor[item.layer]}`}>
+                    {item.tag}
+                  </span>
                   <span className="font-mono text-[10px] text-muted">{String(i + 1).padStart(2, "0")}</span>
                 </div>
                 <div>
                   <h3 className="text-2xl font-medium tracking-tight text-stellar transition-transform duration-500 group-hover:-translate-y-0.5">
-                    {t.name}
+                    {item.name}
                   </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted">{t.body}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted">{item.body}</p>
                 </div>
                 <span
                   aria-hidden="true"

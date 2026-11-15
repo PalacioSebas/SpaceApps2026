@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Landing de Papastronomy
 
-## Getting Started
+La landing usa Next.js; el explorador científico usa FastAPI. Se ejecutan por
+separado. Los datos de la demostración visual de la landing son ilustrativos.
 
-First, run the development server:
+## Arranque en Windows
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Desde la raíz del repositorio, en una terminal:
+
+```powershell
+.\run_project.bat
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Explorador: <http://127.0.0.1:8000>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+En otra terminal:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```powershell
+cd landing
+npm exec --yes --package=pnpm@10.34.3 -- pnpm install --frozen-lockfile
+npm run dev
+```
 
-## Learn More
+Landing: <http://localhost:3000>. Detener cada servidor con Ctrl+C en su terminal.
+La instalación solo hace falta la primera vez o cuando cambien las dependencias.
+Se necesita Node compatible con Next.js 16 y npm; en esta PC se verificó con
+Node 26.13.1. Si PowerShell bloquea `npm.ps1`, usar `npm.cmd`.
 
-To learn more about Next.js, take a look at the following resources:
+Si Node está instalado pero todavía no figura en el PATH de la terminal:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```powershell
+$env:Path = 'C:\Program Files\nodejs;' + $env:Path
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+En Linux/macOS, arrancar el explorador con `bash run_project.sh` y usar los mismos
+comandos npm dentro de `landing/`.
 
-## Deploy on Vercel
+## Destino de los botones de acceso
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Los botones «Explore Papastronomy» abren el explorador en
+`http://127.0.0.1:8000`. Para otro entorno, definir antes de `npm run build`:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+$env:NEXT_PUBLIC_EXPLORER_URL = 'https://explorer.example.org'
+```
+
+La URL pública se incorpora al build. No incluir secretos en esta variable.
+
+## Verificación y ejecución de producción
+
+```powershell
+npm run lint
+npm run build
+npm start
+```
+
+`npm start` utiliza el último build: repetir el build después de editar las
+fuentes. Para desarrollo, `npm run dev` actualiza la página durante los cambios.

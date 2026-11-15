@@ -1,5 +1,8 @@
+"use client";
+
 import { Reveal } from "./reveal";
 import { SectionHeading } from "./section-heading";
+import { useLanguage } from "@/lib/i18n";
 
 function ObserveArt() {
   return (
@@ -75,33 +78,20 @@ function CompareArt() {
   );
 }
 
-const steps = [
-  { n: "01", title: "Observe", body: "Retrieve astronomical observations from SPHEREx.", Art: ObserveArt },
-  {
-    n: "02",
-    title: "Process",
-    body: "Inspect and process FITS data while preserving relevant astronomical information.",
-    Art: ProcessArt,
-  },
-  { n: "03", title: "Analyze", body: "Explore wavelengths, sources, and potential anomalies.", Art: AnalyzeArt },
-  {
-    n: "04",
-    title: "Compare",
-    body: "Investigate observations across different epochs to identify changes and interesting candidates.",
-    Art: CompareArt,
-  },
-];
+const stepArts = [ObserveArt, ProcessArt, AnalyzeArt, CompareArt] as const;
 
 export function HowItWorks() {
+  const { t } = useLanguage();
+
   return (
     <section id="process" aria-labelledby="process-title" className="relative py-28 md:py-40">
       <div className="mx-auto max-w-7xl px-5 md:px-8">
         <SectionHeading
           id="process-title"
           index="03"
-          eyebrow="How it works"
-          title="A journey through astronomical data."
-          description="Four deliberate stages turn a sky coordinate into a well-documented candidate worth a closer look."
+          eyebrow={t.howItWorks.eyebrow}
+          title={t.howItWorks.title}
+          description={t.howItWorks.description}
         />
 
         <div className="relative mt-16 md:mt-20">
@@ -109,27 +99,30 @@ export function HowItWorks() {
             <span className="animate-travel absolute top-1/2 h-1.5 w-16 -translate-y-1/2 rounded-full bg-gradient-to-r from-transparent via-cyan to-transparent" />
           </div>
           <ol className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
-            {steps.map((step, i) => (
-              <Reveal as="li" key={step.n} delay={i * 110} className="group relative">
-                <span
-                  aria-hidden="true"
-                  className="relative hidden h-[15px] w-[15px] items-center justify-center rounded-full border border-cyan/60 bg-void lg:flex"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-cyan transition-transform group-hover:scale-150" />
-                </span>
-                <div className="mt-0 overflow-hidden rounded-2xl border border-line bg-navy/50 transition-colors duration-500 group-hover:border-cyan/30 group-hover:bg-navy lg:mt-8">
-                  <div aria-hidden="true" className="h-40 border-b border-line bg-[radial-gradient(ellipse_at_center,rgba(85,214,255,0.08),transparent_70%)] p-4">
-                    <step.Art />
+            {t.howItWorks.steps.map((step, i) => {
+              const Art = stepArts[i];
+              return (
+                <Reveal as="li" key={step.n} delay={i * 110} className="group relative">
+                  <span
+                    aria-hidden="true"
+                    className="relative hidden h-[15px] w-[15px] items-center justify-center rounded-full border border-cyan/60 bg-void lg:flex"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-cyan transition-transform group-hover:scale-150" />
+                  </span>
+                  <div className="mt-0 overflow-hidden rounded-2xl border border-line bg-navy/50 transition-colors duration-500 group-hover:border-cyan/30 group-hover:bg-navy lg:mt-8">
+                    <div aria-hidden="true" className="h-40 border-b border-line bg-[radial-gradient(ellipse_at_center,rgba(85,214,255,0.08),transparent_70%)] p-4">
+                      <Art />
+                    </div>
+                    <div className="p-6">
+                      <p className="font-mono text-xs tracking-[0.2em] text-cyan">
+                        {step.n} <span className="text-muted">—</span> {step.title.toUpperCase()}
+                      </p>
+                      <p className="mt-3 text-sm leading-relaxed text-muted">{step.body}</p>
+                    </div>
                   </div>
-                  <div className="p-6">
-                    <p className="font-mono text-xs tracking-[0.2em] text-cyan">
-                      {step.n} <span className="text-muted">—</span> {step.title.toUpperCase()}
-                    </p>
-                    <p className="mt-3 text-sm leading-relaxed text-muted">{step.body}</p>
-                  </div>
-                </div>
-              </Reveal>
-            ))}
+                </Reveal>
+              );
+            })}
           </ol>
         </div>
       </div>

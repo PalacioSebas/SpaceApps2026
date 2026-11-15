@@ -1,0 +1,19 @@
+:host { display:block; color:var(--papastronomy-text,#f3f5fa); background:var(--papastronomy-bg,#05070d); font:14px/1.6 var(--papastronomy-font,system-ui,sans-serif); }
+:host([embedded]) { display:none; }
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+.bar { display:flex; align-items:center; justify-content:space-between; gap:20px; max-width:1600px; margin:auto; padding:18px 24px; }
+.identity { display:flex; align-items:center; gap:12px; flex-shrink:0; }
+.mark { display:grid; place-items:center; width:36px; height:36px; color:var(--papastronomy-accent,#55d6ff); border:1px solid #55d6ff40; border-radius:11px; font-size:24px; }
+.identity strong { display:block; font-size:15px; font-weight:600; letter-spacing:-.03em; }
+.identity span:not(.mark) { display:block; color:#8a96ad; font-size:11px; }
+nav { display:flex; align-items:center; flex-wrap:wrap; gap:8px; max-width:1600px; margin:auto; padding:0 24px 15px; border-bottom:1px solid #f3f5fa14; }
+nav button, nav a { padding:8px 15px; border:1px solid #f3f5fa24; border-radius:999px; background:transparent; color:#8a96ad; font-family:inherit; font-size:12px; line-height:1.4; cursor:pointer; text-decoration:none; }
+nav button { font:inherit; font-size:12px; }
+nav a { font-size:12px; }
+nav button[aria-pressed=true] { color:var(--papastronomy-accent,#55d6ff); background:#55d6ff12; border-color:#55d6ff55; }
+nav button:hover, nav a:hover { color:#f3f5fa; border-color:#55d6ff70; }
+nav .learn { margin-left:auto; }
+:focus-visible { outline:2px solid var(--papastronomy-accent,#55d6ff); outline-offset:4px; }
+.chat { max-width:1280px; margin:auto; padding:28px 24px 40px; }
+@media(max-width:650px) { .bar { align-items:start; flex-direction:column; padding:16px; gap:14px; } nav { padding:0 16px 15px; } .chat { padding:20px 16px; } }

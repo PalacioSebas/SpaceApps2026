@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Papastronomy · SPHEREx & Planet X Discovery Platform (NASA Space Apps 2026)</title>
+  <link rel="stylesheet" href="/static/aladin-reference/reference.css">
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -51,6 +52,9 @@
   </style>
 </head>
 <body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
+
+  <papastronomy-workspace id="personal-workspace"></papastronomy-workspace>
+  <div id="explorer-root">
 
   <!-- BARRA SUPERIOR: Controles de Coordenadas, URL Embebible y 5 Botones Obligatorios -->
   <header class="glass-panel sticky top-0 z-30 px-4 py-3 border-b border-slate-800">
@@ -479,6 +483,7 @@
         <p id="aladin-match-summary" class="text-[10px] font-mono text-slate-400 truncate px-1">
           Seleccioná una posición para ver las fuentes catalogadas próximas.
         </p>
+        <div id="cds-reference-panel"></div>
       </div>
     </section>
 
@@ -673,8 +678,17 @@
     </section>
 
   </main>
+  </div>
 
+  <!-- Módulos portables. Solo el adaptador conoce el explorador actual. -->
+  <script src="/static/modules/access/model.js"></script>
+  <script src="/static/modules/access/access.js"></script>
+  <script src="/static/modules/assistant/rules.js"></script>
+  <script src="/static/modules/assistant/assistant.js"></script>
+  <script src="/static/modules/workspace.js"></script>
+  <script src="/static/integrations/explorer-modules.js"></script>
   <!-- Script Principal de Aplicación -->
+  <script src="/static/aladin-reference/reference.js"></script>
   <script src="/static/app.js?v=3.0"></script>
 </body>
 </html>

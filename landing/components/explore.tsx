@@ -1,20 +1,21 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState, type PointerEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type PointerEvent } from "react";
 import { Pause, Play } from "lucide-react";
 import { SectionHeading } from "./section-heading";
 import { Reveal } from "./reveal";
 import { LAMBDA_MAX, LAMBDA_MIN, spectrumPath } from "@/lib/spectrum";
+import { useLanguage } from "@/lib/i18n";
 
 // Illustrative field: centre and span are placeholder values, not a real pointing.
 const FIELD = { ra: 180, dec: 0, span: 0.1 };
 
-const EPOCHS = [
-  { id: "E1", label: "Epoch 1", x: 46, y: 52 },
-  { id: "E2", label: "Epoch 2", x: 49, y: 50.5 },
-  { id: "E3", label: "Epoch 3", x: 52, y: 49 },
-  { id: "E4", label: "Epoch 4", x: 55, y: 47.5 },
+const EPOCH_POSITIONS = [
+  { id: "E1", num: 1, x: 46, y: 52 },
+  { id: "E2", num: 2, x: 49, y: 50.5 },
+  { id: "E3", num: 3, x: 52, y: 49 },
+  { id: "E4", num: 4, x: 55, y: 47.5 },
 ];
 
 const BANDS = [1.1, 2.3, 3.4, 4.4];
@@ -30,25 +31,37 @@ function formatDeg(v: number, sign = false) {
   return `${s}${v.toFixed(4)}°`;
 }
 
+function subscribeReducedMotion(onChange: () => void) {
+  const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function getReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function getServerReducedMotion() {
+  return true;
+}
+
 export function Explore() {
+  const { t } = useLanguage();
   const [epoch, setEpoch] = useState(0);
   const [band, setBand] = useState(1);
-  const [playing, setPlaying] = useState(true);
+  const reducedMotion = useSyncExternalStore(subscribeReducedMotion, getReducedMotion, getServerReducedMotion);
+  const [playbackOverride, setPlaying] = useState<boolean | null>(null);
+  const playing = playbackOverride ?? !reducedMotion;
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setPlaying(false);
-    }
-  }, []);
-
-  useEffect(() => {
     if (!playing) return;
-    const id = window.setInterval(() => setEpoch((e) => (e + 1) % EPOCHS.length), 1800);
+    const id = window.setInterval(() => setEpoch((e) => (e + 1) % EPOCH_POSITIONS.length), 1800);
     return () => window.clearInterval(id);
   }, [playing]);
 
-  const current = EPOCHS[epoch];
+  const current = EPOCH_POSITIONS[epoch];
+  const currentLabel = `${t.explore.epochPrefix} ${current.num}`;
   const sky = toSky(cursor?.x ?? current.x, cursor?.y ?? current.y);
   const lambda = BANDS[band];
   const bandX = 4 + (392 * (lambda - LAMBDA_MIN)) / (LAMBDA_MAX - LAMBDA_MIN);
@@ -73,13 +86,13 @@ export function Explore() {
           <SectionHeading
             id="explore-title"
             index="04"
-            eyebrow="Explore the universe"
-            title="Step inside the observatory."
-            description="Move across the field, switch wavelengths and scrub through epochs. This demonstration uses synthetic placeholder values to show how exploration feels inside Papastronomy."
+            eyebrow={t.explore.eyebrow}
+            title={t.explore.title}
+            description={t.explore.description}
           />
           <Reveal className="flex shrink-0 items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
             <span className="h-1.5 w-1.5 rounded-full bg-violet" aria-hidden="true" />
-            Interactive demo · simulated data
+            {t.explore.badge}
           </Reveal>
         </div>
 
@@ -91,7 +104,7 @@ export function Explore() {
               onPointerMove={onMove}
               onPointerLeave={() => setCursor(null)}
               role="img"
-              aria-label={`Simulated celestial field. Highlighted source shown at ${current.label}, observed at ${lambda.toFixed(2)} micrometres.`}
+              aria-label={t.explore.fieldAria(currentLabel, lambda.toFixed(2))}
             >
               <Image
                 src="/images/field.png"
@@ -109,13 +122,13 @@ export function Explore() {
                   </g>
                 ))}
                 <polyline
-                  points={EPOCHS.slice(0, epoch + 1).map((p) => `${p.x},${p.y}`).join(" ")}
+                  points={EPOCH_POSITIONS.slice(0, epoch + 1).map((p) => `${p.x},${p.y}`).join(" ")}
                   fill="none"
                   stroke="#9B8CFF"
                   strokeWidth="0.3"
                   strokeDasharray="0.8 0.8"
                 />
-                {EPOCHS.slice(0, epoch).map((p) => (
+                {EPOCH_POSITIONS.slice(0, epoch).map((p) => (
                   <circle key={p.id} cx={p.x} cy={p.y} r="0.6" fill="#9B8CFF" fillOpacity="0.6" />
                 ))}
               </svg>
@@ -144,7 +157,7 @@ export function Explore() {
                 <span className="relative block h-12 w-12 rounded-full border border-cyan/90 shadow-[0_0_30px_rgba(85,214,255,0.45)]" />
                 <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-stellar" />
                 <span className="absolute -top-2 left-14 whitespace-nowrap rounded border border-cyan/40 bg-void/80 px-2 py-1 font-mono text-[10px] text-cyan backdrop-blur">
-                  Candidate · {current.id}
+                  {t.explore.candidatePrefix} · {current.id}
                 </span>
               </div>
 
@@ -157,7 +170,7 @@ export function Explore() {
               ) : null}
 
               <div className="glass absolute right-3 top-3 rounded-lg px-3 py-2 font-mono text-[10px] leading-relaxed">
-                <p className="text-muted">{cursor ? "Cursor" : "Source"}</p>
+                <p className="text-muted">{cursor ? t.explore.cursorLabel : t.explore.sourceLabel}</p>
                 <p className="text-stellar">RA {formatDeg(sky.ra)}</p>
                 <p className="text-stellar">Dec {formatDeg(sky.dec, true)}</p>
               </div>
@@ -168,7 +181,7 @@ export function Explore() {
           <div className="flex flex-col gap-4 lg:col-span-5">
             <div className="rounded-2xl border border-line-strong bg-void/70 p-5">
               <div className="flex items-center justify-between">
-                <h3 className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">Spectral profile</h3>
+                <h3 className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">{t.explore.spectralProfile}</h3>
                 <span className="font-mono text-xs text-cyan">λ {lambda.toFixed(2)} µm</span>
               </div>
               <svg viewBox="0 0 400 150" className="mt-4 h-40 w-full" aria-hidden="true">
@@ -202,10 +215,10 @@ export function Explore() {
               </svg>
               <div className="mt-2 flex justify-between font-mono text-[9px] text-muted">
                 <span>0.75 µm</span>
-                <span>102 channels · illustrative flux</span>
+                <span>{t.explore.channelsCaption}</span>
                 <span>5.00 µm</span>
               </div>
-              <div role="radiogroup" aria-label="Wavelength band" className="mt-5 grid grid-cols-4 gap-2">
+              <div role="radiogroup" aria-label={t.explore.wavelengthGroupAria} className="mt-5 grid grid-cols-4 gap-2">
                 {BANDS.map((b, i) => (
                   <button
                     key={b}
@@ -227,11 +240,11 @@ export function Explore() {
 
             <div className="flex-1 rounded-2xl border border-line-strong bg-void/70 p-5">
               <div className="flex items-center justify-between">
-                <h3 className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">Observation epochs</h3>
+                <h3 className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">{t.explore.observationEpochs}</h3>
                 <button
                   type="button"
-                  onClick={() => setPlaying((p) => !p)}
-                  aria-label={playing ? "Pause epoch playback" : "Play epoch playback"}
+                  onClick={() => setPlaying(!playing)}
+                  aria-label={playing ? t.explore.pauseAria : t.explore.playAria}
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-line-strong text-stellar transition-colors hover:border-cyan/50 hover:text-cyan focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
                 >
                   {playing ? <Pause aria-hidden="true" className="h-3.5 w-3.5" /> : <Play aria-hidden="true" className="h-3.5 w-3.5" />}
@@ -242,10 +255,10 @@ export function Explore() {
                 <span
                   aria-hidden="true"
                   className="absolute left-4 top-4 h-px bg-cyan transition-[width] duration-700"
-                  style={{ width: `calc(${(epoch / (EPOCHS.length - 1)) * 100}% - ${(epoch / (EPOCHS.length - 1)) * 2}rem)` }}
+                  style={{ width: `calc(${(epoch / (EPOCH_POSITIONS.length - 1)) * 100}% - ${(epoch / (EPOCH_POSITIONS.length - 1)) * 2}rem)` }}
                 />
-                <div role="radiogroup" aria-label="Observation epoch" className="relative flex justify-between">
-                  {EPOCHS.map((e, i) => (
+                <div role="radiogroup" aria-label={t.explore.epochGroupAria} className="relative flex justify-between">
+                  {EPOCH_POSITIONS.map((e, i) => (
                     <button
                       key={e.id}
                       type="button"
@@ -268,15 +281,16 @@ export function Explore() {
                       >
                         {e.id}
                       </span>
-                      <span className="font-mono text-[10px] text-muted">{e.label}</span>
+                      <span className="font-mono text-[10px] text-muted">
+                        {t.explore.epochPrefix} {e.num}
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
               <p className="mt-6 text-sm leading-relaxed text-muted" aria-live="polite">
-                Viewing <span className="text-stellar">{current.label}</span>. Comparing positions across epochs
-                helps flag sources whose apparent position or brightness changes — candidates for further analysis,
-                not confirmed detections.
+                {t.explore.viewingPrefix} <span className="text-stellar">{currentLabel}</span>
+                {t.explore.viewingSuffix}
               </p>
             </div>
           </div>

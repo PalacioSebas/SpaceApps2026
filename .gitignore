@@ -5,6 +5,11 @@ __pycache__/
 .venv-*/
 venv/
 env/
+# Dependencias y compilación del frontend, también al cambiar de rama.
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
 .env
 .matplotlib/
 .DS_Store

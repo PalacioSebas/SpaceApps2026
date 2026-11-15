@@ -1,16 +1,15 @@
+"use client";
+
 import Image from "next/image";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { Parallax } from "./parallax";
 import { Starfield } from "./starfield";
-
-const telemetry = [
-  { label: "Spectral range", value: "0.75 – 5.00 µm" },
-  { label: "Channels", value: "102 bands" },
-  { label: "Coverage", value: "All-sky survey" },
-  { label: "Format", value: "FITS · WCS" },
-];
+import { site } from "@/lib/site";
+import { useLanguage } from "@/lib/i18n";
 
 export function Hero() {
+  const { t } = useLanguage();
+
   return (
     <section
       id="top"
@@ -19,7 +18,7 @@ export function Hero() {
     >
       <Parallax speed={0.3} className="absolute inset-0 -z-20">
         <Image
-          src="/images/hero.png"
+          src="/images/hero-ir.png"
           alt=""
           fill
           priority
@@ -51,34 +50,33 @@ export function Hero() {
         <div className="max-w-3xl">
           <p className="mb-8 inline-flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.28em] text-muted">
             <span aria-hidden="true" className="h-px w-10 bg-gradient-to-r from-transparent to-cyan" />
-            NASA Space Apps Challenge 2026
+            {t.hero.eyebrow}
           </p>
 
           <h1
             id="hero-title"
             className="text-gradient text-balance text-5xl font-medium leading-[0.98] tracking-[-0.035em] sm:text-6xl md:text-7xl lg:text-[5.5rem]"
           >
-            Exploring the universe, one observation at a time.
+            {t.hero.title}
           </h1>
 
           <p className="mt-8 max-w-xl text-pretty text-lg leading-relaxed text-muted md:text-xl">
-            An astronomical exploration platform that transforms SPHEREx observations into new
-            opportunities for scientific discovery.
+            {t.hero.description}
           </p>
 
           <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
             <a
-              href="#platform"
+              href={site.appUrl}
               className="group inline-flex items-center justify-center gap-2 rounded-full bg-stellar px-6 py-3.5 text-sm font-medium text-void shadow-[0_0_40px_-8px_rgba(85,214,255,0.55)] transition-all hover:bg-white hover:shadow-[0_0_56px_-6px_rgba(85,214,255,0.75)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
             >
-              Explore Papastronomy
+              {t.hero.primaryCta}
               <ArrowRight aria-hidden="true" className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <a
               href="#challenge"
               className="inline-flex items-center justify-center gap-2 rounded-full border border-line-strong bg-void/30 px-6 py-3.5 text-sm font-medium text-stellar backdrop-blur-md transition-colors hover:border-stellar/30 hover:bg-stellar/5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
             >
-              Discover the science
+              {t.hero.secondaryCta}
             </a>
           </div>
 
@@ -88,7 +86,7 @@ export function Hero() {
               <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan" />
             </span>
             <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-stellar">
-              Powered by SPHEREx data
+              {t.hero.badge}
             </span>
           </div>
         </div>
@@ -96,7 +94,7 @@ export function Hero() {
 
       <div className="relative mx-auto w-full max-w-7xl px-5 pb-8 md:px-8">
         <dl className="hidden grid-cols-4 gap-6 border-t border-line pt-6 md:grid">
-          {telemetry.map((item) => (
+          {t.hero.telemetry.map((item) => (
             <div key={item.label}>
               <dt className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted">{item.label}</dt>
               <dd className="mt-1.5 font-mono text-sm text-stellar">{item.value}</dd>
@@ -105,10 +103,10 @@ export function Hero() {
         </dl>
         <a
           href="#challenge"
-          aria-label="Scroll to the scientific challenge"
+          aria-label={t.hero.scrollAria}
           className="absolute bottom-8 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2 text-muted transition-colors hover:text-stellar md:bottom-24"
         >
-          <span className="font-mono text-[10px] uppercase tracking-[0.3em]">Scroll</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.3em]">{t.hero.scrollLabel}</span>
           <ChevronDown aria-hidden="true" className="animate-float h-4 w-4" />
         </a>
       </div>

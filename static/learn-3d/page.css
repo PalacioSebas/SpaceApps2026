@@ -1,0 +1,44 @@
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { color-scheme: dark; }
+body {
+  margin: 0;
+  background: radial-gradient(ellipse at 82% 8%, rgb(155 140 255 / .045), transparent 40%), #05070d;
+  color: #f3f5fa;
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+header {
+  max-width: 1280px;
+  min-height: 72px;
+  margin: auto;
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid rgb(243 245 250 / .08);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; letter-spacing: -.025em; }
+.brand svg { width: 28px; height: 28px; flex-shrink: 0; }
+.module-name { margin-left: 14px; padding-left: 24px; border-left: 1px solid rgb(243 245 250 / .14); color: #8a96ad; font: 10px/1.5 ui-monospace, Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+header a { color: #8a96ad; font-size: 12px; text-decoration: none; transition: color .2s; }
+header a:hover { color: #55d6ff; }
+a:focus-visible, button:focus-visible { outline: 2px solid #55d6ff; outline-offset: 5px; border-radius: 3px; }
+.header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; }
+.language-switch { display: flex; align-items: center; gap: 3px; padding: 4px; border: 1px solid rgb(243 245 250 / .14); border-radius: 999px; background: rgb(10 16 32 / .65); }
+.language-switch svg { width: 16px; height: 16px; margin: 0 6px 0 8px; color: #55d6ff; }
+.language-switch button { border: 0; border-radius: 999px; padding: 7px 11px; background: transparent; color: #8a96ad; font-family: inherit; font-size: 12px; line-height: 1.4; cursor: pointer; transition: color .2s, background .2s; }
+.language-switch button:hover { color: #f3f5fa; }
+.language-switch button[aria-pressed="true"] { background: rgb(85 214 255 / .14); color: #55d6ff; }
+main { max-width: 1280px; margin: auto; padding: 52px 32px 32px; }
+footer { max-width: 1280px; margin: auto; padding: 0 32px 32px; color: #8a96ad; font-size: 11px; line-height: 1.8; }
+.footer-label { display: block; margin-bottom: 9px; color: #9ba9be; font: 9px/1.5 ui-monospace, Consolas, monospace; letter-spacing: .14em; }
+footer p { margin: 5px 0; }
+@media (max-width: 600px) {
+  header { padding: 18px 20px; flex-wrap: wrap; gap: 12px; }
+  main { padding: 32px 20px 28px; }
+  footer { padding: 0 20px 24px; }
+  .module-name { margin-left: 3px; padding-left: 13px; font-size: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

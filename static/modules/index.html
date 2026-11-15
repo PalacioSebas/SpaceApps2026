@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Módulos portables · Papastronomy</title>
+  <style>
+    body { margin:0; background:#05070d; color:#f3f5fa; font:15px/1.7 system-ui,sans-serif; }
+    [hidden] { display:none !important; }
+    main { max-width:900px; padding:40px 24px; margin:auto; }
+    h1 { font-size:32px; font-weight:500; letter-spacing:-.04em; }
+    p { color:#8a96ad; } a { color:#55d6ff; } output { display:block; padding:20px; background:#0a1020; border:1px solid #f3f5fa24; border-radius:12px; white-space:pre-wrap; }
+  </style>
+  <script src="./access/model.js" defer></script>
+  <script src="./access/access.js" defer></script>
+  <script src="./assistant/rules.js" defer></script>
+  <script src="./assistant/assistant.js" defer></script>
+  <script src="./workspace.js" defer></script>
+  <script src="./demo.js" defer></script>
+</head>
+<body>
+  <papastronomy-workspace></papastronomy-workspace>
+  <main id="demo-explorer">
+    <h1>Una integración sin el explorador.</h1>
+    <p>Esta página demuestra que acceso, perfil y chat se pueden usar por separado del diseño científico. No consulta APIs ni contiene observaciones. Sus perfiles demo se guardan en el mismo navegador que la herramienta.</p>
+    <p>Entrá, editá tu perfil o abrí el asistente. Una propuesta solo modifica los valores de esta demostración cuando pulsás Aplicar.</p>
+    <output aria-label="Configuración de la demostración"></output>
+    <p><a href="../../">Volver a la herramienta</a> · <a href="../learn-3d/index.html" target="_blank" rel="noopener noreferrer">Aprendé en 3D ↗</a></p>
+  </main>
+</body>
+</html>

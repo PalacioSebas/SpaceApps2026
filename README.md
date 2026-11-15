@@ -2,6 +2,21 @@
 **NASA Space Apps Challenge 2026 · Challenge: "Planet X and SPHEREx"**  
 **Equipo:** Papastronomy (Inteligencia Artificial + Ingeniería en Sistemas)
 
+Continuidad de esta rama: [contexto de integración](docs/CONTEXTO_CODEX.md).
+La landing se ejecuta por separado en el puerto 3000 y el explorador en el 8000;
+consultar [arranque de la landing](landing/README.md).
+
+El módulo portable [Aprendé en 3D](static/learn-3d/README.md) está disponible en
+`http://127.0.0.1:8000/static/learn-3d/index.html` y desde la cabecera de la
+landing en escritorio. Conserva sus dos objetos educativos con una interfaz
+adaptada a la paleta y tipografía de la landing. El encabezado permite alternar
+Español / English, incluidos los contenidos y recorridos, sin reiniciar la vista.
+
+Acceso demo, perfiles y chat están separados en [módulos portables](static/modules/README.md),
+con una [demostración sin explorador](http://127.0.0.1:8000/static/modules/index.html).
+El login está dentro de la herramienta. La integración con futuros cambios de
+interfaz se concentra en `static/integrations/explorer-modules.js`.
+
 ---
 
 ## 1. Resumen Ejecutivo
@@ -135,7 +150,6 @@ Nasa/
 ├── data/
 │   └── cache/                   # Caché local de recortes FITS reales y catálogos JSON
 ├── start_project.py             # Lanzador multiplataforma con autoverificación de entorno
-├── setup_cache_and_inspect.py   # Inicializador y verificador de caché real de IRSA
 ├── estado actual del proyecto.md# Checklist actualizado contra los objetivos de la NASA
 ├── AGENTS.md                    # Reglas de exploración del grafo de código con Reducto
 ├── requirements.txt             # Dependencias de Python
@@ -165,12 +179,15 @@ python start_project.py
 ./run_project.sh
 ```
 
+La recarga automática es opcional: ejecutar `.\run_project.bat --reload` para
+activarla durante el desarrollo. El arranque normal utiliza un único servidor.
+Si ya está abierto, detenerlo con Ctrl+C antes de iniciar otra instancia.
+
 ### Opción B: Ejecución manual paso a paso
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
-py .\setup_cache_and_inspect.py
 .\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -178,10 +195,20 @@ py .\setup_cache_and_inspect.py
 
 ## 6. Pruebas Automatizadas y Rendimiento
 
-### Ejecución de la suite de tests (98 tests unitarios y de integración)
+### Ejecución de la suite de tests unitarios y de integración
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+El panel **Aladin Lite · referencia del cielo**, debajo del resumen de catálogos, permite comparar el campo con fondos DSS2, 2MASS y AllWISE. Se carga al abrirlo y requiere conexión y WebGL2. **Sincronizar campo** actualiza el campo y la selección; navegar por esa referencia no cambia la consulta SPHEREx. Sus enlaces VOTable exportan Gaia y AllWISE para herramientas como TOPCAT o Aladin Desktop.
+
+La evaluación de herramientas, las unidades espectrales, las pruebas y los límites de validación están en [ASTRONOMICAL_TOOLS_REPORT.md](ASTRONOMICAL_TOOLS_REPORT.md). Las comprobaciones del complemento y su conexión con el explorador se ejecutan con Node.js:
+
+```powershell
+node static/aladin-reference/check.cjs
+node tests/check_astronomical_tools.cjs
+```
+
 La suite verifica:
 - Consultas SIA combinadas al conjunto uniforme **`spherex_dr1` + `spherex_qr3`** y respaldo TAP (`tests/test_regressions.py`).
 - Calibración fotométrica relativa e igualación de PSF ante cambios de ganancia y fondo (`tests/test_difference.py`).
