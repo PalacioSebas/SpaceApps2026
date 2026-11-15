@@ -8,12 +8,12 @@ env/
 .env
 .matplotlib/
 .DS_Store
-# Ignorar descargas temporales pesadas manteniendo la estructura
-data/raw_downloads/
-data/cache/temporal_*/
 *.tmp
 .agents
 AGENTS.md
 reducto-out
 EVALUACION_OBJETIVOS_NASA.md
-data/cache
+
+# Datos descargados (FITS, caché): pesan gigas, nunca se versionan.
+# El código crea data/cache al arrancar (src/config.py).
+data/
