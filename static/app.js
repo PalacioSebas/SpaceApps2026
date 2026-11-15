@@ -1843,6 +1843,17 @@ function showNamedObjectDetail(obj) {
   expl.textContent = obj.explanation;
   detailEl.appendChild(expl);
 
+  // Enanas marrones y estrellas jóvenes tienen una ilustración educativa en 3D (static/observatory/learn3d-panel.js).
+  if (obj.model_3d && window.PapastronomyLearn3D) {
+    const btn3d = document.createElement("button");
+    btn3d.type = "button";
+    btn3d.className = "learn3d-open-btn";
+    btn3d.textContent = "Ver en 3D";
+    btn3d.title = "Abre una ilustración educativa en 3D de este tipo de astro, debajo del mapa";
+    btn3d.addEventListener("click", () => window.PapastronomyLearn3D.open(obj));
+    detailEl.appendChild(btn3d);
+  }
+
   if (!obj.in_fov) {
     const jumpWrap = document.createElement("div");
     jumpWrap.className = "mt-1 flex items-center justify-between gap-2 text-[10px] text-amber-300";

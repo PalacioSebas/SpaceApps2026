@@ -96,7 +96,10 @@
       if (lang === 'es' || lang === 'en') url.searchParams.set('lang',lang);
       return url.href;
     }
-    return {getContext,applySettings,applyProfile,onNavigate,getLearning3DUrl,activate() {active=true;}};
+    const host={getContext,applySettings,applyProfile,onNavigate,getLearning3DUrl,activate() {active=true;}};
+    // Solo se ofrece si el explorador integra el panel 3D; si no, la cabecera abre la página en otra pestaña.
+    if (typeof ops.openLearning3D === 'function') host.openLearning3D=()=>ops.openLearning3D();
+    return host;
   }
 
   let workspace,host,controller,lastSavedRegionKey=null;
@@ -128,6 +131,7 @@
       rebake:rebakeAllOpticalCanvases,renderPlot:renderSpectrumOrLightCurve,
       resizePlot() {const plot=document.getElementById('spectrum-plot');if (window.Plotly && plot?.data) Plotly.Plots.resize(plot);},
       setRoute(section) {const hash=section === 'assistant' ? '#asistente' : '#explorador';if (location.hash !== hash) history.pushState(null,'',hash);},
+      ...(window.PapastronomyLearn3D ? {openLearning3D:()=>window.PapastronomyLearn3D.openFromHeader()} : {}),
     }});
     workspace.configure(host);
     const currentWorkspace=workspace;

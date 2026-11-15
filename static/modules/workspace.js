@@ -21,6 +21,13 @@
         this.refresh();
       },{signal});
       this.$('.learn').addEventListener('click',event=>{
+        // Si el anfitrión integra el visor 3D en la página, se abre ahí en lugar de una pestaña nueva.
+        if (typeof this.host?.openLearning3D === 'function') {
+          event.preventDefault();
+          this.showSection('explorer');
+          this.host.openLearning3D();
+          return;
+        }
         const url=this.learningUrl();
         if (!url) { event.preventDefault(); return; }
         event.currentTarget.href=url;
@@ -88,6 +95,8 @@
       const url=this.learningUrl();
       this.$('.learn').hidden=!url;
       if (url) this.$('.learn').href=url;
+      // La flecha ↗ solo tiene sentido cuando el enlace abre otra pestaña.
+      this.$('.learn').textContent=typeof this.host?.openLearning3D === 'function' ? 'Aprendé en 3D' : 'Aprendé en 3D ↗';
       this.assistant.refresh();
     }
     disconnectedCallback() { this.detached=true;this.controller?.abort();this.controller=null;this.started=false; }

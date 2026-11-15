@@ -1303,6 +1303,28 @@ def clean_astronomical_name(raw_name: str) -> str:
     return name
 
 
+# Tipos SIMBAD que tienen una ilustración educativa en static/learn-3d (enana marrón / estrella joven con disco).
+MODEL_3D_BY_OTYPE: Dict[str, str] = {
+    "BD*": "brown-dwarf",
+    "TT*": "young-star",
+    "Or*": "young-star",
+    "Y*O": "young-star",
+}
+
+
+def model_3d_for(otype: Optional[str], category: Optional[str] = None) -> Optional[str]:
+    """Modelo 3D educativo para un astro. Sin código SIMBAD (cachés anteriores) se deduce
+    de la categoría, que proviene de la misma tabla de `translate_simbad_otype`."""
+    code = str(otype or "").strip()
+    if code:
+        return MODEL_3D_BY_OTYPE.get(code)
+    text = str(category or "")
+    for known_code, model in MODEL_3D_BY_OTYPE.items():
+        if text.startswith(translate_simbad_otype(known_code)[0]):
+            return model
+    return None
+
+
 def translate_simbad_otype(otype: Optional[str], sp_type: Optional[str] = None,
                            planets: Optional[List[str]] = None) -> Tuple[str, str, str]:
     """
@@ -1600,6 +1622,8 @@ def _named_objects_cached(ra: float, dec: float, fov: float, time_bucket: int) -
             "dec": round(obj_dec, 6),
             "category": category,
             "kind": kind,
+            "simbad_otype": otype_clean,
+            "model_3d": MODEL_3D_BY_OTYPE.get(otype_clean),
             "spectral_type": str(sp_type) if sp_type else None,
             "proper_motion_mas_yr": pm_total,
             "planets": host_planets,
@@ -1660,7 +1684,13 @@ def _named_objects_cached(ra: float, dec: float, fov: float, time_bucket: int) -
 
 def query_named_objects_field(ra_deg: float, dec_deg: float, fov_deg: float = 0.05) -> Dict[str, Any]:
     """Devuelve las estrellas, enanas marrones, galaxias y planetas identificados con nombre en la región."""
-    return _named_objects_cached(round(ra_deg, 6), round(dec_deg, 6), round(fov_deg, 4), int(time.time() // 1800))
+    result = _named_objects_cached(round(ra_deg, 6), round(dec_deg, 6), round(fov_deg, 4), int(time.time() // 1800))
+    # Las cachés escritas antes de existir `model_3d` no lo traen: completarlo sin tocar el resultado cacheado.
+    objects = [
+        obj if "model_3d" in obj else {**obj, "model_3d": model_3d_for(obj.get("simbad_otype"), obj.get("category"))}
+        for obj in result.get("objects", [])
+    ]
+    return {**result, "objects": objects}
 
 
 def crossmatch_catalog_sources_live(ra_deg: float, dec_deg: float, radius_arcsec: float = 12.0) -> Optional[str]:

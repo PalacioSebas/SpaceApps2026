@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/aladin-reference/reference.css" />
-  <link rel="stylesheet" href="/static/observatory/observatory.css" />
+  <link rel="stylesheet" href="/static/observatory/observatory.css?v=2" />
 
   <!-- Tailwind CSS (para las tarjetas y píldoras generadas dinámicamente por app.js) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -477,6 +477,11 @@
                 <button id="btn-recenter-aladin" type="button" title="Centrar vista" aria-label="Recentrar en el objetivo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
               </div>
             </div>
+            <!-- Fuera del mapa para no tapar las etiquetas que dibuja el canvas -->
+            <button id="obs-map-3d" type="button" class="obs-map-3d" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>
+              <span id="obs-map-3d-label">Ver en 3D</span>
+            </button>
             <div class="pill-row obs-layers" role="group" aria-label="Capas de catálogo">
               <label class="pill-toggle"><input id="chk-gaia" type="checkbox" checked /><span class="dot" style="background:var(--cyan)"></span>Gaia DR3</label>
               <label id="lbl-pm-vectors" class="pill-toggle"><input id="chk-pm-vectors" type="checkbox" checked />Mov. propio Gaia</label>
@@ -529,6 +534,30 @@
           <div class="obs-tl-label">
             <span id="obs-epoch-label" class="mono">Época -- / --</span>
             <span id="obs-epoch-caption" class="mono muted"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 1b. VISOR 3D INTEGRADO (static/observatory/learn3d-panel.js) ================= -->
+      <section id="learn3d-panel" class="l3d-panel" hidden aria-labelledby="l3d-title">
+        <div class="l3d-inner">
+          <header class="l3d-head">
+            <div class="l3d-heading">
+              <span class="eyebrow l3d-eyebrow">Ver en 3D · ilustración educativa</span>
+              <h2 id="l3d-title" tabindex="-1">Aprendé en 3D</h2>
+              <p id="l3d-category" class="l3d-category"></p>
+            </div>
+            <button id="l3d-close" type="button" class="l3d-close" aria-label="Cerrar el visor 3D">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </header>
+          <div class="l3d-info">
+            <dl id="l3d-facts" class="l3d-facts"></dl>
+            <p id="l3d-explanation" class="l3d-explanation"></p>
+            <p id="l3d-model-note" class="l3d-note" role="note"></p>
+          </div>
+          <div id="l3d-stage" class="l3d-stage">
+            <p id="l3d-loading" class="l3d-loading">Cargando el visor 3D…</p>
           </div>
         </div>
       </section>
@@ -839,11 +868,12 @@
   <script src="/static/modules/access/access.js"></script>
   <script src="/static/modules/assistant/rules.js"></script>
   <script src="/static/modules/assistant/assistant.js"></script>
-  <script src="/static/modules/workspace.js"></script>
-  <script src="/static/integrations/explorer-modules.js"></script>
+  <script src="/static/modules/workspace.js?v=2"></script>
+  <script src="/static/integrations/explorer-modules.js?v=2"></script>
   <!-- Script Principal de Aplicación -->
   <script src="/static/aladin-reference/reference.js"></script>
-  <script src="/static/app.js?v=3.1"></script>
-  <script src="/static/observatory/observatory.js"></script>
+  <script src="/static/app.js?v=3.2"></script>
+  <script src="/static/observatory/observatory.js?v=2"></script>
+  <script src="/static/observatory/learn3d-panel.js?v=1"></script>
 </body>
 </html>

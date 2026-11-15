@@ -249,3 +249,83 @@
 @media (prefers-reduced-motion: reduce) {
   #obs-track-fill, .obs-track-dots button { transition: none; }
 }
+
+/* =====================================================================
+   Visor 3D integrado (learn3d-panel.js)
+   ===================================================================== */
+.obs-map-3d {
+  align-self: center;
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  height: 34px; padding: 0 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(155, 140, 255, 0.6); background: rgba(10, 16, 32, 0.9); color: var(--stellar);
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 0 24px -6px rgba(155, 140, 255, 0.7);
+  transition: background-color .2s, border-color .2s;
+}
+.obs-map-3d:hover { background: rgba(155, 140, 255, 0.18); border-color: var(--violet); }
+.obs-map-3d[hidden] { display: none; }
+.obs-map-3d svg { width: 15px; height: 15px; flex: none; color: var(--violet); }
+#obs-map-3d-label { overflow: hidden; text-overflow: ellipsis; }
+
+/* Botón en la ficha de "Astros identificados" (lo crea app.js) */
+.learn3d-open-btn {
+  margin-top: 8px; height: 28px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(155, 140, 255, 0.55); background: rgba(155, 140, 255, 0.1); color: var(--stellar);
+  font-size: 12px; font-weight: 600;
+}
+.learn3d-open-btn:hover { background: rgba(155, 140, 255, 0.22); border-color: var(--violet); }
+
+/* Panel desplegable: la fila de la grilla anima de 0 a la altura del contenido */
+.l3d-panel {
+  max-width: 1320px; margin: 0 auto 28px;
+  display: grid; grid-template-rows: 0fr; opacity: 0;
+  border-radius: 20px; border: 1px solid rgba(155, 140, 255, 0.35);
+  background: linear-gradient(180deg, rgba(16, 27, 53, 0.7), rgba(7, 11, 22, 0.85));
+  box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.85);
+  scroll-margin-top: 150px;
+  transition: grid-template-rows .32s ease, opacity .25s ease;
+}
+.l3d-panel.is-open { grid-template-rows: 1fr; opacity: 1; }
+.l3d-inner { min-height: 0; overflow: hidden; }
+
+.l3d-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px 0; }
+.l3d-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.l3d-eyebrow { color: var(--violet); }
+#l3d-title { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; outline: none; }
+.l3d-category { margin: 0; color: var(--cyan); font-size: 13px; }
+.l3d-close {
+  flex: none; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer;
+  border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(5, 7, 13, 0.6); color: var(--muted);
+}
+.l3d-close:hover { color: var(--stellar); border-color: rgba(85, 214, 255, 0.5); }
+.l3d-close svg { width: 16px; height: 16px; }
+
+.l3d-info { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px 20px 0; }
+@media (min-width: 900px) { .l3d-info { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; } }
+.l3d-facts {
+  margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; align-content: start;
+  padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line-strong); background: rgba(5, 7, 13, 0.45);
+  font-size: 12px;
+}
+.l3d-facts dt { color: var(--muted); }
+.l3d-facts dd { margin: 0; text-align: right; font-family: var(--font-geist-mono), monospace; color: var(--stellar); overflow-wrap: anywhere; }
+.l3d-explanation { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--stellar); }
+.l3d-note {
+  grid-column: 1 / -1; margin: 0; padding: 9px 12px; border-radius: 10px; font-size: 12px; line-height: 1.45;
+  color: var(--muted); border: 1px dashed var(--line-strong);
+}
+.l3d-note.is-warning { color: var(--amber); border-color: rgba(245, 184, 81, 0.45); }
+
+.l3d-stage { padding: 16px 20px 20px; min-height: 120px; }
+.l3d-loading { margin: 0; padding: 40px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+.l3d-stage papastronomy-object-viewer { --papastronomy-font: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif; }
+
+@media (max-width: 620px) {
+  .l3d-head { padding: 14px 14px 0; }
+  .l3d-info { padding: 12px 14px 0; }
+  .l3d-stage { padding: 12px 10px 14px; }
+  .obs-map-3d { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .l3d-panel { transition: none; }
+}

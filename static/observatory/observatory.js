@@ -380,7 +380,24 @@
     $("obs-epoch-caption").textContent = ready ? frame.title || frame.badgeText || frame.shortTag || "" : "";
   }
 
+  // ---------- Botón "Ver en 3D" sobre el mapa ----------
+  function selectedNamedObject() {
+    return (state.skyView?.namedObjects || []).find((o) => o.id === state.selectedNamedObjectId) || null;
+  }
+  function updateMap3d() {
+    const obj = hasData() ? selectedNamedObject() : null;
+    const show = Boolean(obj?.model_3d && window.PapastronomyLearn3D);
+    if (!changed("map3d", show ? `${obj.id}:${obj.model_3d}` : "none")) return;
+    const btn = $("obs-map-3d");
+    btn.hidden = !show;
+    if (show) {
+      $("obs-map-3d-label").textContent = `Ver en 3D · ${obj.name}`;
+      btn.title = `Abre debajo del mapa una ilustración educativa en 3D de ${obj.category || "este astro"}`;
+    }
+  }
+
   function update() {
+    updateMap3d();
     updateHeader();
     updateEpochList();
     updateFitsHeader();
@@ -411,6 +428,10 @@
 
   function bind() {
     $("obs-play").addEventListener("click", () => $("btn-play-pause")?.click());
+    $("obs-map-3d").addEventListener("click", () => {
+      const obj = selectedNamedObject();
+      if (obj?.model_3d) window.PapastronomyLearn3D?.open(obj);
+    });
     $("obs-prev").addEventListener("click", () => goToStep(getSynchronizedTemporalState().activeStep - 1));
     $("obs-next").addEventListener("click", () => goToStep(getSynchronizedTemporalState().activeStep + 1));
     $("obs-track-dots").addEventListener("click", (event) => {
