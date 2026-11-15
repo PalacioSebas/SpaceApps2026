@@ -4,80 +4,8 @@
   "fov": 0.05,
   "original_source": "IRSA_SPHEREX_SIA",
   "complete": false,
-  "tap_query": "SELECT TOP 306\n        'https://irsa.ipac.caltech.edu/' || a.uri || '?center=269.452075,4.693364d&size=0.0725' AS cutout_url,\n        p.time_bounds_lower AS obs_time,\n        p.energy_bandpassname AS detector_band\n    FROM spherex.artifact a\n    JOIN spherex.plane p ON a.planeid = p.planeid\n    WHERE 1 = CONTAINS(POINT('ICRS', 269.452075, 4.693364), p.poly)",
+  "tap_query": "SELECT TOP 60\n        'https://irsa.ipac.caltech.edu/' || a.uri || '?center=269.452075,4.693364d&size=0.0725' AS cutout_url,\n        p.time_bounds_lower AS obs_time,\n        p.energy_bandpassname AS detector_band\n    FROM spherex.artifact a\n    JOIN spherex.plane p ON a.planeid = p.planeid\n    WHERE 1 = CONTAINS(POINT('ICRS', 269.452075, 4.693364), p.poly)",
   "frames": [
-    {
-      "local_path": "real_8189c0be5105_epoch_01.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr3/level2/2026W34_1A/l2b-v27-2026-243/3/level2_2026W34_1A_0308_3D3_spx_l2b-v27-2026-243.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61270.597764",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_16.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_2B/l2b-v20-2025-269/3/level2_2025W34_2B_0030_3D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60908.642174",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_02.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-269/1/level2_2025W35_1A_0432_4D1_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60914.21253",
-      "detector_band": "SPHEREx-D1"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_03.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_2B/l2b-v20-2025-267/2/level2_2025W34_2B_0090_4D2_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60908.981929",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_05.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-270/4/level2_2025W35_1A_0432_4D4_spx_l2b-v20-2025-270.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60914.21253",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_06.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_2B/l2b-v20-2025-267/5/level2_2025W34_2B_0090_4D5_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60908.981929",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_13.fits",
-      "cutout_url": "",
-      "obs_time": "60902.864714549",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_05.fits",
-      "cutout_url": "",
-      "obs_time": "60902.86471456",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_547e84408566_epoch_01.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr3/level2/2026W38_2A/l2b-v27-2026-264/3/level2_2026W38_2A_0562_1D3_spx_l2b-v27-2026-264.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61303.185466",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_547e84408566_epoch_03.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W34_2B/l2b-v27-2026-229/2/level2_2025W34_2B_0090_4D2_spx_l2b-v27-2026-229.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60908.981929",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_547e84408566_epoch_04.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W33_2C/l2b-v27-2026-228/3/level2_2025W33_2C_0321_2D3_spx_l2b-v27-2026-228.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60902.866207",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_547e84408566_epoch_05.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W35_1A/l2b-v27-2026-230/4/level2_2025W35_1A_0432_4D4_spx_l2b-v27-2026-230.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60914.21253",
-      "detector_band": "SPHEREx-D4"
-    },
     {
       "local_path": "real_epoch_01.fits",
       "cutout_url": "",
@@ -85,26 +13,8 @@
       "detector_band": "SPHEREx-D3"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_00.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0321_1D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60902.864715",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_06.fits",
-      "cutout_url": "",
-      "obs_time": "60902.866206806",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
       "local_path": "real_epoch_03.fits",
       "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0321_2D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
-      "obs_time": "60902.866207",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_04.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0321_2D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
       "obs_time": "60902.866207",
       "detector_band": "SPHEREx-D3"
     },
@@ -115,26 +25,8 @@
       "detector_band": "SPHEREx-D3"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_08.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0321_3D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60902.867699",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_07.fits",
-      "cutout_url": "",
-      "obs_time": "60902.867699051",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
       "local_path": "real_epoch_07.fits",
       "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0386_3D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
-      "obs_time": "60903.138366",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_09.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0386_3D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
       "obs_time": "60903.138366",
       "detector_band": "SPHEREx-D3"
     },
@@ -145,20 +37,8 @@
       "detector_band": "SPHEREx-D3"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_10.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-267/3/level2_2025W33_2C_0386_4D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60903.139858",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
       "local_path": "real_epoch_11.fits",
       "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_1B/l2b-v20-2025-267/3/level2_2025W34_1B_0164_1D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.05",
-      "obs_time": "60905.853257",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_11.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_1B/l2b-v20-2025-267/3/level2_2025W34_1B_0164_1D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
       "obs_time": "60905.853257",
       "detector_band": "SPHEREx-D3"
     },
@@ -169,375 +49,39 @@
       "detector_band": "SPHEREx-D3"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_12.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_1B/l2b-v20-2025-267/3/level2_2025W34_1B_0164_2D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60905.854749",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_13.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_1B/l2b-v20-2025-267/3/level2_2025W34_1B_0164_3D3_spx_l2b-v20-2025-267.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60905.856241",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
       "local_path": "real_epoch_15.fits",
       "cutout_url": "",
       "obs_time": "60905.856241111",
       "detector_band": "SPHEREx-D3"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_14.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_2B/l2b-v20-2025-269/3/level2_2025W34_2B_0030_1D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60908.63919",
-      "detector_band": "SPHEREx-D3"
+      "local_path": "real_b1709329bb05_epoch_01.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr3/level2/2026W39_1A/l2b-v27-2026-268/5/level2_2026W39_1A_0371_1D5_spx_l2b-v27-2026-268.fits?center=269.452075,4.693364d&size=0.0725",
+      "obs_time": "61305.628021",
+      "detector_band": "SPHEREx-D5"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_15.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_2B/l2b-v20-2025-269/3/level2_2025W34_2B_0030_2D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60908.640682",
-      "detector_band": "SPHEREx-D3"
+      "local_path": "real_34f58bf4829c_epoch_03.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W34_2B/l2b-v27-2026-229/2/level2_2025W34_2B_0090_4D2_spx_l2b-v27-2026-229.fits?center=269.452075,4.693364d&size=0.0725",
+      "obs_time": "60908.981929",
+      "detector_band": "SPHEREx-D2"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_17.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W34_2B/l2b-v20-2025-269/3/level2_2025W34_2B_0030_4D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60908.643666",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_18.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-269/3/level2_2025W35_1A_0008_1D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60912.034425",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_19.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-269/3/level2_2025W35_1A_0008_2D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60912.035917",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_20.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-269/3/level2_2025W35_1A_0008_3D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60912.037409",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_21.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-269/3/level2_2025W35_1A_0008_4D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60912.038901",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_22.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-269/3/level2_2025W35_1A_0484_1D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60914.482593",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_23.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W35_1A/l2b-v20-2025-269/3/level2_2025W35_1A_0484_2D3_spx_l2b-v20-2025-269.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "60914.484085",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_24.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0598_1D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.309231",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_23.fits",
-      "cutout_url": "",
-      "obs_time": "61118.309231262",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_14.fits",
-      "cutout_url": "",
-      "obs_time": "61118.31072353",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_25.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0598_2D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.310724",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_03.fits",
-      "cutout_url": "",
-      "obs_time": "61118.312215787",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_26.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0598_3D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.312216",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_27.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0598_4D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.313708",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_18.fits",
-      "cutout_url": "",
-      "obs_time": "61118.313708056",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_b8b1a6591135_epoch_01.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0610_1D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.37704",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_20.fits",
-      "cutout_url": "",
-      "obs_time": "61118.377040035",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_28.fits",
-      "cutout_url": "",
-      "obs_time": "61118.377040035",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_26cf7cbddec6_epoch_02.fits",
-      "cutout_url": "",
-      "obs_time": "61118.377040035",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_29.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0610_2D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.378532",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_12.fits",
-      "cutout_url": "",
-      "obs_time": "61118.37853228",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_17.fits",
-      "cutout_url": "",
-      "obs_time": "61118.380024537",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_30.fits",
-      "cutout_url": "",
-      "obs_time": "61118.380024537",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_26cf7cbddec6_epoch_03.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0610_3D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.380025",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_04.fits",
-      "cutout_url": "",
-      "obs_time": "61118.381516794",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_31.fits",
-      "cutout_url": "",
-      "obs_time": "61118.381516794",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_26cf7cbddec6_epoch_04.fits",
-      "cutout_url": "",
-      "obs_time": "61118.381516794",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_b8b1a6591135_epoch_02.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_1A/l2b-v24-2026-082/3/level2_2026W12_1A_0610_4D3_spx_l2b-v24-2026-082.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61118.381517",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_36.fits",
-      "cutout_url": "",
-      "obs_time": "61120.278598588",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_32.fits",
-      "cutout_url": "",
-      "obs_time": "61120.278598588",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_26cf7cbddec6_epoch_05.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_2A/l2b-v24-2026-083/3/level2_2026W12_2A_0324_1D3_spx_l2b-v24-2026-083.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61120.278599",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_38.fits",
-      "cutout_url": "",
-      "obs_time": "61120.280090845",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_26cf7cbddec6_epoch_06.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_2A/l2b-v24-2026-083/3/level2_2026W12_2A_0324_2D3_spx_l2b-v24-2026-083.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61120.280091",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_26.fits",
-      "cutout_url": "",
-      "obs_time": "61121.364124873",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_33.fits",
-      "cutout_url": "",
-      "obs_time": "61121.364124873",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_26cf7cbddec6_epoch_07.fits",
-      "cutout_url": "",
-      "obs_time": "61121.364124873",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_b8b1a6591135_epoch_03.fits",
-      "cutout_url": "",
-      "obs_time": "61121.364124873",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_44.fits",
-      "cutout_url": "",
-      "obs_time": "61121.365617141",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_34.fits",
-      "cutout_url": "",
-      "obs_time": "61121.365617141",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_b8b1a6591135_epoch_04.fits",
-      "cutout_url": "",
-      "obs_time": "61121.365617141",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_b8b1a6591135_epoch_05.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_2A/l2b-v24-2026-083/3/level2_2026W12_2A_0520_3D3_spx_l2b-v24-2026-083.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61121.367109",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_33.fits",
-      "cutout_url": "",
-      "obs_time": "61121.367109387",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_35.fits",
-      "cutout_url": "",
-      "obs_time": "61121.367109387",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_34.fits",
-      "cutout_url": "",
-      "obs_time": "61121.368601644",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_8189c0be5105_epoch_36.fits",
-      "cutout_url": "",
-      "obs_time": "61121.368601644",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_b8b1a6591135_epoch_06.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W12_2A/l2b-v24-2026-083/3/level2_2026W12_2A_0520_4D3_spx_l2b-v24-2026-083.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61121.368602",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_53.fits",
-      "cutout_url": "",
-      "obs_time": "61122.654125532",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_b8b1a6591135_epoch_07.fits",
-      "cutout_url": "",
-      "obs_time": "61122.654125532",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_50.fits",
-      "cutout_url": "",
-      "obs_time": "61122.655617789",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_52.fits",
-      "cutout_url": "",
-      "obs_time": "61122.657110035",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_47.fits",
-      "cutout_url": "",
-      "obs_time": "61122.658602292",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_46.fits",
-      "cutout_url": "",
-      "obs_time": "61124.894266088",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_26cf7cbddec6_epoch_00.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2026W19_1A/l2b-v24-2026-131/3/level2_2026W19_1A_0403_1D3_spx_l2b-v24-2026-131.fits?center=269.452075,4.693364d&size=0.0725",
-      "obs_time": "61165.082972",
-      "detector_band": "SPHEREx-D3"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_45.fits",
-      "cutout_url": "",
-      "obs_time": "61124.894266088",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_epoch_00.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0321_1D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.05",
+      "local_path": "real_34f58bf4829c_epoch_04.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W33_2C/l2b-v27-2026-228/3/level2_2025W33_2C_0321_1D3_spx_l2b-v27-2026-228.fits?center=269.452075,4.693364d&size=0.0725",
       "obs_time": "60902.864715",
-      "detector_band": "SPHEREx-D6"
+      "detector_band": "SPHEREx-D3"
     },
     {
-      "local_path": "real_8189c0be5105_epoch_07.fits",
-      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0321_1D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.0725",
+      "local_path": "real_34f58bf4829c_epoch_05.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W35_1A/l2b-v27-2026-230/4/level2_2025W35_1A_0432_4D4_spx_l2b-v27-2026-230.fits?center=269.452075,4.693364d&size=0.0725",
+      "obs_time": "60914.21253",
+      "detector_band": "SPHEREx-D4"
+    },
+    {
+      "local_path": "real_34f58bf4829c_epoch_07.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W33_2C/l2b-v27-2026-228/6/level2_2025W33_2C_0321_1D6_spx_l2b-v27-2026-228.fits?center=269.452075,4.693364d&size=0.0725",
       "obs_time": "60902.864715",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_14.fits",
-      "cutout_url": "",
-      "obs_time": "60902.866206794",
       "detector_band": "SPHEREx-D6"
     },
     {
@@ -550,12 +94,6 @@
       "local_path": "real_epoch_05.fits",
       "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W33_2C/l2b-v20-2025-266/6/level2_2025W33_2C_0321_3D6_spx_l2b-v20-2025-266.fits?center=269.452075,4.693364d&size=0.05",
       "obs_time": "60902.867699",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_15.fits",
-      "cutout_url": "",
-      "obs_time": "60902.867699051",
       "detector_band": "SPHEREx-D6"
     },
     {
@@ -587,288 +125,6 @@
       "cutout_url": "",
       "obs_time": "60905.856241111",
       "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_22.fits",
-      "cutout_url": "",
-      "obs_time": "61118.309231262",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_15.fits",
-      "cutout_url": "",
-      "obs_time": "61118.31072353",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_02.fits",
-      "cutout_url": "",
-      "obs_time": "61118.312215787",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_19.fits",
-      "cutout_url": "",
-      "obs_time": "61118.313708044",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_21.fits",
-      "cutout_url": "",
-      "obs_time": "61118.377040035",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_13.fits",
-      "cutout_url": "",
-      "obs_time": "61118.37853228",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_16.fits",
-      "cutout_url": "",
-      "obs_time": "61118.380024537",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_05.fits",
-      "cutout_url": "",
-      "obs_time": "61118.381516794",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_37.fits",
-      "cutout_url": "",
-      "obs_time": "61120.278598588",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_27.fits",
-      "cutout_url": "",
-      "obs_time": "61121.364124873",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_43.fits",
-      "cutout_url": "",
-      "obs_time": "61121.365617141",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_32.fits",
-      "cutout_url": "",
-      "obs_time": "61121.367109387",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_35.fits",
-      "cutout_url": "",
-      "obs_time": "61121.368601655",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_54.fits",
-      "cutout_url": "",
-      "obs_time": "61122.654125532",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_49.fits",
-      "cutout_url": "",
-      "obs_time": "61122.655617789",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_51.fits",
-      "cutout_url": "",
-      "obs_time": "61122.657110046",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_48.fits",
-      "cutout_url": "",
-      "obs_time": "61122.658602292",
-      "detector_band": "SPHEREx-D6"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_28.fits",
-      "cutout_url": "",
-      "obs_time": "61121.22820537",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_08.fits",
-      "cutout_url": "",
-      "obs_time": "61116.680151227",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_11.fits",
-      "cutout_url": "",
-      "obs_time": "61116.681643484",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_00.fits",
-      "cutout_url": "",
-      "obs_time": "61116.683135729",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_07.fits",
-      "cutout_url": "",
-      "obs_time": "61116.684627986",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_25.fits",
-      "cutout_url": "",
-      "obs_time": "61120.549087477",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_40.fits",
-      "cutout_url": "",
-      "obs_time": "61120.550579734",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_42.fits",
-      "cutout_url": "",
-      "obs_time": "61120.552071991",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_31.fits",
-      "cutout_url": "",
-      "obs_time": "61120.553564236",
-      "detector_band": "SPHEREx-D2"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_29.fits",
-      "cutout_url": "",
-      "obs_time": "61121.22820537",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_09.fits",
-      "cutout_url": "",
-      "obs_time": "61116.680151215",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_10.fits",
-      "cutout_url": "",
-      "obs_time": "61116.681643484",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_01.fits",
-      "cutout_url": "",
-      "obs_time": "61116.683135729",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_06.fits",
-      "cutout_url": "",
-      "obs_time": "61116.684627998",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_24.fits",
-      "cutout_url": "",
-      "obs_time": "61120.549087477",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_39.fits",
-      "cutout_url": "",
-      "obs_time": "61120.550579734",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_41.fits",
-      "cutout_url": "",
-      "obs_time": "61120.552071991",
-      "detector_band": "SPHEREx-D5"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_57.fits",
-      "cutout_url": "",
-      "obs_time": "61110.569564005",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_08.fits",
-      "cutout_url": "",
-      "obs_time": "60914.212530278",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_09.fits",
-      "cutout_url": "",
-      "obs_time": "60915.431133947",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_10.fits",
-      "cutout_url": "",
-      "obs_time": "60915.432626204",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_11.fits",
-      "cutout_url": "",
-      "obs_time": "60915.434118461",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_12.fits",
-      "cutout_url": "",
-      "obs_time": "60915.435610718",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_56.fits",
-      "cutout_url": "",
-      "obs_time": "61110.157737211",
-      "detector_band": "SPHEREx-D4"
-    },
-    {
-      "local_path": "real_5c9a76ae38ab_epoch_55.fits",
-      "cutout_url": "",
-      "obs_time": "61110.157737211",
-      "detector_band": "SPHEREx-D1"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_00.fits",
-      "cutout_url": "",
-      "obs_time": "60914.212530266",
-      "detector_band": "SPHEREx-D1"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_01.fits",
-      "cutout_url": "",
-      "obs_time": "60915.431133947",
-      "detector_band": "SPHEREx-D1"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_02.fits",
-      "cutout_url": "",
-      "obs_time": "60915.432626204",
-      "detector_band": "SPHEREx-D1"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_03.fits",
-      "cutout_url": "",
-      "obs_time": "60915.434118449",
-      "detector_band": "SPHEREx-D1"
-    },
-    {
-      "local_path": "real_c2933bbb2a80_epoch_04.fits",
-      "cutout_url": "",
-      "obs_time": "60915.435610718",
-      "detector_band": "SPHEREx-D1"
     }
   ]
 }

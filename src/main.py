@@ -5,8 +5,10 @@ Servidor FastAPI v2.0 conectado 100% a NASA/IPAC IRSA TAP/IBE y CDS Gaia/AllWISE
 import logging
 import re
 import time
+import math
 import threading
 import warnings
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -33,6 +35,7 @@ from src.schemas import (
     MoleculeBand,
     SpectralDiagnosis,
     TimelineResponse,
+    ChangesResponse,
 )
 from src.irsa_client import (
     obtain_real_fits_for_coordinates,
@@ -50,6 +53,7 @@ from src.pipeline import (
     extract_real_spectrum_at_coord,
 )
 from src.timeline import collect_cached_frames, compute_timeline
+from src.motion import analyze_field_changes
 from src.ai_detector import detect_anomalies_on_diff, classify_spectrum_molecules, _crossmatch_cached
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -64,6 +68,14 @@ _EXPLORE_CACHE_LOCK = threading.Lock()
 _TIMELINE_CACHE: Dict[tuple, Any] = {}
 _TIMELINE_CACHE_MAX = 32
 _TIMELINE_CACHE_LOCK = threading.Lock()
+
+# Caché de /api/changes (seguimiento de todas las estrellas del campo en todas las fechas)
+_CHANGES_CACHE: Dict[tuple, Any] = {}
+_CHANGES_CACHE_MAX = 16
+_CHANGES_CACHE_LOCK = threading.Lock()
+_CHANGES_INFLIGHT: Dict[tuple, threading.Lock] = {}
+GAIA_QUERY_TIMEOUT_S = 15.0
+FIELD_OBJECT_MATCH_ARCSEC = 12.0   # el punto elegido ES esa estrella del panel si está así de cerca
 
 app = FastAPI(
     title="Papastronomy v2.0 - NASA SPHEREx & IRSA Live Discovery API",
@@ -431,8 +443,15 @@ def get_point_timeline(
     with _TIMELINE_CACHE_LOCK:
         if cache_key in _TIMELINE_CACHE:
             return _TIMELINE_CACHE[cache_key]
+    # Si el punto es una estrella del panel «Objetos que cambian», la línea histórica usa su misma
+    # medición (trayectoria, astrometría relativa, criterios): los dos paneles nunca se contradicen.
+    field_object = None
     try:
-        result = TimelineResponse(**compute_timeline(ra, dec, all_frames, fov_deg=fov))
+        field_object = _match_field_object(_field_changes(ref_ra, ref_dec, fov, all_frames), ra, dec)
+    except Exception as exc:
+        logger.warning("Sin análisis de campo para la línea histórica: %s", exc)
+    try:
+        result = TimelineResponse(**compute_timeline(ra, dec, all_frames, fov_deg=fov, field_object=field_object))
     except Exception as exc:
         logger.exception("Error calculando la línea histórica:")
         raise HTTPException(status_code=502, detail=f"No se pudo calcular la línea histórica: {exc}") from exc
@@ -441,6 +460,83 @@ def get_point_timeline(
             _TIMELINE_CACHE.pop(next(iter(_TIMELINE_CACHE)))
         _TIMELINE_CACHE[cache_key] = result
     return result
+
+
+def _gaia_for_region(ra: float, dec: float, fov: float):
+    """Gaia DR3 del campo (con caché en disco de irsa_client). Si no responde a tiempo: sin Gaia."""
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(query_catalog_field, "gaia", ra, dec, fov)
+        return future.result(timeout=GAIA_QUERY_TIMEOUT_S)["sources"], "ok"
+    except FutureTimeout:
+        logger.warning("Gaia DR3 no respondió en %.0f s: se informa sin cruce", GAIA_QUERY_TIMEOUT_S)
+    except Exception as exc:
+        logger.warning("Gaia DR3 no disponible para /api/changes: %s", exc)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return None, "unavailable"
+
+
+def _field_changes(ref_ra: float, ref_dec: float, fov: float, all_frames: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Análisis de objetos que cambian para la región (una sola vez por conjunto de recortes)."""
+    key = (round(ref_ra, 6), round(ref_dec, 6), round(fov, 5), len(all_frames),
+           str(all_frames[-1].get("cutout_url", "")) if all_frames else "")
+    with _CHANGES_CACHE_LOCK:
+        if key in _CHANGES_CACHE:
+            return _CHANGES_CACHE[key]
+        lock = _CHANGES_INFLIGHT.setdefault(key, threading.Lock())
+    with lock:  # dos pedidos simultáneos de la misma región calculan una sola vez
+        with _CHANGES_CACHE_LOCK:
+            if key in _CHANGES_CACHE:
+                return _CHANGES_CACHE[key]
+        gaia, gaia_status = _gaia_for_region(ref_ra, ref_dec, fov)
+        result = ChangesResponse(**analyze_field_changes(ref_ra, ref_dec, fov, all_frames, gaia, gaia_status)).model_dump()
+        with _CHANGES_CACHE_LOCK:
+            if len(_CHANGES_CACHE) >= _CHANGES_CACHE_MAX:
+                _CHANGES_CACHE.pop(next(iter(_CHANGES_CACHE)))
+            _CHANGES_CACHE[key] = result
+            _CHANGES_INFLIGHT.pop(key, None)
+        return result
+
+
+def _match_field_object(changes: Dict[str, Any], ra: float, dec: float) -> Dict[str, Any] | None:
+    best, best_sep = None, FIELD_OBJECT_MATCH_ARCSEC
+    cos_dec = max(1e-6, math.cos(math.radians(dec)))
+    for obj in (changes.get("objects") or []) + (changes.get("steady") or []):
+        d_ra = ((obj["ra"] - ra + 540.0) % 360.0) - 180.0
+        sep = math.hypot(d_ra * cos_dec * 3600.0, (obj["dec"] - dec) * 3600.0)
+        if sep <= best_sep:
+            best, best_sep = obj, sep
+    return best
+
+
+@app.get("/api/changes", response_model=ChangesResponse)
+def get_field_changes(
+    ra: float = Query(..., ge=0.0, le=360.0, description="Centro de la región (como en /api/explore)"),
+    dec: float = Query(..., ge=-90.0, le=90.0),
+    fov: float = Query(DEFAULT_FOV_DEG, gt=0.005, le=1.0),
+    max_epochs: int = Query(20, ge=1, le=102),
+    temporal_search: bool = False,
+) -> Dict[str, Any]:
+    """
+    Objetos que cambian: sigue a cada estrella del campo en TODAS las fechas SPHEREx en caché,
+    mide su movimiento (recta posición–tiempo con astrometría relativa) y su brillo (mismo
+    detector y longitud de onda), y los cruza con Gaia DR3 propagado a la época de SPHEREx.
+    No descarga recortes nuevos.
+    """
+    try:
+        obtain = obtain_temporal_fits_for_coordinates if temporal_search else obtain_real_fits_for_coordinates
+        frames_meta, _, _, _ = obtain(ra, dec, fov_deg=fov, max_epochs=max_epochs)
+    except NoCoverageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not frames_meta:
+        raise HTTPException(status_code=503, detail="No hay observaciones de esta región")
+    all_frames = collect_cached_frames(ra, dec, fov, frames_meta)
+    try:
+        return _field_changes(ra, dec, fov, all_frames)
+    except Exception as exc:
+        logger.exception("Error analizando los objetos que cambian:")
+        raise HTTPException(status_code=502, detail=f"No se pudo analizar el campo: {exc}") from exc
 
 
 @app.get("/static/app.js")

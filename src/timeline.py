@@ -325,6 +325,10 @@ def measure_frame(fr: Dict[str, Any], ra: float, dec: float) -> Optional[Dict[st
                 bkg = float(np.median(data[ann]))
         if ap.sum() == 0:
             return None
+        # La apertura debe caber entera en el recorte: si una parte cae afuera, la suma pierde
+        # flujo y un borde se confunde con un cambio de brillo (visto en estrellas de campo).
+        if min(cx, cy, nx - 1 - cx, ny - 1 - cy) < APERTURE_PIX + 0.5:
+            return None
         # Suma dentro de la apertura con borde suavizado (cada píxel pesa por la fracción
         # que cae dentro del círculo). Con la PSF submuestreada de SPHEREx esto repite
         # ~2,5 veces mejor que promediar los píxeles enteros (medido sobre estrellas reales).
@@ -651,57 +655,39 @@ def pick_default_series(series: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
 # ----------------------------------------------------------------------------
 def measure_motion(measurements: List[Dict[str, Any]], visits: List[Dict[str, Any]],
                    ra: float, dec: float) -> Dict[str, Any]:
-    cos_dec = max(1e-6, math.cos(math.radians(dec)))
-    per_visit: Dict[int, List[Tuple[float, float]]] = {}
-    base_err: Dict[int, float] = {}
-    floor_err: Dict[int, float] = {}
-    for m in measurements:
-        if m.get("centroid") and m["snr"] >= CENTROID_MIN_SNR:
-            c_ra, c_dec = m["centroid"]
-            d_ra = ((c_ra - ra + 540.0) % 360.0) - 180.0
-            vid = m["visit_id"]
-            per_visit.setdefault(vid, []).append((d_ra * cos_dec * 3600.0, (c_dec - dec) * 3600.0))
-            base_err[vid] = max(base_err.get(vid, 0.0), float(m.get("centroid_err_arcsec", 1.0)))
-            kind = "halo" if m["mode"] == "halo" else "aperture"
-            floor_err[vid] = max(floor_err.get(vid, 0.0), CENTROID_FLOOR_ARCSEC[kind])
+    """
+    Movimiento del punto: una posición por visita y una recta posición–tiempo. Usa el MISMO
+    ajuste que el panel «Objetos que cambian» (``src.motion.fit_linear_motion``).
+    """
+    from src.motion import aggregate_visit_positions, fit_linear_motion, motion_confidence  # import tardío: evita ciclos
 
-    positions: List[Dict[str, Any]] = []
     mjd_by_visit = {v["visit_id"]: v["mjd_mid"] for v in visits}
-    for vid in sorted(per_visit):
-        arr = np.asarray(per_visit[vid], dtype=float)
-        east, north = float(np.median(arr[:, 0])), float(np.median(arr[:, 1]))
-        err = base_err[vid] / math.sqrt(len(arr))
-        if len(arr) >= 3:
-            scatter = float(1.4826 * np.median(np.hypot(arr[:, 0] - east, arr[:, 1] - north)))
-            err = max(err, scatter / math.sqrt(len(arr)))
-        err = max(floor_err[vid], err)
-        positions.append({
-            "visit_id": vid, "mjd": mjd_by_visit.get(vid, 0.0),
-            "east_arcsec": round(east, 2), "north_arcsec": round(north, 2),
-            "uncertainty_arcsec": round(err, 2), "n_exposures": int(len(arr)),
-        })
+    positions = aggregate_visit_positions(measurements, ra, dec, mjd_by_visit=mjd_by_visit)
+    return motion_from_fit(fit_linear_motion(positions), positions, confidence_fn=motion_confidence)
 
-    result: Dict[str, Any] = {
-        "status": "unknown", "shift_arcsec": None, "shift_sigma": None, "baseline_days": None,
-        "pm_arcsec_yr": None, "pm_ra_mas_yr": None, "pm_dec_mas_yr": None, "positions": positions,
+
+def motion_from_fit(fit: Dict[str, Any], positions: List[Dict[str, Any]],
+                    confidence_fn: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
+                    source: str = "point") -> Dict[str, Any]:
+    """Traduce el ajuste de movimiento al formato de la línea histórica ('moved' | 'static' | 'unknown')."""
+    status = {"moving": "moved", "static": "static"}.get(fit.get("status"), "unknown")
+    moved = status == "moved"
+    return {
+        "status": status,
+        "shift_arcsec": fit.get("shift_arcsec"),
+        "shift_sigma": fit.get("significance"),
+        "baseline_days": fit.get("baseline_days"),
+        "pm_arcsec_yr": fit.get("pm_total_arcsec_yr") if moved else None,
+        "pm_ra_mas_yr": fit.get("pm_ra_mas_yr") if moved else None,
+        "pm_dec_mas_yr": fit.get("pm_dec_mas_yr") if moved else None,
+        "pm_uncertainty_arcsec_yr": fit.get("pm_uncertainty_arcsec_yr"),
+        "chi2_reduced": fit.get("chi2_reduced"),
+        "direction": fit.get("direction") if moved else None,
+        "confidence": (confidence_fn(fit) if confidence_fn else fit.get("confidence")) if moved else None,
+        "source": source,
+        "positions": [{k: p[k] for k in ("visit_id", "mjd", "east_arcsec", "north_arcsec", "uncertainty_arcsec", "n_exposures")}
+                      for p in positions],
     }
-    if len(positions) < 2:
-        return result
-    first, last = positions[0], positions[-1]
-    baseline = last["mjd"] - first["mjd"]
-    d_e, d_n = last["east_arcsec"] - first["east_arcsec"], last["north_arcsec"] - first["north_arcsec"]
-    shift = math.hypot(d_e, d_n)
-    sigma = shift / math.hypot(first["uncertainty_arcsec"], last["uncertainty_arcsec"])
-    result.update({"shift_arcsec": round(shift, 2), "shift_sigma": round(sigma, 2), "baseline_days": round(baseline, 2)})
-    moved = (shift >= MOTION_MIN_SHIFT_ARCSEC and sigma >= MOTION_MIN_SIGMA
-             and baseline >= MOTION_MIN_BASELINE_DAYS)
-    result["status"] = "moved" if moved else "static"
-    if moved:
-        years = baseline / 365.25
-        result["pm_arcsec_yr"] = round(shift / years, 2)
-        result["pm_ra_mas_yr"] = round(1000.0 * d_e / years, 0)
-        result["pm_dec_mas_yr"] = round(1000.0 * d_n / years, 0)
-    return result
 
 
 # ----------------------------------------------------------------------------
@@ -850,6 +836,10 @@ def build_headline(visits: List[Dict[str, Any]], default_series: Optional[Dict[s
             brightness_title = "Su brillo se mantuvo estable"
             brightness_detail = (f"En {s_span} su brillo infrarrojo no cambió de forma medible "
                                  f"(variación menor a ~{_fmt_pct(limit)} %).")
+        elif s["status"] == "blended":
+            brightness_title = "Tiene una estrella vecina muy cerca"
+            brightness_detail = ("Su brillo no se puede medir por separado del de la vecina, así que no se "
+                                 "puede afirmar que haya cambiado.")
         elif s["status"] == "faint":
             brightness_title = "Acá no hay una fuente lo bastante brillante para medir cambios"
             brightness_detail = ("En este punto la señal es muy débil frente al ruido, así que no se puede "
@@ -880,6 +870,8 @@ def build_headline(visits: List[Dict[str, Any]], default_series: Optional[Dict[s
         status, title, detail = "brightness_changed", brightness_title, brightness_detail
     elif brightness_status == "possible":
         status, title, detail = "possible_change", brightness_title, brightness_detail
+    elif brightness_status == "blended":
+        status, title, detail = "blended", brightness_title, brightness_detail
     elif brightness_status == "stable":
         status, title = "stable", "No se ven cambios medibles en este lugar"
         detail = brightness_detail
@@ -926,16 +918,33 @@ def build_headline(visits: List[Dict[str, Any]], default_series: Optional[Dict[s
 # Punto de entrada
 # ----------------------------------------------------------------------------
 def compute_timeline(ra: float, dec: float, frames_meta: List[Dict[str, Any]],
-                     fov_deg: float = 0.05, stamp_fov_deg: Optional[float] = None) -> Dict[str, Any]:
+                     fov_deg: float = 0.05, stamp_fov_deg: Optional[float] = None,
+                     field_object: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    ``field_object``: si el punto elegido es una estrella del panel «Objetos que cambian», su
+    registro. La línea histórica mide ESA estrella (misma trayectoria, misma astrometría relativa,
+    mismos criterios) para que ambos paneles digan siempre lo mismo.
+    """
+    if field_object is not None:
+        ra, dec = float(field_object["ra"]), float(field_object["dec"])
     # Fecha "actual" de los datos: la última exposición disponible.
     frame_mjds = [m for m in (observation_mjd(str(fm.get("obs_time") or "")) for fm in frames_meta) if m is not None]
     mjd_now = max(frame_mjds) if frame_mjds else 61000.0
     known_motion = known_motion_for_point(ra, dec, mjd_now)
 
-    # Si el punto elegido es un objeto veloz de catálogo, la apertura lo acompaña fecha a fecha:
-    # así su corrimiento no se confunde con un cambio de brillo.
+    # Si el punto elegido es un objeto veloz (medido por el panel o de catálogo), la apertura lo
+    # acompaña fecha a fecha: así su corrimiento no se confunde con un cambio de brillo.
     track = None
-    if known_motion and known_motion["offset_now_arcsec"] <= TRACK_MATCH_ARCSEC:
+    fo_motion = (field_object or {}).get("motion") or {}
+    if field_object is not None and fo_motion.get("status") == "moving":
+        epoch_mjd = float(field_object["epoch_mjd"])
+        mu_e, mu_n = fo_motion["pm_ra_mas_yr"] / 1000.0, fo_motion["pm_dec_mas_yr"] / 1000.0
+        cos0 = max(1e-6, math.cos(math.radians(dec)))
+
+        def track(mjd: float) -> Tuple[float, float]:
+            dt = mjd_to_year(mjd) - mjd_to_year(epoch_mjd)
+            return (ra + mu_e * dt / 3600.0 / cos0) % 360.0, dec + mu_n * dt / 3600.0
+    elif known_motion and known_motion["offset_now_arcsec"] <= TRACK_MATCH_ARCSEC:
         km = known_motion
 
         def track(mjd: float) -> Tuple[float, float]:
@@ -947,9 +956,18 @@ def compute_timeline(ra: float, dec: float, frames_meta: List[Dict[str, Any]],
 
     measurements = measure_all_frames(ra, dec, frames_meta, track=track)
     visits = group_visits(measurements)
-    series = build_detector_series(measurements)
+    if field_object is not None:
+        # Mismo criterio que el panel: el brillo de una estrella solo se compara donde se la pudo centrar.
+        series = build_detector_series([m for m in measurements if m.get("centroid")])
+        motion = motion_from_fit({**fo_motion, "status": fo_motion.get("status")},
+                                 fo_motion.get("positions") or [], source="field")
+        motion["confidence"] = fo_motion.get("confidence")
+    else:
+        series = build_detector_series(measurements)
+        motion = measure_motion(measurements, visits, ra, dec)
     default_series = pick_default_series(series)
-    motion = measure_motion(measurements, visits, ra, dec)
+    if field_object is not None and field_object.get("crowded") and default_series is not None             and default_series["status"] in ("variable", "possible"):
+        default_series["status"] = "blended"   # mismo criterio que la tarjeta del panel
     stamp_fov = float(stamp_fov_deg or min(fov_deg, DEFAULT_STAMP_FOV_DEG))
     stamps = build_stamps(measurements, series, ra, dec, stamp_fov)
     headline = build_headline(visits, default_series, motion, known_motion, fov_deg)
@@ -967,6 +985,7 @@ def compute_timeline(ra: float, dec: float, frames_meta: List[Dict[str, Any]],
         "series": series,
         "default_detector": default_series["detector"] if default_series else None,
         "motion": motion,
+        "field_object_id": field_object.get("id") if field_object is not None else None,
         "known_motion": known_motion,
         "tracking_applied": track is not None,
         "stamps": stamps,

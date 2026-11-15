@@ -194,11 +194,16 @@ class TimelinePosition(BaseModel):
 class TimelineMotion(BaseModel):
     status: str = Field(..., description="moved | static | unknown")
     shift_arcsec: Optional[float] = None
-    shift_sigma: Optional[float] = None
+    shift_sigma: Optional[float] = Field(None, description="Significancia conjunta (2D) del movimiento ajustado")
     baseline_days: Optional[float] = None
     pm_arcsec_yr: Optional[float] = None
     pm_ra_mas_yr: Optional[float] = None
     pm_dec_mas_yr: Optional[float] = None
+    pm_uncertainty_arcsec_yr: Optional[float] = None
+    chi2_reduced: Optional[float] = None
+    direction: Optional[str] = None
+    confidence: Optional[str] = Field(None, description="alta | media (solo si se movió)")
+    source: str = Field("point", description="'field' = misma medición que el panel «Objetos que cambian»")
     positions: List[TimelinePosition] = Field(default_factory=list)
 
 
@@ -232,7 +237,7 @@ class TimelineStamp(BaseModel):
 
 class TimelineHeadline(BaseModel):
     status: str = Field(
-        ..., description="moved | moved_away | brightness_changed | possible_change | stable | faint | insufficient"
+        ..., description="moved | moved_away | brightness_changed | possible_change | stable | blended | faint | insufficient"
     )
     title: str
     detail: str
@@ -250,8 +255,178 @@ class TimelineResponse(BaseModel):
     series: List[TimelineSeries]
     default_detector: Optional[str] = None
     motion: TimelineMotion
+    field_object_id: Optional[int] = Field(None, description="Objeto del panel «Objetos que cambian» que coincide con el punto")
     known_motion: Optional[TimelineKnownMotion] = None
     tracking_applied: bool = Field(False, description="La apertura acompañó al objeto según su movimiento de catálogo")
     stamps: List[TimelineStamp]
     stamp_fov_deg: float
     headline: TimelineHeadline
+
+
+# ----------------------------------------------------------------------------
+# Objetos que cambian (/api/changes): seguimiento de cada estrella en todas las fechas
+# ----------------------------------------------------------------------------
+class ChangesPosition(BaseModel):
+    visit_id: int
+    mjd: float
+    label: str = ""
+    east_arcsec: float
+    north_arcsec: float
+    uncertainty_arcsec: float
+    n_exposures: int
+
+
+class ChangesMotion(BaseModel):
+    status: str = Field(..., description="moving | static | blended | unknown")
+    confidence: Optional[str] = None
+    sentence: str = ""
+    n_visits: int = 0
+    baseline_days: Optional[float] = None
+    pm_ra_mas_yr: Optional[float] = Field(None, description="μα* medido (mas/año)")
+    pm_dec_mas_yr: Optional[float] = Field(None, description="μδ medido (mas/año)")
+    pm_total_arcsec_yr: Optional[float] = None
+    pm_uncertainty_arcsec_yr: Optional[float] = None
+    significance: Optional[float] = None
+    chi2_reduced: Optional[float] = None
+    shift_arcsec: Optional[float] = None
+    shift_sigma: Optional[float] = None
+    position_angle_deg: Optional[float] = None
+    direction: Optional[str] = None
+    ref_mjd: Optional[float] = None
+    start_ra: Optional[float] = None
+    start_dec: Optional[float] = None
+    end_ra: Optional[float] = None
+    end_dec: Optional[float] = None
+    start_label: Optional[str] = None
+    end_label: Optional[str] = None
+    positions: List[ChangesPosition] = Field(default_factory=list)
+
+
+class ChangesBrightness(BaseModel):
+    status: str = Field(..., description="variable | possible | stable | blended | faint | insufficient")
+    confidence: Optional[str] = None
+    sentence: str = ""
+    detector: Optional[str] = None
+    mode: Optional[str] = None
+    photometry: Optional[str] = None
+    reference_wavelength_um: Optional[float] = None
+    wavelength_span_pct: Optional[float] = None
+    n_visits: Optional[int] = None
+    baseline_days: Optional[float] = None
+    change_pct: Optional[float] = None
+    change_sigma: Optional[float] = None
+    amplitude_pct: Optional[float] = None
+    p_value: Optional[float] = None
+    median_snr: Optional[float] = None
+    note: str = ""
+    first_label: Optional[str] = None
+    last_label: Optional[str] = None
+
+
+class ChangesGaiaMatch(BaseModel):
+    source_id: str
+    g_mag: Optional[float] = None
+    separation_arcsec: float
+    pm_ra_mas_yr: Optional[float] = None
+    pm_dec_mas_yr: Optional[float] = None
+    pm_total_arcsec_yr: Optional[float] = None
+
+
+class ChangesKnownMatch(BaseModel):
+    name: str
+    pm_ra_mas_yr: float
+    pm_dec_mas_yr: float
+    pm_total_arcsec_yr: float
+    source: str
+    offset_arcsec: float
+
+
+class ChangesCatalog(BaseModel):
+    gaia_status: str = Field(..., description="ok (coincide) | no_match | unavailable")
+    gaia: Optional[ChangesGaiaMatch] = None
+    known: Optional[ChangesKnownMatch] = None
+    gaia_agrees: Optional[bool] = None
+    known_agrees: Optional[bool] = None
+
+
+class ChangesPlanetX(BaseModel):
+    distance_au: float
+    note: str
+
+
+class ChangesStampImage(BaseModel):
+    image_base64: str
+    label: str
+    mjd: float
+    detector: str
+    wavelength_um: float
+    cutout_url: str = ""
+    east_arcsec: float
+    north_arcsec: float
+
+
+class ChangesStamps(BaseModel):
+    fov_arcsec: float
+    before: ChangesStampImage
+    after: ChangesStampImage
+
+
+class ChangesObject(BaseModel):
+    id: int
+    ra: float
+    dec: float
+    epoch_mjd: float
+    kind: str = Field(..., description="moving | brightness | both | steady")
+    name: Optional[str] = None
+    confidence: Optional[str] = None
+    saturated: bool = False
+    crowded: bool = False
+    peak_snr: float
+    n_exposures: int
+    motion: ChangesMotion
+    brightness: ChangesBrightness
+    catalog: ChangesCatalog
+    planet_x: Optional[ChangesPlanetX] = None
+    stamps: Optional[ChangesStamps] = None
+
+
+class ChangesKnownTarget(BaseModel):
+    name: str
+    ra: float
+    dec: float
+    pm_total_arcsec_yr: float
+    source: str
+    object_id: Optional[int] = None
+
+
+class ChangesSummary(BaseModel):
+    status: str
+    title: str
+    detail: str
+    notes: List[str] = Field(default_factory=list)
+
+
+class ChangesVisit(BaseModel):
+    visit_id: int
+    label: str
+    mjd: float
+    n_exposures: int
+
+
+class ChangesResponse(BaseModel):
+    ra: float
+    dec: float
+    fov_deg: float
+    n_exposures: int
+    n_visits: int
+    n_sources: int
+    baseline_days: float
+    first_label: Optional[str] = None
+    last_label: Optional[str] = None
+    visits: List[ChangesVisit] = Field(default_factory=list)
+    gaia_status: str
+    astrometry: Dict[str, int] = Field(default_factory=dict)
+    summary: ChangesSummary
+    objects: List[ChangesObject] = Field(default_factory=list, description="Objetos que se movieron o cambiaron de brillo")
+    steady: List[ChangesObject] = Field(default_factory=list, description="Estrellas seguidas sin cambios medibles")
+    known_targets: List[ChangesKnownTarget] = Field(default_factory=list)

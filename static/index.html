@@ -179,24 +179,8 @@
               </span>
             </h2>
             <p class="text-[11px] text-slate-400">
-              Sección solicitada · Tocá una fuente para su espectro o activá el Mapa Global para descargar sectores vecinos
+              Fechas reales de SPHEREx en el mismo color infrarrojo · Tocá un objeto marcado para ver su historia
             </p>
-          </div>
-
-          <!-- Selector de Modo de Imagen -->
-          <div class="inline-flex flex-wrap rounded-lg bg-slate-900 p-0.5 border border-slate-700 text-xs">
-            <button type="button" id="mode-blink" class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold">
-              Flipbook
-            </button>
-            <button type="button" id="mode-diff" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
-              Resta (ΔI)
-            </button>
-            <button type="button" id="mode-coadd" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
-              Mediana
-            </button>
-            <button type="button" id="mode-rgb" title="Compuesto en falso color infrarrojo de 3 bandas SPHEREx (Azul: NIR corto, Verde: NIR medio, Rojo: MIR)" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
-              Falso Color RGB
-            </button>
           </div>
         </div>
 
@@ -205,10 +189,11 @@
           <canvas id="spherex-canvas" aria-label="Imagen astronómica; arrastrá para explorar el plano continuo o seleccioná una fuente para medir su espectro" width="384" height="384" class="w-full h-full object-contain cursor-grab active:cursor-grabbing"></canvas>
 
           <!-- Overlay informativo de época, detector y píxeles limpios -->
-          <div class="absolute top-2.5 left-2.5 bg-slate-950/85 border border-slate-800 rounded-md px-2.5 py-1 text-[11px] font-mono space-y-0.5 pointer-events-none">
-            <div id="overlay-date" class="text-sky-300">Fecha: --</div>
-            <div id="overlay-detector" class="text-slate-300">Detector: -- | λc: -- μm</div>
-            <div id="overlay-clean" class="text-emerald-400">Píxeles limpios: --%</div>
+          <div class="absolute top-2.5 left-2.5 max-w-[78%] bg-slate-950/85 border border-slate-800 rounded-md px-2.5 py-1.5 space-y-0.5 pointer-events-none">
+            <div id="overlay-date" class="text-lg font-bold text-white leading-tight">--</div>
+            <div id="overlay-step" class="text-[11px] text-sky-300 font-medium"></div>
+            <div id="overlay-detector" class="text-[10px] font-mono text-slate-400">Detector: -- | λc: -- μm</div>
+            <div id="overlay-clean" class="text-[10px] font-mono text-emerald-400/80">Píxeles limpios: --%</div>
           </div>
 
           <!-- Indicador de precarga del plano infinito sincronizado -->
@@ -221,6 +206,17 @@
             <span class="text-sky-400">Negativo · flujo menor</span>
             <span class="text-rose-400">Positivo · flujo mayor</span>
           </div>
+        </div>
+
+        <!-- Leyenda simple del visor -->
+        <div id="viewer-legend" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-300">
+          <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full border border-dashed border-sky-300"></span>dónde estaba</span>
+          <span class="text-rose-300 font-bold" aria-hidden="true">→</span>
+          <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full border-2 border-rose-400"></span>dónde está</span>
+          <span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full bg-slate-100"></span>en la fecha que se ve</span>
+          <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full border-2 border-amber-400"></span>cambió de brillo</span>
+          <span class="inline-flex items-center gap-1"><span class="inline-flex w-4 h-4 rounded-full border border-slate-400 text-[9px] font-bold items-center justify-center">1</span>= tarjeta del panel derecho</span>
+          <span id="viewer-legend-scale" class="text-slate-400"></span>
         </div>
       </div>
 
@@ -266,84 +262,120 @@
           La secuencia comenzará en la imagen con mayor cobertura válida.
         </div>
 
-        <!-- Secuencia Histórica Multi-Época Sincronizada (Visor SPHEREx + Contexto y Catálogos) -->
-        <div class="bg-slate-900/75 border border-slate-800 rounded-lg p-2 space-y-1.5 text-xs">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span id="multi-epoch-seq-title" class="text-[11px] font-semibold text-slate-200">
-              Secuencia Histórica Sincronizada (todas las fotos seleccionadas):
-            </span>
-            <div class="flex flex-wrap items-center gap-1">
-              <button type="button" id="btn-manual-blink" title="Recorre todas las épocas seleccionadas en simultáneo en ambos mapas dejando el rastro temporal"
-                class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold transition">
-                Secuencia Activa
-              </button>
-              <button type="button" id="btn-manual-diff" title="Calcula el contraste diferencial acumulado (ΔI) entre el final y el inicio de las épocas seleccionadas"
-                class="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 text-[11px] font-semibold transition">
-                Contraste ΔI Secuencia
-              </button>
-              <button type="button" id="btn-manual-sum" title="Apila todas las épocas seleccionadas de la secuencia para amplificar fuentes débiles"
-                class="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-200 text-[11px] font-semibold transition">
-                Apilar Secuencia (SNR)
-              </button>
-            </div>
+        <!-- Ajustes de imagen (solo cambian cómo se ve, no los datos) -->
+        <div class="flex flex-wrap items-center gap-2 text-[11px]">
+          <span class="text-slate-400 shrink-0">Imagen:</span>
+          <div class="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 rounded px-2 py-0.5">
+            <label for="slider-stretch" class="text-slate-400 shrink-0">Stretch</label>
+            <input id="slider-stretch" type="range" min="0" max="1" step="0.05" value="0"
+              title="Transición continua entre transferencia Asinh (0.0, resalta fuentes débiles) y Lineal (1.0)"
+              class="w-20 accent-sky-400 cursor-pointer" />
+            <span id="lbl-stretch-val" class="font-mono text-sky-300 w-10 text-right">Asinh</span>
           </div>
-          <div id="multi-epoch-steps-bar" class="flex flex-wrap items-center gap-1 pt-0.5"></div>
-          <div class="hidden" aria-hidden="true">
-            <select id="select-epoch-a" aria-label="Época inicial"></select>
-            <select id="select-epoch-b" aria-label="Época final"></select>
+          <div class="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 rounded px-2 py-0.5">
+            <label for="slider-contrast" class="text-slate-400 shrink-0">Ganancia</label>
+            <input id="slider-contrast" type="range" min="0.4" max="2.5" step="0.05" value="1.0"
+              title="Ajusta la ganancia radiométrica en tiempo real sobre las matrices Float32 en memoria"
+              class="w-20 accent-sky-400 cursor-pointer" />
+            <span id="lbl-contrast-val" class="font-mono text-sky-300 w-9 text-right">1.0×</span>
           </div>
+          <label class="inline-flex items-center gap-1.5 cursor-pointer select-none" title="Invierte el brillo de los píxeles (fuentes oscuras sobre fondo blanco, estilo WiseView invert=1)">
+            <input type="checkbox" id="chk-invert" class="accent-sky-400 rounded" />
+            <span class="text-slate-200">Invertir</span>
+          </label>
         </div>
 
-        <!-- Óptica en Vivo (60 FPS) + Shift & Stack (Apilado por Movimiento Propio) -->
-        <div class="bg-slate-900/75 border border-slate-800 rounded-lg p-2 space-y-2 text-xs">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-[11px] font-semibold text-sky-300">Óptica en Vivo (0 ms · 60 FPS) &amp; Shift-Stack:</span>
-            <label class="inline-flex items-center gap-1.5 cursor-pointer select-none" title="Invierte el brillo de los píxeles (fuentes oscuras sobre fondo blanco, estilo WiseView invert=1)">
-              <input type="checkbox" id="chk-invert" class="accent-sky-400 rounded" />
-              <span class="text-[11px] text-slate-200 font-medium">Invertir (Negativo B/N)</span>
-            </label>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-            <div class="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 rounded px-2 py-1">
-              <label for="slider-stretch" class="text-slate-400 shrink-0">Stretch:</label>
-              <input id="slider-stretch" type="range" min="0" max="1" step="0.05" value="0"
-                title="Transición continua entre transferencia Asinh (0.0, resalta fuentes débiles) y Lineal (1.0)"
-                class="flex-1 accent-sky-400 cursor-pointer" />
-              <span id="lbl-stretch-val" class="font-mono text-sky-300 w-12 text-right">Asinh</span>
+        <!-- Herramientas avanzadas: métodos y vistas técnicas (nada se eliminó, solo se agrupó) -->
+        <details id="advanced-tools" class="bg-slate-900/75 border border-slate-800 rounded-lg text-xs">
+          <summary class="cursor-pointer select-none px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 hover:text-white">
+            Herramientas avanzadas
+            <span class="font-normal text-slate-400">· resta ΔI, mediana, RGB, épocas A/B, Shift &amp; Stack</span>
+          </summary>
+          <div class="px-2.5 pb-2.5 pt-1 space-y-2.5 border-t border-slate-800">
+            <div class="space-y-1">
+              <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Vista del visor</div>
+              <div class="inline-flex flex-wrap rounded-lg bg-slate-900 p-0.5 border border-slate-700 text-xs">
+                <button type="button" id="mode-blink" class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold">
+                  Animación
+                </button>
+                <button type="button" id="mode-diff" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
+                  Resta (ΔI)
+                </button>
+                <button type="button" id="mode-coadd" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
+                  Mediana
+                </button>
+                <button type="button" id="mode-rgb" title="Compuesto en falso color infrarrojo de 3 bandas SPHEREx (Azul: NIR corto, Verde: NIR medio, Rojo: MIR)" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white">
+                  Falso Color RGB
+                </button>
+              </div>
             </div>
-            <div class="flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 rounded px-2 py-1">
-              <label for="slider-contrast" class="text-slate-400 shrink-0">Ganancia:</label>
-              <input id="slider-contrast" type="range" min="0.4" max="2.5" step="0.05" value="1.0"
-                title="Ajusta la ganancia radiométrica en tiempo real sobre las matrices Float32 en memoria"
-                class="flex-1 accent-sky-400 cursor-pointer" />
-              <span id="lbl-contrast-val" class="font-mono text-sky-300 w-9 text-right">1.0×</span>
-            </div>
-          </div>
-          <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-800/80">
-            <div class="flex items-center bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5">
-              <label for="input-shift-pmra" class="text-[10px] text-slate-400 mr-1" title="Movimiento propio en Ascensión Recta (milisegundos de arco por año)">pmRA (mas/a):</label>
-              <input id="input-shift-pmra" type="number" step="10" value="0"
-                class="bg-transparent text-[11px] font-mono text-white w-16 focus:outline-none" />
-            </div>
-            <div class="flex items-center bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5">
-              <label for="input-shift-pmdec" class="text-[10px] text-slate-400 mr-1" title="Movimiento propio en Declinación (milisegundos de arco por año)">pmDec (mas/a):</label>
-              <input id="input-shift-pmdec" type="number" step="10" value="0"
-                class="bg-transparent text-[11px] font-mono text-white w-16 focus:outline-none" />
-            </div>
-            <button type="button" id="btn-shift-stack"
-              title="Desplaza cada época según el vector de movimiento propio (pmRA, pmDec) y las co-adiciona para amplificar el SNR de objetos en movimiento"
-              class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold transition">
-              Shift &amp; Stack
-            </button>
-            <button type="button" id="btn-autotrack-dipole"
-              title="Extrae automáticamente el vector de movimiento del Dipolo IA activo (o estrella de alto movimiento propio) y apila las épocas siguiendo su trayectoria"
-              class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-[11px] font-semibold transition">
-              Auto-Track Dipolo IA
-            </button>
-          </div>
-        </div>
 
-        <p id="analysis-note" class="text-[11px] text-slate-400" role="status"></p>
+            <div class="space-y-1">
+              <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Comparar dos épocas (A → B)</div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                <select id="select-epoch-a" aria-label="Época inicial A" class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[11px]"></select>
+                <select id="select-epoch-b" aria-label="Época final B" class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[11px]"></select>
+              </div>
+              <div class="flex flex-wrap items-center gap-1">
+                <button type="button" id="btn-manual-blink" title="Recorre todas las épocas comparables en el visor"
+                  class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold transition">
+                  Secuencia activa
+                </button>
+                <button type="button" id="btn-manual-diff" title="Contraste diferencial ΔI entre la época B y la época A"
+                  class="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 text-[11px] font-semibold transition">
+                  Contraste ΔI (B − A)
+                </button>
+                <button type="button" id="btn-manual-sum" title="Apila las épocas A y B para amplificar fuentes débiles"
+                  class="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-200 text-[11px] font-semibold transition">
+                  Apilar (SNR)
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Shift &amp; Stack (apilar siguiendo un movimiento)</div>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <div class="flex items-center bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5">
+                  <label for="input-shift-pmra" class="text-[10px] text-slate-400 mr-1" title="Movimiento propio en Ascensión Recta (milisegundos de arco por año)">pmRA (mas/a):</label>
+                  <input id="input-shift-pmra" type="number" step="10" value="0"
+                    class="bg-transparent text-[11px] font-mono text-white w-16 focus:outline-none" />
+                </div>
+                <div class="flex items-center bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5">
+                  <label for="input-shift-pmdec" class="text-[10px] text-slate-400 mr-1" title="Movimiento propio en Declinación (milisegundos de arco por año)">pmDec (mas/a):</label>
+                  <input id="input-shift-pmdec" type="number" step="10" value="0"
+                    class="bg-transparent text-[11px] font-mono text-white w-16 focus:outline-none" />
+                </div>
+                <button type="button" id="btn-shift-stack"
+                  title="Desplaza cada época según el vector de movimiento propio (pmRA, pmDec) y las co-adiciona para amplificar el SNR de objetos en movimiento"
+                  class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold transition">
+                  Shift &amp; Stack
+                </button>
+                <button type="button" id="btn-autotrack-dipole"
+                  title="Usa el movimiento medido del objeto seleccionado en «Objetos que cambian» (o, si no hay, la marca ΔI o la estrella Gaia más veloz) y apila las épocas siguiendo su trayectoria"
+                  class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-[11px] font-semibold transition">
+                  Auto-Track
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Marcas de la resta ΔI (método anterior)</div>
+                <span id="ai-count-badge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">0 marcas ΔI</span>
+              </div>
+              <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                <input type="checkbox" id="chk-ai-markers" class="accent-rose-500 rounded" />
+                <span class="text-slate-300">Mostrar marcas de la resta entre dos grupos de fechas</span>
+              </label>
+              <p class="text-[10px] text-slate-400 leading-snug">
+                Compara solo dos momentos y es sensible a residuos de estrellas brillantes. El panel «Objetos que cambian» sigue cada estrella en todas las fechas y es el resultado principal.
+              </p>
+              <p id="analysis-note" class="text-[10px] text-slate-400 leading-snug" role="status"></p>
+              <div id="ai-detections-list" class="space-y-2 overflow-y-auto max-h-[260px] pr-1"></div>
+            </div>
+          </div>
+        </details>
+
         <div class="flex flex-wrap items-center gap-2">
           <button type="button" id="btn-temporal-search"
             title="Busca observaciones SPHEREx antiguas y recientes del campo ingresado. Puede descargar hasta 24 recortes y tardar unos minutos."
@@ -363,10 +395,6 @@
           </button>
         </div>
         <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
-            <input type="checkbox" id="chk-ai-markers" checked class="accent-rose-500 rounded" />
-            <span class="text-slate-300">Marcar Detecciones IA (Dipolos / Variables)</span>
-          </label>
           <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
             <input type="checkbox" id="chk-flags" class="accent-fuchsia-500 rounded" />
             <span class="text-slate-300">Superponer FLAGS (Rayos Cósmicos)</span>
@@ -424,6 +452,19 @@
             <span class="text-slate-400 shrink-0">Gaia · WISE</span>
           </div>
         </div>
+
+        <!-- Leyenda del compuesto en color (fijo, para comparar contra el visor animado) -->
+        <div id="context-color-legend" class="mt-2 text-[11px] text-slate-300 leading-snug space-y-0.5">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span class="font-semibold text-slate-200">Imagen fija: todas las exposiciones combinadas</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full" style="background:#fdba8c"></span>más brillante en las últimas</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full" style="background:#93c5fd"></span>más brillante en las primeras</span>
+          </div>
+          <p class="text-[10px] text-slate-400">
+            Esas exposiciones pueden ser de otro color infrarrojo, así que el tono también refleja el color propio de cada estrella:
+            es una guía visual. Los cambios medidos están en «Objetos que cambian».
+          </p>
+        </div>
       </div>
 
       <!-- Controles de Capas de Catálogos e Identificador de Estrellas/Planetas -->
@@ -448,10 +489,6 @@
             <label class="inline-flex items-center gap-1.5 cursor-pointer" title="Mantiene visibles las etiquetas de nombres sobre el mapa sin necesidad de pasar el cursor">
               <input type="checkbox" id="chk-named-objects" class="accent-emerald-400" />
               <span class="text-emerald-300 font-medium">Fijar nombres</span>
-            </label>
-            <label class="inline-flex items-center gap-1.5 cursor-pointer" title="Va dejando el rastro temporal acumulado de cómo se fue moviendo la estrella a través de todas las fotos seleccionadas (DSS2 ~1990 → 2MASS ~1999 → AllWISE 2010 → visitas SPHEREx)">
-              <input type="checkbox" id="chk-temporal-trail" checked class="accent-rose-400" />
-              <span class="text-rose-300 font-medium">Rastro temporal</span>
             </label>
           </div>
           <button type="button" id="btn-recenter-aladin"
@@ -482,29 +519,40 @@
       </div>
     </section>
 
-    <!-- PANEL DERECHO (3 col): Alertas del Detector IA (Dipolos y Estrellas Variables) -->
-    <section class="lg:col-span-3 glass-panel rounded-xl p-4 flex flex-col justify-between embed-hide">
-      <div class="flex-1 flex flex-col min-h-0">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-sm font-bold text-white uppercase tracking-wider">
-            Detecciones IA en ΔI
-          </h2>
-          <span id="ai-count-badge" class="text-xs font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-            0 anomalías
-          </span>
-        </div>
-        <p class="text-[11px] text-slate-400 mb-3">
-          Objetos que se movieron o cambiaron de brillo entre fechas. Tocá uno para analizarlo:
-        </p>
-
-        <div id="ai-detections-list" class="space-y-2 overflow-y-auto max-h-[380px] pr-1">
-          <!-- Tarjetas inyectadas dinámicamente por app.js -->
-        </div>
+    <!-- PANEL DERECHO (3 col): Objetos que cambian (seguimiento de cada estrella en todas las fechas) -->
+    <section class="lg:col-span-3 glass-panel rounded-xl p-4 flex flex-col embed-hide">
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <h2 class="text-sm font-bold text-white uppercase tracking-wider">
+          Objetos que cambian
+        </h2>
+        <span id="changes-count-badge" class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">—</span>
       </div>
+      <p class="text-[11px] text-slate-400 mb-2 leading-snug">
+        Seguimos cada estrella del campo en todas las fechas de SPHEREx. Acá aparecen las que se movieron o cambiaron de brillo.
+      </p>
 
-      <div class="mt-3 pt-3 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
-        <div><span class="text-rose-400 font-semibold">Astro en Movimiento (Dipolo):</span> Cambió de posición entre 2 fechas (estrella cercana, enana marrón o planeta).</div>
-        <div><span class="text-amber-400 font-semibold">Estrella Variable (Monopolo):</span> Permaneció fija pero subió o bajó su brillo (&gt;4σ).</div>
+      <div id="changes-summary" class="mb-2" role="status" aria-live="polite"></div>
+
+      <div id="changes-list" class="space-y-2 overflow-y-auto max-h-[560px] pr-1 flex-1 min-h-0"></div>
+
+      <details id="changes-steady" class="hidden mt-2 text-[11px]">
+        <summary id="changes-steady-title" class="cursor-pointer select-none text-slate-400 hover:text-slate-200">Estrellas sin cambios medibles</summary>
+        <div id="changes-steady-list" class="mt-1.5 space-y-1 max-h-[180px] overflow-y-auto pr-1"></div>
+      </details>
+
+      <div class="mt-3 pt-2.5 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+        <div><span class="text-rose-300 font-semibold">Se mueve:</span> su posición cambió de una fecha a otra (estrella cercana, enana marrón…).</div>
+        <div><span class="text-amber-300 font-semibold">Cambió de brillo:</span> quedó en su lugar, pero su brillo infrarrojo subió o bajó (comparando el mismo color).</div>
+        <details>
+          <summary class="cursor-pointer select-none hover:text-slate-200">¿Cómo se calcula?</summary>
+          <p class="mt-1 leading-snug">
+            En cada exposición se mide la posición y el brillo de cada estrella. Se descuenta el pequeño error de
+            posición común a cada imagen usando las estrellas fijas, y se ajusta una recta posición–tiempo. Solo se
+            marca un movimiento si supera claramente el ruido (al menos 4 veces su incertidumbre) y un cambio de
+            brillo si no puede explicarse por el ruido, siempre con el mismo detector y color infrarrojo. Después se
+            compara con Gaia DR3. La resta de imágenes (ΔI) quedó en «Herramientas avanzadas».
+          </p>
+        </details>
       </div>
     </section>
 
@@ -609,7 +657,7 @@
                   </select>
                 </div>
                 <p id="timeline-blink-hint" class="text-[10px] text-slate-400 leading-snug">
-                  Por defecto selecciona todas las fotos mostradas y deja el rastro temporal acumulado del movimiento en el Contexto infrarrojo y catálogos.
+                  Recorre las fotos seleccionadas: décadas anteriores (otros telescopios) y todas las visitas de SPHEREx, con la mira fija en el objeto.
                 </p>
               </div>
 
