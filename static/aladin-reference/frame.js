@@ -148,6 +148,9 @@
     }
   }
   window.addEventListener('message', receive);
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') post('exit-expanded');
+  });
   window.addEventListener('pagehide', () => {
     window.removeEventListener('message', receive);
     renderer?.destroy();
