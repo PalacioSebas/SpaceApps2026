@@ -9,6 +9,7 @@
     topics: [
       {
         id: 'atmosphere', number: '01', title: 'Una atmósfera con historia', short: 'Atmósfera',
+        activity: 'Arrastrá suavemente la esfera y seguí una franja. Su textura es ilustrativa: sirve para imaginar una atmósfera que gira.',
         simple: 'La luz que recibimos atraviesa una atmósfera. Sus gases y nubes pueden cambiar el brillo que vemos al girar el objeto. Las franjas del modelo ayudan a imaginar esa idea; su forma es artística.',
         technical: 'La opacidad atmosférica depende de la longitud de onda: diferentes bandas pueden sondear distintas profundidades. La heterogeneidad de la atmósfera puede producir variabilidad rotacional. Las franjas no representan un mapa observado.',
         takeaway: 'Un cambio de brillo también puede venir de la atmósfera.',
@@ -16,6 +17,7 @@
       },
       {
         id: 'temperature', number: '02', title: 'El calor que queda', short: 'Temperatura',
+        activity: 'Acercate con Zoom y revisá el relieve de luz y sombra. Ese brillo está realzado: no permite medir temperatura.',
         simple: 'Una enana marrón no sostiene la fusión de hidrógeno como una estrella. Se enfría con el tiempo y emite energía. No todas tienen la misma temperatura: esta ilustración no asigna una temperatura a un objeto real.',
         technical: 'Estos objetos subestelares no mantienen la fusión estable de hidrógeno característica de la secuencia principal. Su evolución térmica depende, entre otros factores, de la masa y la edad. La temperatura requiere un análisis de observaciones y modelos.',
         takeaway: 'El color elegido aquí no es un termómetro.',
@@ -23,6 +25,7 @@
       },
       {
         id: 'infrared', number: '03', title: 'Ver más allá del visible', short: 'Infrarrojo',
+        activity: 'Alterná Visible e Infrarrojo y compará las paletas. Cambian los colores del dibujo, no las propiedades del objeto.',
         simple: 'Las enanas marrones frías son muy tenues en luz visible. El infrarrojo permite estudiarlas. Cambiá la representación para imaginar cómo asignamos colores a luz que nuestros ojos no ven.',
         technical: 'La emisión de las enanas marrones frías se estudia en el infrarrojo. SPHEREx mide luz en múltiples bandas espectrales. Esta paleta es conceptual: no aplica curvas de respuesta de filtros ni genera un espectro o una imagen calibrada.',
         takeaway: 'Para medir una fuente, volvé a su espectro y sus observaciones.',
@@ -46,18 +49,21 @@
     topics: [
       {
         id: 'star', number: '01', title: 'La estrella y su entorno', short: 'Estrella',
+        activity: 'Empezá por la estrella sin el disco. Después pulsá Mostrar disco para descubrir el entorno del sistema.',
         simple: 'Una estrella joven puede estar rodeada de material que quedó de su formación. En esta escena vemos la estrella central y un disco de gas y polvo. La luz y el tamaño están realzados para poder explorar la idea.',
         technical: 'Los discos circumestelares son parte del entorno de muchas estrellas jóvenes. Este esquema muestra una estrella y un disco inclinado, sin ajustar masa, edad, tamaño o geometría a una fuente observada.',
         takeaway: 'El sistema del dibujo es genérico, no un mapa de RW Aurigae.', source: 'disks',
       },
       {
         id: 'disk', number: '02', title: 'El polvo también emite luz', short: 'Disco',
+        activity: 'Compará la escena con y sin disco. La paleta infrarroja lo resalta de forma artística; no compara flujos medidos.',
         simple: 'El polvo puede absorber luz de la estrella y volver a emitir energía en infrarrojo. Por eso estudiar distintas longitudes de onda ayuda a investigar su entorno. La paleta infrarroja resalta el disco de forma artística.',
         technical: 'La emisión térmica del polvo puede contribuir al exceso infrarrojo respecto de la fotosfera estelar. La paleta del modelo no calcula transferencia radiativa ni temperatura; tampoco reproduce la respuesta de filtros de SPHEREx.',
         takeaway: 'Una paleta ayuda a explicar; el espectro permite medir.', source: 'systems',
       },
       {
         id: 'variability', number: '03', title: '¿Por qué puede cambiar el brillo?', short: 'Variabilidad',
+        activity: 'Arrastrá verticalmente para ver el disco con distintas inclinaciones. Este esquema no simula un oscurecimiento medido ni demuestra su causa.',
         simple: 'El material alrededor de una estrella puede tapar parte de su luz según nuestra línea de visión. RW Aur A es un ejemplo de estrella joven con oscurecimientos estudiados. El modelo no determina qué causó una variación concreta.',
         technical: 'En RW Aur A se han investigado oscurecimientos y material circumestelar. La extinción variable es una posibilidad que requiere contrastar observaciones. Una diferencia de brillo aislada o esta ilustración no establece una causa física.',
         takeaway: 'Para interpretar un cambio, revisá fechas, bandas y calidad de las observaciones.', source: 'rwAur',

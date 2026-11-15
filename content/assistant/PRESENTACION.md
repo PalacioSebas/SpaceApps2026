@@ -64,4 +64,6 @@ Presentarlo como una ilustración de una clase de objetos. El modelo no identifi
 
 Para la segunda escena, preguntar **¿Qué es una estrella joven con disco?** y pulsar **Explorar la estrella en 3D**. Comprobar que abre la estrella en lugar de la enana marrón. Inclinar el disco con un arrastre vertical y recorrer **Estrella**, **Disco** y **Variabilidad**. El selector permite volver a la enana marrón sin recargar la página. El modelo no es una reconstrucción de RW Aurigae y no determina qué causó un cambio observado. Al integrar la biblioteca, conectar `open_young_star_3d` solo si el anfitrión tiene esta escena.
 
+En cualquiera de las escenas, pulsar **Guiame** para seguir los tres pasos manuales y sus actividades. En la estrella, alternar **Mostrar/Ocultar disco** para comparar la ilustración. Finalizar o salir y verificar que se recupera la vista previa. El recorrido no descarga observaciones ni convierte el aspecto del dibujo en una medición.
+
 Volver al explorador y comprobar que el campo y los controles se conservan. El mensaje del MVP es que una persona puede orientarse, consultar datos y revisar resultados con ayuda de explicaciones y fuentes; el asistente no ejecuta por conversación una validación científica que no exista en el backend.

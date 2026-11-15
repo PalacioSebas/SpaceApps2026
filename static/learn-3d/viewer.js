@@ -11,7 +11,7 @@
     precision mediump float;
     #endif
     varying vec2 screen;
-    uniform float aspect, zoom, yaw, pitch, phase, infrared, objectKind;
+    uniform float aspect, zoom, yaw, pitch, phase, infrared, objectKind, diskVisible;
     float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1,311.7,74.7))) * 43758.5453); }
     float noise(vec3 p) {
       vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
@@ -48,7 +48,7 @@
       vec3 origin=toLocal(vec3(p,3.0));
       vec3 direction=toLocal(vec3(0.0,0.0,-1.0));
       float diskDepth=100.0;
-      if (abs(direction.y) > .01) {
+      if (diskVisible > .5 && abs(direction.y) > .01) {
         diskDepth=-origin.y/direction.y;
         vec3 position=origin+diskDepth*direction;
         float r=length(position.xz);
@@ -130,7 +130,7 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
       const location = gl.getAttribLocation(program, 'position');
-      const uniforms = Object.fromEntries(['aspect','zoom','yaw','pitch','phase','infrared','objectKind'].map(k => [k,gl.getUniformLocation(program,k)]));
+      const uniforms = Object.fromEntries(['aspect','zoom','yaw','pitch','phase','infrared','objectKind','diskVisible'].map(k => [k,gl.getUniformLocation(program,k)]));
       return {
         draw(values) {
           const bounds = canvas.getBoundingClientRect();
@@ -144,7 +144,7 @@
           gl.enableVertexAttribArray(location);
           gl.vertexAttribPointer(location,2,gl.FLOAT,false,0,0);
           gl.uniform1f(uniforms.aspect,w/h);
-          for (const key of ['zoom','yaw','pitch','phase','infrared','objectKind']) gl.uniform1f(uniforms[key],values[key]);
+          for (const key of ['zoom','yaw','pitch','phase','infrared','objectKind','diskVisible']) gl.uniform1f(uniforms[key],values[key]);
           gl.drawArrays(gl.TRIANGLES,0,6);
         },
         destroy,
@@ -160,6 +160,7 @@
       this.yaw=.4; this.pitch=-.12; this.zoom=1; this.phase=0; this.infrared=0;
       this.topicIndex=0; this.frame=0; this.inView=true; this.lost=false;
       this.objectKind=0;
+      this.diskVisible=1; this.guided=false; this.guideSnapshot=null;
     }
     connectedCallback() {
       if (this.abort) return;
@@ -175,21 +176,27 @@
         <div class="intro"><div><p class="eyebrow"></p><h1></h1><p class="subtitle"></p></div>
           <div class="pickers"><label class="style">Objeto educativo<select class="object-picker" aria-label="Objeto educativo"></select></label>
           <label class="style">Estilo de explicación<select class="explanation-picker" aria-label="Estilo de explicación"><option value="simple">Simple · para empezar</option><option value="technical">Técnica · más detalle</option></select></label></div></div>
+        <div class="tour-bar"><div><span class="tour-mark" aria-hidden="true">✧</span><div><strong>Una pausa para descubrir</strong><p>Tres miradas al objeto, a tu ritmo.</p></div></div><button type="button" class="guide-start">Guiame <span aria-hidden="true">↗</span></button><button type="button" class="guide-exit" hidden>Salir del recorrido</button></div>
         <div class="layout"><div class="scene">
           <div class="orbit" aria-hidden="true"></div>
+          <div class="scene-crosshair" aria-hidden="true"></div>
           <canvas class="viewport" tabindex="0" role="img" aria-describedby="help limits"></canvas>
-          <div class="topline"><span class="tag"></span><span>Modelo conceptual / sin escala</span></div>
+          <div class="topline"><span class="tag"></span><span class="mode-name">VISIBLE</span></div>
           <div class="hotspots" role="group" aria-label="Puntos de interés educativos"></div>
           <div class="fallback" role="status" hidden>No se pudo iniciar el visor 3D. Necesita WebGL habilitado en el navegador. Podés seguir leyendo los tres temas.<br><button type="button" class="retry">Reintentar visor</button></div>
+          <div class="scene-footer"><span class="scene-label">OBJETO EDUCATIVO / SIN ESCALA</span><span aria-hidden="true">↔ &nbsp; ↕</span></div>
           <p class="hint" id="help">Arrastrá para rotar · flechas con teclado · usá Zoom para acercarte</p>
         </div><section class="details" aria-label="Explicación del objeto">
-          <p class="chapter">Una mirada más cerca</p><div class="topics" role="group" aria-label="Temas"></div>
+          <div class="chapter-header"><p class="chapter">Una mirada más cerca</p><span class="step"></span></div><progress class="guide-progress" max="3" value="1" aria-label="Progreso del recorrido" hidden></progress><div class="topics" role="group" aria-label="Temas"></div>
           <div class="reading" aria-live="polite" aria-atomic="true"><h2></h2><p class="explanation"></p><p class="takeaway"></p></div>
+          <div class="guide-task" hidden><span>Probá esto</span><p></p></div>
           <a class="source" target="_blank" rel="noopener noreferrer"></a>
-          <div class="pager"><span class="step"></span><button type="button" class="next">Siguiente tema →</button></div>
+          <div class="pager"><button type="button" class="previous" hidden>← Anterior</button><button type="button" class="next">Siguiente tema →</button></div>
         </section></div>
         <div class="controls"><div class="modes" role="group" aria-label="Representación artística"><button type="button" data-mode="0" aria-pressed="true">Visible · ilustración</button><button type="button" data-mode="1" aria-pressed="false">Infrarrojo · falso color</button></div>
           <div class="tools"><button class="play" type="button"></button><button class="reset" type="button">Restablecer vista</button><label class="zoom">Zoom<input type="range" min="0.75" max="1.35" step="0.01" value="1" aria-label="Zoom del objeto"><output>1.00×</output></label></div></div>
+        <div class="disk-row" hidden><button class="disk-toggle" type="button" aria-pressed="true">Ocultar disco</button><p class="disk-note"></p></div>
+        <p class="guide-status" role="status" aria-live="polite"></p>
         <p class="caption" role="status"></p><p class="limits" id="limits"></p>`;
       this.$=selector=>this.shadowRoot.querySelector(selector);
       this.$('link').href=new URL('viewer.css',assetBase).href;
@@ -205,7 +212,11 @@
         const button=event.target.closest('[data-topic]');
         if (button) this.selectTopic(this.content.topics.findIndex(topic=>topic.id===button.dataset.topic));
       },{signal});
-      this.$('.next').addEventListener('click',()=>this.selectTopic((this.topicIndex+1)%this.content.topics.length),{signal});
+      this.$('.next').addEventListener('click',()=>this.nextTopic(),{signal});
+      this.$('.previous').addEventListener('click',()=>this.selectTopic(Math.max(0,this.topicIndex-1)),{signal});
+      this.$('.guide-start').addEventListener('click',()=>this.startGuide(),{signal});
+      this.$('.guide-exit').addEventListener('click',()=>this.stopGuide(),{signal});
+      this.$('.disk-toggle').addEventListener('click',()=>this.setDiskVisible(!this.diskVisible),{signal});
       this.shadowRoot.querySelectorAll('[data-mode]').forEach(button=>button.addEventListener('click',()=>this.setMode(Number(button.dataset.mode)),{signal}));
       this.$('.play').addEventListener('click',()=>this.setPlaying(!this.playing),{signal});
       this.$('.reset').addEventListener('click',()=>this.reset(),{signal});
@@ -253,9 +264,10 @@
     attributeChangedCallback(name) {
       if (!this.$ || !this.isConnected) return;
       if (name === 'object') this.selectObject(this.getAttribute('object'));
-      else this.selectTopic(this.topicIndex);
+      else this.selectTopic(this.topicIndex,false);
     }
     selectObject(id) {
+      if (this.guided) this.stopGuide();
       this.content=Object.hasOwn(this.objects,id) ? this.objects[id] : this.objects['brown-dwarf'];
       this.objectKind=this.content.id === 'young-star' ? 1 : 0;
       this.$('.object-picker').value=this.content.id;
@@ -281,9 +293,12 @@
           this.$(container).append(button);
         });
       }
-      this.reset();this.selectTopic(0);this.setMode(this.infrared);
+      this.$('.disk-row').hidden=this.objectKind !== 1;
+      this.$('.guide-status').textContent='';
+      this.reset();this.setDiskVisible(true);this.selectTopic(0);this.setMode(this.infrared);this.updateGuideUI();
     }
-    selectTopic(index) {
+    selectTopic(index,prepareView=true) {
+      if (!Number.isInteger(index) || !this.content.topics[index]) return;
       this.topicIndex=index;
       const topic=this.content.topics[index];
       const style=this.getAttribute('explanation') === 'technical' ? 'technical' : 'simple';
@@ -296,6 +311,8 @@
       this.$('.source').textContent=`Leer la referencia · ${source.title} ↗`;
       this.$('.source').href=source.url;
       this.shadowRoot.querySelectorAll('[data-topic]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.topic === topic.id)));
+      if (this.guided && prepareView) this.applyGuideStep();
+      this.updateGuideUI();
     }
     setMode(value) {
       this.infrared=value === 1 ? 1 : 0;
@@ -303,7 +320,65 @@
       this.$('.caption').textContent=this.infrared
         ? 'Infrarrojo · paleta conceptual. Los colores no indican temperaturas ni flujos medidos.'
         : 'Visible · ilustración con brillo realzado. No reproduce lo que verían nuestros ojos.';
+      this.$('.mode-name').textContent=this.infrared ? 'INFRARROJO / FALSO COLOR' : 'VISIBLE / ILUSTRACIÓN';
       this.draw();
+    }
+    setDiskVisible(value) {
+      this.diskVisible=value ? 1 : 0;
+      this.$('.disk-toggle').setAttribute('aria-pressed',String(Boolean(this.diskVisible)));
+      this.$('.disk-toggle').textContent=this.diskVisible ? 'Ocultar disco' : 'Mostrar disco';
+      this.$('.disk-note').textContent=this.diskVisible
+        ? 'Estrella + disco · compará la ilustración con y sin polvo.'
+        : 'Solo la estrella · ocultar el disco cambia el dibujo, no las propiedades de una fuente real.';
+      this.draw();
+    }
+    nextTopic() {
+      if (this.guided && this.topicIndex === this.content.topics.length-1) { this.stopGuide(true); return; }
+      this.selectTopic((this.topicIndex+1)%this.content.topics.length);
+    }
+    startGuide() {
+      if (this.guided) return;
+      this.guideSnapshot={yaw:this.yaw,pitch:this.pitch,zoom:this.zoom,phase:this.phase,
+        infrared:this.infrared,diskVisible:this.diskVisible,playing:this.playing,topicIndex:this.topicIndex};
+      this.guided=true;
+      this.$('.guide-status').textContent='Recorrido iniciado. Avanzá a tu ritmo; al salir recuperás tu vista anterior.';
+      this.setPlaying(false);this.selectTopic(0);
+    }
+    applyGuideStep() {
+      this.setPlaying(false);
+      this.yaw=.4;
+      this.pitch=this.objectKind === 1 ? (this.topicIndex === 2 ? .22 : .65) : -.12;
+      this.setZoom(this.objectKind === 0 && this.topicIndex === 1 ? 1.15 : 1);
+      this.setMode(this.topicIndex === (this.objectKind === 1 ? 1 : 2) ? 1 : 0);
+      if (this.objectKind === 1) this.setDiskVisible(this.topicIndex !== 0);
+      this.draw();
+    }
+    stopGuide(completed=false) {
+      if (!this.guided) return;
+      const saved=this.guideSnapshot;
+      this.guided=false;this.guideSnapshot=null;
+      this.yaw=saved.yaw;this.pitch=saved.pitch;this.phase=saved.phase;
+      this.setZoom(saved.zoom);this.setMode(saved.infrared);this.setDiskVisible(saved.diskVisible);
+      this.selectTopic(saved.topicIndex);
+      this.setPlaying(saved.playing && !this.motion?.matches);
+      this.$('.guide-status').textContent=completed
+        ? 'Recorrido completo. Recuperaste tu vista; podés seguir explorando libremente.'
+        : 'Recorrido finalizado. Recuperaste tu vista anterior.';
+      this.updateGuideUI();
+    }
+    updateGuideUI() {
+      this.$('.guide-start').hidden=this.guided;
+      this.$('.guide-exit').hidden=!this.guided;
+      this.$('.guide-progress').hidden=!this.guided;
+      this.$('.guide-progress').max=this.content.topics.length;
+      this.$('.guide-progress').value=this.topicIndex+1;
+      this.$('.guide-task').hidden=!this.guided;
+      this.$('.guide-task p').textContent=this.content.topics[this.topicIndex].activity || 'Explorá el objeto y revisá su explicación.';
+      this.$('.previous').hidden=!this.guided;
+      this.$('.previous').disabled=this.topicIndex === 0;
+      this.$('.next').textContent=this.guided
+        ? (this.topicIndex === this.content.topics.length-1 ? 'Terminar recorrido ✓' : 'Siguiente paso →')
+        : 'Siguiente tema →';
     }
     setZoom(value) {
       this.zoom=Math.max(.75,Math.min(1.35,value));
@@ -337,6 +412,7 @@
     }
     disconnectedCallback() {
       this.cancelFrame();this.abort?.abort();this.abort=null;this.drag=null;
+      this.guided=false;this.guideSnapshot=null;
       this.resize?.disconnect();this.intersection?.disconnect();this.engine?.destroy();this.engine=null;
     }
   }

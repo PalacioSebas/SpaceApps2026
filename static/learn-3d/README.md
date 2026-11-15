@@ -8,6 +8,14 @@ Con la app iniciada, abrir `/static/learn-3d/index.html` o el enlace **Aprendé 
 
 El selector **Objeto educativo** alterna entre ambos. Para abrir directamente la estrella, usar `/static/learn-3d/index.html?object=young-star`. En el asistente, preguntar **¿Qué es una estrella joven con disco?** y pulsar **Explorar la estrella en 3D**. El enlace conserva el estilo del perfil y selecciona ese modelo. La enana marrón usa `object=brown-dwarf` y sigue siendo la opción predeterminada.
 
+### Recorrido guiado y comparación
+
+**Guiame** inicia un recorrido de tres pasos para el objeto seleccionado. El avance es manual mediante Anterior/Siguiente o los temas numerados; no hay temporizadores ni consultas científicas. Cada paso prepara una orientación y paleta e incluye una actividad en **Probá esto**. Los controles permanecen disponibles. Cambiar solo el estilo de explicación conserva la comparación manual de ese paso.
+
+Al iniciar se guarda en memoria la orientación, zoom, fase visual, paleta, visibilidad del disco, reproducción y tema. **Salir del recorrido** o **Terminar recorrido** restaura esa vista; con movimiento reducido activo la animación queda pausada. Cambiar de objeto cierra el recorrido anterior y prepara el nuevo objeto. Retirar el componente del DOM descarta el recorrido y libera sus recursos. No persiste en perfiles ni almacenamiento.
+
+La estrella tiene un botón **Mostrar/Ocultar disco** que controla su geometría en el shader. El primer paso comienza con la estrella sola; el segundo muestra el disco en una paleta infrarroja conceptual y el tercero prepara una vista más inclinada. Se pueden alternar disco y paletas a voluntad. La comparación es educativa: no calcula diferencias de flujo, extinción ni una curva de luz.
+
 Para probarlo independientemente del proyecto:
 
 ```bash
@@ -22,6 +30,7 @@ Copiar **esta carpeta completa**, manteniendo sus archivos juntos:
 
 - `index.html`, `page.js`: página de demostración y adaptador opcional.
 - `content.js`: textos simples/técnicos, fuentes y límites educativos.
+- Las actividades del recorrido también están en `content.js`, en el campo `activity` de cada tema. Viajan junto al visor; no dependen del asistente ni de sus JSON.
 - `viewer.js`: componente `<papastronomy-object-viewer>` y renderizador WebGL.
 - `viewer.css`: estilos encapsulados en Shadow DOM.
 - `check.cjs`: pruebas de estado y ciclo de vida, con Node y sin npm.
@@ -63,4 +72,4 @@ node --check static/learn-3d/viewer.js
 node static/learn-3d/check.cjs
 ```
 
-`check.cjs` comprueba condiciones y transiciones del componente con elementos mínimos en memoria; no sustituye el navegador ni compila shaders. Antes de integrar, comprobar en escritorio: selector, renderizado WebGL, rotación, zoom, temas, estilos de explicación, paletas, pausa, foco, navegación y manejo de pérdida del contexto WebGL. El usuario decidió postergar la revisión móvil. No hace falta que IRSA esté disponible.
+`check.cjs` comprueba condiciones y transiciones del componente con elementos mínimos en memoria; incluye recorrido reversible, cambio de objeto, disco, paletas y respeto del control manual. No sustituye el navegador ni compila shaders. Antes de integrar, comprobar en escritorio: selector, renderizado WebGL, rotación, zoom, recorrido, visibilidad del disco, temas, estilos, pausa, foco, navegación y manejo de pérdida del contexto WebGL. El usuario decidió postergar la revisión móvil. No hace falta que IRSA esté disponible.

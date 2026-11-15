@@ -93,6 +93,34 @@ viewer.selectObject('__proto__');
 assert.equal(viewer.content.id,'brown-dwarf','Un objeto desconocido usa el predeterminado');
 viewer.attributes.explanation='simple'; viewer.attributeChangedCallback('explanation');
 
+// El recorrido prepara escenas reversibles; los controles manuales siguen disponibles.
+viewer.selectObject('young-star'); viewer.selectTopic(2); viewer.setMode(0);viewer.setZoom(1.2);
+viewer.yaw=.8;viewer.pitch=.9;viewer.phase=4;viewer.setDiskVisible(false);viewer.setPlaying(true);
+const beforeGuide={yaw:viewer.yaw,pitch:viewer.pitch,zoom:viewer.zoom,phase:viewer.phase,
+  infrared:viewer.infrared,diskVisible:viewer.diskVisible,playing:viewer.playing,topicIndex:viewer.topicIndex};
+viewer.startGuide();
+assert.equal(viewer.guided,true);assert.equal(viewer.playing,false);assert.equal(frames.size,0);
+assert.equal(viewer.topicIndex,0);assert.equal(viewer.diskVisible,0);
+assert.equal(node('.guide-progress').hidden,false);assert.equal(node('.guide-progress').value,1);
+assert.equal(node('.previous').disabled,true);
+const snapshot=viewer.guideSnapshot;viewer.startGuide();assert.equal(viewer.guideSnapshot,snapshot);
+viewer.nextTopic();assert.equal(viewer.diskVisible,1);assert.equal(viewer.infrared,1);
+viewer.setDiskVisible(false);assert.equal(viewer.diskVisible,0);
+assert.equal(node('.disk-toggle')['aria-pressed'],'false');
+viewer.attributes.explanation='technical';viewer.attributeChangedCallback('explanation');
+assert.equal(viewer.diskVisible,0,'Cambiar explicación no altera la comparación manual');
+viewer.nextTopic();assert.equal(viewer.pitch,.22);assert.equal(node('.next').textContent,'Terminar recorrido ✓');
+viewer.nextTopic();assert.equal(viewer.guided,false);assert.equal(viewer.guideSnapshot,null);
+for(const [key,value] of Object.entries(beforeGuide))assert.equal(viewer[key],value,`Se restaura ${key}`);
+assert.equal(frames.size,1);assert.match(node('.guide-status').textContent,/completo/);
+viewer.startGuide();viewer.stopGuide();assert.equal(viewer.diskVisible,0);
+viewer.startGuide();viewer.selectObject('brown-dwarf');
+assert.equal(viewer.guided,false);assert.equal(viewer.guideSnapshot,null);assert.equal(node('.disk-row').hidden,true);
+viewer.startGuide();viewer.selectTopic(2);assert.equal(viewer.infrared,1);
+viewer.stopGuide();assert.equal(viewer.topicIndex,0);
+viewer.selectObject('young-star');assert.equal(node('.disk-row').hidden,false);assert.equal(viewer.diskVisible,1);
+viewer.selectObject('brown-dwarf');viewer.attributes.explanation='simple';viewer.setPlaying(false);
+
 viewer.setPlaying(true);
 assert.equal(frames.size,1);
 viewer.setPlaying(true);
@@ -121,6 +149,7 @@ assert.equal(node('.fallback').hidden,false,'Sin WebGL se informa la limitación
 assert.equal(node('.play').disabled,true);
 viewer.selectTopic(1);
 assert.equal(node('.explanation').textContent,content.topics[1].simple,'El contenido funciona sin GPU');
+viewer.startGuide();assert.equal(viewer.guided,true);viewer.stopGuide();
 console.log('3D: dos objetos, cambio de escena, estilos, temas, paletas, zoom, pausa, visibilidad, liberación y ausencia de WebGL: OK.');
 
 // El adaptador standalone conserva el objeto elegido en enlaces compartibles.
