@@ -5,6 +5,12 @@ del anfitrión. La carga externa comienza al abrir el panel. La navegación de
 Aladin permanece dentro de la referencia. El botón **Sincronizar campo** lee
 de nuevo el contexto actual.
 
+El botón **Pantalla completa** amplía Aladin junto a sus controles de fondo,
+sincronización y exportación. **Esc** o **Salir de pantalla completa** vuelve al
+panel. La misma instancia del iframe conserva la navegación y el zoom al cambiar
+de tamaño. Si el navegador bloquea la API de pantalla completa, se intenta una
+vista ampliada dentro de la ventana mediante Popover; no se mueve el iframe.
+
 ```html
 <div id="aladin-reference"></div>
 <script src="/static/aladin-reference/reference.js" defer></script>

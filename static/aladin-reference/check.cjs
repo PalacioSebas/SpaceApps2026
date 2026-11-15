@@ -13,15 +13,38 @@ class Node {
     this.hidden = false;
     this.isConnected = true;
     this.value = '';
+    this.attributes = new Map();
+    const classes = new Set();
+    this.classList = {
+      add(...names) { names.forEach(name => classes.add(name)); },
+      remove(...names) { names.forEach(name => classes.delete(name)); },
+      contains(name) { return classes.has(name); },
+      toggle(name, force) {
+        const enabled = force === undefined ? !classes.has(name) : force;
+        if (enabled) classes.add(name); else classes.delete(name);
+        return enabled;
+      },
+    };
   }
   addEventListener(type, callback, options = {}) {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
     this.listeners.get(type).add(callback);
     options.signal?.addEventListener('abort', () => this.listeners.get(type).delete(callback), {once:true});
   }
-  emit(type, event = {}) { for (const callback of this.listeners.get(type) || []) callback(event); }
+  emit(type, event = {}) {
+    event.target ??= this;
+    event.currentTarget = this;
+    event.preventDefault ??= () => { event.defaultPrevented = true; };
+    for (const callback of this.listeners.get(type) || []) callback(event);
+  }
   append(child) { this.children.push(child); child.parent = this; }
   remove() { this.isConnected = false; if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); }
+  setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  getAttribute(name) { return this.attributes.get(name) ?? null; }
+  removeAttribute(name) { this.attributes.delete(name); }
+  contains(node) { for (let current = node; current; current = current.parent) if (current === this) return true; return false; }
+  matches(selector) { return selector === ':popover-open' && this.popoverOpen === true; }
+  focus() { this.focused = true; }
   querySelector(selector) {
     if (!this.nodes.has(selector)) this.nodes.set(selector, new Node(this.ownerDocument));
     const node = this.nodes.get(selector);
@@ -30,21 +53,60 @@ class Node {
   }
 }
 
-function environment() {
+function mockFullscreenAPI(doc, mode, popover) {
+  const control = {requests:[], pending:[], exits:0, popoverShows:0, popoverHides:0};
+  doc.fullscreenElement = null;
+  control.enter = element => { doc.fullscreenElement = element; doc.emit('fullscreenchange'); };
+  control.escape = () => { doc.fullscreenElement = null; doc.emit('fullscreenchange'); };
+  if (mode) {
+    doc.fullscreenEnabled = mode !== 'disabled';
+    doc.exitFullscreen = () => { control.exits++; control.escape(); return Promise.resolve(); };
+  }
+  control.configure = node => {
+    if (mode) node.requestFullscreen = () => {
+      control.requests.push(node);
+      if (mode === 'reject') return Promise.reject(new Error('Fullscreen blocked'));
+      if (mode === 'deferred') return new Promise((resolve,reject) => {
+        control.pending.push({resolve() { control.enter(node); resolve(); },reject() { reject(new Error('Fullscreen blocked')); }});
+      });
+      control.enter(node);
+      return Promise.resolve();
+    };
+    if (popover) {
+      node.showPopover = () => {
+        control.popoverShows++;
+        node.popoverOpen = true;
+        node.emit('toggle', {oldState:'closed', newState:'open'});
+      };
+      node.hidePopover = () => {
+        control.popoverHides++;
+        node.popoverOpen = false;
+        node.emit('toggle', {oldState:'open', newState:'closed'});
+      };
+    }
+    return node;
+  };
+  control.resolveNext = () => { assert.ok(control.pending.length, 'Hay una solicitud fullscreen pendiente'); control.pending.shift().resolve(); };
+  control.rejectNext = () => { assert.ok(control.pending.length, 'Hay una solicitud fullscreen pendiente'); control.pending.shift().reject(); };
+  return control;
+}
+
+function environment({fullscreen=false, popover=false} = {}) {
   const win = new Node();
   const timers = new Map();
   const observers = [];
   const frames = [];
-  const doc = { baseURI:'https://example.test/tool/', currentScript:{src:'https://example.test/static/aladin-reference/reference.js'}, defaultView:win,
+  const doc = Object.assign(new Node(), { baseURI:'https://example.test/tool/', currentScript:{src:'https://example.test/static/aladin-reference/reference.js'}, defaultView:win,
     documentElement:{}, createElement(tag) {
-      const node = new Node(doc);
+      const node = fullscreenAPI.configure(new Node(doc));
       if (tag === 'iframe') {
         node.contentWindow = { messages:[], postMessage(message, origin) {this.messages.push({message,origin});} };
         frames.push(node);
       }
       return node;
     },
-  };
+  });
+  const fullscreenAPI = mockFullscreenAPI(doc, fullscreen, popover);
   win.MutationObserver = class {
     constructor(callback) { this.callback=callback; observers.push(this); }
     observe() {}
@@ -56,7 +118,7 @@ function environment() {
     clearTimeout(id) {timers.delete(id);},
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'reference.js'),'utf8'),env);
-  return {env,doc,win,timers,frames,observers,container:new Node(doc)};
+  return {env,doc,win,timers,frames,observers,fullscreenAPI,container:new Node(doc)};
 }
 
 const sample = () => ({ra:133.795129,dec:-7.245147,fov:0.05,selected:{ra:133.8,dec:-7.24},
@@ -190,5 +252,211 @@ assert.ok(calls.some(call=>call[0]==='survey'&&call[1]==='https://skies.esac.esa
 renderer.destroy();renderer.destroy();
 assert.equal(handlers.size,0);
 assert.equal(layers.length,0);
-console.log('Aladin complementario: carga lazy, catálogo limitado, mensajes verificados, errores/reintento y liberación del iframe OK.');
-console.log('Renderer mock: capas reales de catálogo, selección, FoV, fondos ESA y navegación independiente OK. Sin validación GPU.');
+
+const settle = () => new Promise(resolve => setImmediate(resolve));
+function fullscreenFixture(options) {
+  const fixture = environment(options);
+  fixture.api = fixture.env.PapastronomyAladinReference.mount(fixture.container,{getContext:sample});
+  fixture.api.open();
+  fixture.wrapper = fixture.container.children[0];
+  fixture.button = fixture.wrapper.querySelector('.aladin-reference-fullscreen');
+  fixture.frame = fixture.frames[0];
+  fixture.frame.emit('load');
+  const initMessage = fixture.frame.contentWindow.messages[0].message;
+  fixture.message = (values, origin='https://example.test', source=fixture.frame.contentWindow) => {
+    fixture.win.emit('message',{source,origin,data:{channel:initMessage.channel,token:initMessage.token,...values}});
+  };
+  fixture.message({type:'ready'});
+  return fixture;
+}
+
+function assertExpanded(fixture, expanded) {
+  assert.equal(fixture.wrapper.classList.contains('aladin-reference-expanded'),expanded);
+  assert.equal(fixture.button.getAttribute('aria-pressed'),String(expanded));
+  assert.equal(fixture.button.textContent,expanded ? 'Salir de pantalla completa' : 'Pantalla completa');
+}
+
+async function checkFullscreen() {
+  const native = fullscreenFixture({fullscreen:'supported',popover:true});
+  native.wrapper.querySelector('.aladin-reference-survey').value='allwise';
+  native.wrapper.querySelector('.aladin-reference-survey').emit('change');
+  native.message({type:'position',ra:120,dec:-10,fov:2});
+  const initialPosition = native.wrapper.querySelector('.aladin-reference-position').textContent;
+  const initialMessages = native.frame.contentWindow.messages.length;
+  native.button.emit('click');
+  assert.equal(native.button.disabled,true,'Evita dos solicitudes de pantalla completa simultáneas');
+  await settle();
+  assert.equal(native.doc.fullscreenElement,native.wrapper);
+  assertExpanded(native,true);
+  assert.equal(native.button.disabled,false);
+  assert.equal(native.fullscreenAPI.popoverShows,0,'Prefiere la API nativa');
+  assert.equal(native.frames.length,1);
+  assert.equal(native.frame.isConnected,true,'Entrar conserva el iframe y su navegación');
+  assert.equal(native.wrapper.querySelector('.aladin-reference-survey').value,'allwise');
+  assert.equal(native.wrapper.querySelector('.aladin-reference-position').textContent,initialPosition);
+  assert.equal(native.frame.contentWindow.messages.length,initialMessages,'Entrar no resincroniza ni recentra la referencia');
+  native.button.emit('click');
+  await settle();
+  assert.equal(native.doc.fullscreenElement,null);
+  assertExpanded(native,false);
+  assert.equal(native.fullscreenAPI.exits,1);
+  assert.equal(native.frames.length,1,'Salir conserva el mismo iframe');
+  native.button.emit('click');
+  await settle();
+  native.fullscreenAPI.escape();
+  assertExpanded(native,false);
+  assert.equal(native.frame.contentWindow.messages.length,initialMessages,'Escape nativo conserva el campo navegado');
+  native.api.destroy();
+  assert.equal(native.doc.listeners.get('fullscreenchange').size,0,'Destroy retira el listener de pantalla completa');
+
+  const rejected = fullscreenFixture({fullscreen:'reject',popover:true});
+  rejected.button.emit('click');
+  await settle();
+  assert.equal(rejected.doc.fullscreenElement,null);
+  assert.equal(rejected.fullscreenAPI.popoverShows,1,'Un rechazo nativo usa el fallback disponible');
+  assert.equal(rejected.wrapper.getAttribute('popover'),'manual');
+  assertExpanded(rejected,true);
+  assert.equal(rejected.frame.isConnected,true,'El rechazo de fullscreen no destruye Aladin');
+  rejected.doc.emit('keydown',{key:'Escape'});
+  await settle();
+  assertExpanded(rejected,false);
+  assert.equal(rejected.wrapper.getAttribute('popover'),null);
+  assert.equal(rejected.fullscreenAPI.popoverHides,1);
+  assert.equal(rejected.frames.length,1,'Escape del fallback conserva el iframe');
+  rejected.button.emit('click');
+  await settle();
+  rejected.message({type:'exit-expanded'},'https://other.test');
+  assertExpanded(rejected,true);
+  rejected.message({type:'exit-expanded'},'https://example.test',{});
+  assertExpanded(rejected,true);
+  rejected.message({type:'exit-expanded',token:'other-token'});
+  assertExpanded(rejected,true);
+  rejected.message({type:'exit-expanded'});
+  await settle();
+  assertExpanded(rejected,false);
+  rejected.button.emit('click');
+  await settle();
+  rejected.wrapper.popoverOpen=false;
+  rejected.wrapper.emit('toggle',{oldState:'open',newState:'closed'});
+  assertExpanded(rejected,false);
+  assert.equal(rejected.wrapper.getAttribute('popover'),null,'Un cierre externo del popover limpia el estado del control');
+  assert.equal(rejected.frames.length,1);
+  rejected.api.destroy();
+
+  const disabled = fullscreenFixture({fullscreen:'disabled',popover:true});
+  disabled.button.emit('click');
+  await settle();
+  assert.equal(disabled.fullscreenAPI.requests.length,0,'fullscreenEnabled=false evita una solicitud nativa');
+  assertExpanded(disabled,true);
+  disabled.api.destroy();
+  await settle();
+  assert.equal(disabled.wrapper.popoverOpen,false,'Destroy cierra el fallback');
+  assert.equal(disabled.wrapper.getAttribute('popover'),null);
+
+  for (const fullscreen of [false,'reject']) {
+    const unavailable = fullscreenFixture({fullscreen});
+    unavailable.button.emit('click');
+    await settle();
+    assertExpanded(unavailable,false);
+    assert.equal(unavailable.button.disabled,false);
+    assert.match(unavailable.wrapper.querySelector('.aladin-reference-status').textContent,/pantalla|ampli|navegador/i);
+    assert.equal(unavailable.frame.isConnected,true,'La falta de API conserva la referencia utilizable');
+    assert.equal(unavailable.frames.length,1);
+    unavailable.api.destroy();
+  }
+
+  const failedAladin = fullscreenFixture({fullscreen:'reject'});
+  failedAladin.message({type:'error',message:'Error persistente de la referencia externa.'});
+  assert.equal(failedAladin.wrapper.querySelector('.aladin-reference-retry').hidden,false);
+  failedAladin.button.emit('click');
+  await settle();
+  assert.equal(failedAladin.wrapper.querySelector('.aladin-reference-retry').hidden,false,'El rechazo de fullscreen conserva Reintentar tras un error de Aladin');
+  assert.match(failedAladin.wrapper.querySelector('.aladin-reference-status').textContent,/Error persistente de la referencia externa/);
+  failedAladin.api.destroy();
+
+  for (const fullscreen of ['supported','reject']) for (const end of ['destroy','close','pagehide']) {
+    const active = fullscreenFixture({fullscreen,popover:true});
+    active.button.emit('click');
+    await settle();
+    if (end === 'destroy') active.api.destroy();
+    else if (end === 'close') {
+      active.wrapper.querySelector('details').open=false;
+      active.wrapper.querySelector('details').emit('toggle');
+    } else active.win.emit('pagehide');
+    await settle();
+    assert.equal(active.doc.fullscreenElement,null,`${end} sale de fullscreen propio`);
+    assert.equal(active.fullscreenAPI.exits,fullscreen === 'supported' ? 1 : 0);
+    if (fullscreen === 'reject') {
+      assert.equal(active.wrapper.popoverOpen,false);
+      assert.equal(active.wrapper.getAttribute('popover'),null);
+    }
+    assert.equal(active.frame.isConnected,false);
+    active.api.destroy();
+  }
+
+  for (const end of ['destroy','close','pagehide']) {
+    const pending = fullscreenFixture({fullscreen:'deferred'});
+    pending.button.emit('click');
+    assert.equal(pending.fullscreenAPI.pending.length,1);
+    assert.equal(pending.button.disabled,true);
+    if (end === 'destroy') pending.api.destroy();
+    else if (end === 'close') {
+      pending.wrapper.querySelector('details').open=false;
+      pending.wrapper.querySelector('details').emit('toggle');
+    } else pending.win.emit('pagehide');
+    pending.fullscreenAPI.resolveNext();
+    await settle();
+    assert.equal(pending.doc.fullscreenElement,null,`Una entrada tardía después de ${end} se revierte`);
+    assert.equal(pending.fullscreenAPI.exits,1);
+    assert.equal(pending.frame.isConnected,false);
+    pending.api.destroy();
+  }
+
+  const rejectedAfterDestroy = fullscreenFixture({fullscreen:'deferred',popover:true});
+  rejectedAfterDestroy.button.emit('click');
+  rejectedAfterDestroy.api.destroy();
+  rejectedAfterDestroy.fullscreenAPI.rejectNext();
+  await settle();
+  assert.equal(rejectedAfterDestroy.fullscreenAPI.popoverShows,0,'Un rechazo tardío no abre el fallback de una instancia destruida');
+  assert.equal(rejectedAfterDestroy.doc.fullscreenElement,null);
+
+  for (const lifecycle of ['reopen','restore']) for (const outcome of ['resolve','reject']) {
+    const stale = fullscreenFixture({fullscreen:'deferred',popover:true});
+    stale.button.emit('click');
+    if (lifecycle === 'reopen') {
+      stale.wrapper.querySelector('details').open=false;
+      stale.wrapper.querySelector('details').emit('toggle');
+      stale.api.open();
+    } else {
+      stale.win.emit('pagehide');
+      stale.win.emit('pageshow',{persisted:true});
+    }
+    assert.equal(stale.frames.length,2,'La reapertura/restauración inicia una nueva referencia');
+    const reopenedFrame = stale.frames[1];
+    const reopenedStatus = stale.wrapper.querySelector('.aladin-reference-status').textContent;
+    if (outcome === 'resolve') stale.fullscreenAPI.resolveNext();
+    else stale.fullscreenAPI.rejectNext();
+    await settle();
+    assert.equal(stale.doc.fullscreenElement,null,`${lifecycle}: una solicitud anterior no expande el panel restaurado`);
+    assert.equal(stale.fullscreenAPI.popoverShows,0,`${lifecycle}: un rechazo anterior no abre el fallback`);
+    assertExpanded(stale,false);
+    assert.equal(reopenedFrame.isConnected,true,'La continuación obsoleta conserva el iframe nuevo');
+    assert.equal(stale.wrapper.querySelector('.aladin-reference-status').textContent,reopenedStatus);
+    stale.api.destroy();
+  }
+
+  const foreign = fullscreenFixture({fullscreen:'supported'});
+  const otherElement = new Node(foreign.doc);
+  foreign.fullscreenAPI.enter(otherElement);
+  assertExpanded(foreign,false,'La expansión de otro elemento no cambia este botón');
+  foreign.api.destroy();
+  await settle();
+  assert.equal(foreign.doc.fullscreenElement,otherElement,'Destroy no sale de fullscreen ajeno');
+  assert.equal(foreign.fullscreenAPI.exits,0);
+}
+
+checkFullscreen().then(() => {
+  console.log('Aladin complementario: carga lazy, catálogo limitado, mensajes verificados, errores/reintento y liberación del iframe OK.');
+  console.log('Pantalla completa mock: entrada/salida/Escape, fallback, rechazo, carreras async y limpieza OK.');
+  console.log('Renderer mock: capas reales de catálogo, selección, FoV, fondos ESA y navegación independiente OK. Sin validación GPU.');
+}).catch(error => { console.error(error); process.exitCode=1; });

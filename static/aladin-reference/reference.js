@@ -80,6 +80,7 @@
         <p class="aladin-reference-note">Imágenes de relevamientos externos. El contorno delimita el campo de la herramienta; las marcas de Gaia y AllWISE conservan sus coordenadas de catálogo. El botón Sincronizar campo actualiza también la selección mostrada.</p>
         <div class="aladin-reference-controls"><button type="button" class="aladin-reference-sync">Sincronizar campo</button>
           <label>Fondo<select class="aladin-reference-survey"><option value="dss2">DSS2 óptico</option><option value="2mass">2MASS JHK</option><option value="allwise">AllWISE infrarrojo</option></select></label>
+          <button type="button" class="aladin-reference-fullscreen" aria-pressed="false">Pantalla completa</button>
           <button type="button" class="aladin-reference-retry" hidden>Reintentar</button></div>
         <p class="aladin-reference-status" role="status">Se carga al abrir este panel.</p>
         <div class="aladin-reference-frame"></div>
@@ -100,10 +101,91 @@
     let timer = null;
     let destroyed = false;
     let observer = null;
+    let fullscreenPending = false;
+    let fullscreenIntent = 0;
+    let expandedInWindow = false;
+    let pageActive = true;
+    let statusMessage = 'Se carga al abrir este panel.';
+    let statusFailed = false;
+    let fullscreenNotice = '';
+    const fullscreenButton = node('.aladin-reference-fullscreen');
 
+    function updateFullscreenControl() {
+      const expanded = doc.fullscreenElement === wrapper || expandedInWindow;
+      wrapper.classList.toggle('aladin-reference-expanded', expanded);
+      fullscreenButton.textContent = expanded ? 'Salir de pantalla completa' : 'Pantalla completa';
+      fullscreenButton.setAttribute('aria-pressed', String(expanded));
+      fullscreenButton.disabled = fullscreenPending || destroyed;
+    }
+    async function exitExpanded() {
+      setFullscreenNotice('');
+      if (expandedInWindow) {
+        expandedInWindow = false;
+        try { wrapper.hidePopover(); } catch { /* Removing the attribute also closes it. */ }
+        wrapper.removeAttribute('popover');
+      }
+      if (doc.fullscreenElement === wrapper && typeof doc.exitFullscreen === 'function') {
+        try { await doc.exitFullscreen(); }
+        catch { if (!destroyed && pageActive) setFullscreenNotice('Usá Esc para salir de pantalla completa.'); }
+      }
+      updateFullscreenControl();
+    }
+    function expandWithinWindow() {
+      if (typeof wrapper.showPopover !== 'function' || typeof wrapper.hidePopover !== 'function') {
+        setFullscreenNotice('Este navegador no permite ampliar el panel. Abrí la herramienta en Chrome, Edge o Firefox.');
+        return;
+      }
+      try {
+        // The top layer avoids clipping by the host's panels, without moving or
+        // reloading the iframe and losing its current position or zoom.
+        wrapper.setAttribute('popover', 'manual');
+        wrapper.showPopover();
+        expandedInWindow = true;
+        updateFullscreenControl();
+        setFullscreenNotice('Vista ampliada dentro del navegador. Usá Esc o el botón para volver al panel.');
+      } catch {
+        wrapper.removeAttribute('popover');
+        setFullscreenNotice('No se pudo ampliar el panel. Podés reintentar desde el botón Pantalla completa.');
+      }
+    }
+    async function toggleFullscreen() {
+      if (destroyed || fullscreenPending || !details.open || !pageActive) return;
+      const intent = ++fullscreenIntent;
+      fullscreenPending = true;
+      setFullscreenNotice('');
+      updateFullscreenControl();
+      try {
+        if (doc.fullscreenElement === wrapper || expandedInWindow) {
+          await exitExpanded();
+        } else if (typeof wrapper.requestFullscreen === 'function' && doc.fullscreenEnabled !== false) {
+          try {
+            await wrapper.requestFullscreen();
+            if (intent !== fullscreenIntent || destroyed || !details.open || !pageActive) await exitExpanded();
+          } catch {
+            if (intent === fullscreenIntent && !destroyed && details.open && pageActive) expandWithinWindow();
+          }
+        } else {
+          expandWithinWindow();
+        }
+      } finally {
+        fullscreenPending = false;
+        updateFullscreenControl();
+        if (!destroyed && pageActive && details.open && wrapper.isConnected) fullscreenButton.focus();
+      }
+    }
+
+    function renderStatus() {
+      node('.aladin-reference-status').textContent = `${statusMessage}${fullscreenNotice ? ` ${fullscreenNotice}` : ''}`;
+      node('.aladin-reference-retry').hidden = !statusFailed;
+    }
+    function setFullscreenNotice(message) {
+      fullscreenNotice = message;
+      renderStatus();
+    }
     function setStatus(message, failed = false) {
-      node('.aladin-reference-status').textContent = message;
-      node('.aladin-reference-retry').hidden = !failed;
+      statusMessage = message;
+      statusFailed = failed;
+      renderStatus();
     }
     function removeFrame() {
       clearTimeout(timer);
@@ -177,11 +259,15 @@
         fail(typeof message.message === 'string' ? message.message.slice(0, 300) : 'No se pudo iniciar Aladin Lite. Reintentá o abrilo en otra pestaña.');
       } else if (message.type === 'position' && position(message) && Number.isFinite(message.fov)) {
         node('.aladin-reference-position').textContent = `Vista de referencia · RA ${message.ra.toFixed(5)}° · Dec ${message.dec.toFixed(5)}° · FoV ${message.fov.toFixed(4)}°`;
+      } else if (message.type === 'exit-expanded' && expandedInWindow) {
+        void exitExpanded();
       }
     }
     function destroy() {
       if (destroyed) return;
       destroyed = true;
+      fullscreenIntent++;
+      void exitExpanded();
       events.abort();
       observer?.disconnect();
       removeFrame();
@@ -190,17 +276,35 @@
     }
     details.addEventListener('toggle', () => {
       if (details.open) startFrame();
-      else { removeFrame(); setStatus('Se carga al abrir este panel.'); }
+      else { fullscreenIntent++; void exitExpanded(); removeFrame(); setStatus('Se carga al abrir este panel.'); }
+    }, { signal: events.signal });
+    fullscreenButton.addEventListener('click', () => { void toggleFullscreen(); }, { signal: events.signal });
+    doc.addEventListener('fullscreenchange', updateFullscreenControl, { signal: events.signal });
+    doc.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && expandedInWindow) {
+        event.preventDefault();
+        void exitExpanded();
+      }
+    }, { signal: events.signal });
+    wrapper.addEventListener('toggle', (event) => {
+      if (event.target === wrapper && event.newState === 'closed' && expandedInWindow) {
+        expandedInWindow = false;
+        wrapper.removeAttribute('popover');
+        updateFullscreenControl();
+      }
     }, { signal: events.signal });
     node('.aladin-reference-sync').addEventListener('click', () => { if (sync()) startFrame(); }, { signal: events.signal });
     node('.aladin-reference-retry').addEventListener('click', () => { removeFrame(); startFrame(); }, { signal: events.signal });
     node('.aladin-reference-survey').addEventListener('change', () => { if (ready) send('survey'); }, { signal: events.signal });
     win.addEventListener('message', onMessage, { signal: events.signal });
     win.addEventListener('pagehide', () => {
+      pageActive = false;
+      fullscreenIntent++;
+      void exitExpanded();
       removeFrame();
       setStatus('Referencia pausada.');
     }, { signal: events.signal });
-    win.addEventListener('pageshow', () => { if (details.open) startFrame(); }, { signal: events.signal });
+    win.addEventListener('pageshow', () => { pageActive = true; if (details.open) startFrame(); }, { signal: events.signal });
     if (win.MutationObserver) {
       observer = new win.MutationObserver(() => { if (!wrapper.isConnected) destroy(); });
       observer.observe(doc.documentElement, { childList: true, subtree: true });
