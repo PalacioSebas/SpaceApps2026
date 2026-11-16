@@ -80,18 +80,6 @@
       }
     },
     {
-      "source": "/images/sky-field.png",
-      "destination": {
-        "service": "landing-llm"
-      }
-    },
-    {
-      "source": "/images/spherex-field.png",
-      "destination": {
-        "service": "landing-login"
-      }
-    },
-    {
       "source": "/(.*)",
       "destination": {
         "service": "landing"
