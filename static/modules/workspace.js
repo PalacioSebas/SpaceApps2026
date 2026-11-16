@@ -7,7 +7,10 @@
       if (this.controller) return;
       this.detached=false;
       this.controller=new AbortController();
-      this.shadowRoot.innerHTML=`<link rel="stylesheet"><div class="bar"><a href="/" class="identity" aria-label="Papastronomy inicio"><img class="mark-logo" src="/static/images/official-logo.png" alt="Find My X" /><div><span>Tu espacio de exploración</span></div></a><papastronomy-access></papastronomy-access></div><nav aria-label="Secciones de la herramienta"><a href="/">Inicio</a><button type="button" data-section="explorer" aria-pressed="true">Explorador</button><button type="button" data-section="assistant" aria-pressed="false">Asistente</button><a href="/copilot">AI Copilot</a><a href="/login">Iniciar sesión</a><a class="learn" target="_blank" rel="noopener noreferrer" hidden>Aprendé en 3D ↗</a></nav><section class="chat" hidden><papastronomy-assistant></papastronomy-assistant></section>`;
+      const landingHref = ['localhost','127.0.0.1'].includes(location.hostname) && location.port === '8000' ? 'http://localhost:3000/' : '/';
+      const copilotHref = ['localhost','127.0.0.1'].includes(location.hostname) && location.port === '8000' ? 'http://localhost:3002/' : '/copilot';
+      const loginHref = ['localhost','127.0.0.1'].includes(location.hostname) && location.port === '8000' ? 'http://localhost:3001/' : '/login';
+      this.shadowRoot.innerHTML=`<link rel="stylesheet"><div class="bar"><a href="${landingHref}" class="identity" aria-label="Ir a la landing principal"><img class="mark-logo" src="/static/images/official-logo.png?v=3" alt="Find My X" /><span>Tu espacio de exploración</span></a><papastronomy-access></papastronomy-access></div><nav aria-label="Secciones de la herramienta"><a href="${landingHref}">Inicio</a><button type="button" data-section="explorer" aria-pressed="true">Explorador</button><button type="button" data-section="assistant" aria-pressed="false">Asistente</button><a href="${copilotHref}">AI Copilot</a><a href="${loginHref}">Iniciar sesión</a><a class="learn" target="_blank" rel="noopener noreferrer" hidden>Aprendé en 3D ↗</a></nav><section class="chat" hidden><papastronomy-assistant></papastronomy-assistant></section>`;
       this.$=selector=>this.shadowRoot.querySelector(selector);
       this.$('link').href=new URL('workspace.css',base).href;
       this.access=this.$('papastronomy-access');

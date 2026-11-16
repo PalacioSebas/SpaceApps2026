@@ -858,6 +858,10 @@
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && menu.open) { menu.open = false; menu.querySelector('summary')?.focus(); } });
         menu.querySelectorAll('.menu-item').forEach((b) => b.addEventListener('click', () => { menu.open = false; }));
       }
+      if (['localhost', '127.0.0.1'].includes(location.hostname) && location.port === '8000') {
+        const brandLink = document.querySelector('a.brand');
+        if (brandLink) brandLink.href = 'http://localhost:3000/';
+      }
     })();
   </script>
 
@@ -869,8 +873,8 @@
   <script src="/static/modules/access/access.js"></script>
   <script src="/static/modules/assistant/rules.js"></script>
   <script src="/static/modules/assistant/assistant.js"></script>
-  <script src="/static/modules/workspace.js?v=2"></script>
-  <script src="/static/integrations/explorer-modules.js?v=2"></script>
+  <script src="/static/modules/workspace.js?v=3"></script>
+  <script src="/static/integrations/explorer-modules.js?v=3"></script>
   <!-- Script Principal de Aplicación -->
   <script src="/static/aladin-reference/reference.js"></script>
   <script src="/static/app.js?v=3.2"></script>

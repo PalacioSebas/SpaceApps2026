@@ -616,7 +616,8 @@ export function useLanguage() {
 }
 
 export function withLanguage(href: string, locale: Locale): string {
-  const url = new URL(href);
+  if (href.startsWith("#")) return href;
+  const url = new URL(href, "https://papastronomy.invalid");
   url.searchParams.set("lang", locale);
-  return url.href;
+  return /^https?:\/\//.test(href) ? url.href : `${url.pathname}${url.search}${url.hash}`;
 }
