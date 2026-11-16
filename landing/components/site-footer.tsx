@@ -8,8 +8,11 @@ export function SiteFooter() {
   const { t, locale } = useLanguage();
 
   const links = [
-    { label: t.footer.links.github, href: site.githubUrl, external: true },
     { label: t.footer.links.application, href: withLanguage(site.appUrl, locale), external: false },
+    { label: "AI Copilot", href: withLanguage(site.copilotUrl, locale), external: false },
+    { label: locale === "es" ? "Aprendé en 3D" : "Learn in 3D", href: `${site.learning3dUrl}?lang=${locale}`, external: false },
+    { label: locale === "es" ? "Iniciar sesión / Perfil" : "Sign in / Profile", href: withLanguage(site.loginUrl, locale), external: false },
+    { label: t.footer.links.github, href: site.githubUrl, external: true },
     { label: t.footer.links.challenge, href: site.challengeUrl, external: true },
   ];
 
@@ -17,7 +20,9 @@ export function SiteFooter() {
     <footer className="border-t border-line bg-void">
       <div className="mx-auto grid max-w-7xl gap-12 px-5 py-16 md:grid-cols-12 md:px-8">
         <div className="md:col-span-5">
-          <Logo />
+          <a href="#top" aria-label={t.header.homeAria} className="inline-block rounded-md">
+            <Logo />
+          </a>
           <p className="mt-5 max-w-sm text-sm leading-relaxed text-muted">
             {t.footer.description}
           </p>
@@ -53,7 +58,7 @@ export function SiteFooter() {
       </div>
       <div className="border-t border-line">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-5 py-6 font-mono text-[10px] uppercase tracking-[0.18em] text-muted sm:flex-row sm:justify-between md:px-8">
-          <span>© 2026 Papastronomy</span>
+          <span>© 2026 Find My X · Papastronomy</span>
           <span>{t.footer.disclaimer}</span>
         </div>
       </div>

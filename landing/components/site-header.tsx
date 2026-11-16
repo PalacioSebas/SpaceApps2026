@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Globe } from "lucide-react";
+import { ArrowUpRight, Globe, Sparkles, Telescope, UserCircle2 } from "lucide-react";
 import { Logo } from "./logo";
 import { site } from "@/lib/site";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, withLanguage } from "@/lib/i18n";
 
 export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false);
@@ -33,16 +33,16 @@ export function SiteHeader() {
           : "border-b border-transparent bg-transparent"
       }`}
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 md:px-8">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-5 md:px-8">
         <a
           href="#top"
           aria-label={t.header.homeAria}
-          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
+          className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
         >
           <Logo />
         </a>
-        <nav aria-label={t.header.navAria} className="hidden md:block">
-          <ul className="flex items-center gap-8">
+        <nav aria-label={t.header.navAria} className="hidden xl:block">
+          <ul className="flex items-center gap-6">
             {navItems.map((link) => (
               <li key={link.href}>
                 <a
@@ -55,7 +55,42 @@ export function SiteHeader() {
             ))}
           </ul>
         </nav>
-        <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          <nav
+            aria-label={locale === "es" ? "Módulos de la plataforma" : "Platform modules"}
+            className="flex items-center rounded-full border border-line-strong bg-navy/60 p-1"
+          >
+            <a
+              href={withLanguage(site.appUrl, locale)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-cyan/15 px-3 py-1.5 text-xs font-medium text-cyan ring-1 ring-cyan/40 transition-colors hover:bg-cyan/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+            >
+              <Telescope aria-hidden="true" className="h-3.5 w-3.5" />
+              <span>{locale === "es" ? "Observatorio" : "Observatory"}</span>
+            </a>
+            <a
+              href={withLanguage(site.copilotUrl, locale)}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-muted transition-colors hover:text-stellar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+            >
+              <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-violet" />
+              <span className="hidden sm:inline">AI Copilot</span>
+            </a>
+            <a
+              href={withLanguage(site.loginUrl, locale)}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-muted transition-colors hover:text-stellar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+            >
+              <UserCircle2 aria-hidden="true" className="h-3.5 w-3.5 text-amber" />
+              <span className="hidden md:inline">{locale === "es" ? "Acceder" : "Sign In"}</span>
+            </a>
+          </nav>
+
+          <a
+            href={`${site.learning3dUrl}?lang=${locale}`}
+            className="hidden items-center gap-1.5 rounded-full border border-cyan/30 bg-cyan/5 px-3.5 py-1.5 text-xs text-cyan transition-colors hover:border-cyan/60 hover:bg-cyan/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan lg:inline-flex"
+          >
+            {t.header.learn3d}
+            <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+          </a>
+
           <button
             type="button"
             onClick={toggleLocale}
@@ -82,28 +117,6 @@ export function SiteHeader() {
               ES
             </span>
           </button>
-          <a
-            href={`${site.learning3dUrl}?lang=${locale}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden items-center gap-2 rounded-full border border-cyan/30 bg-cyan/5 px-4 py-2 text-sm text-cyan transition-colors hover:border-cyan/60 hover:bg-cyan/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan lg:inline-flex"
-          >
-            {t.header.learn3d}
-            <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
-            <span className="sr-only">{t.header.opensNewTab}</span>
-          </a>
-          <a
-            href={site.githubUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="group inline-flex items-center gap-1.5 rounded-full border border-line-strong px-4 py-2 text-sm text-stellar transition-colors hover:border-cyan/50 hover:bg-cyan/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
-          >
-            GitHub
-            <ArrowUpRight
-              aria-hidden="true"
-              className="h-3.5 w-3.5 text-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-cyan"
-            />
-          </a>
         </div>
       </div>
     </header>

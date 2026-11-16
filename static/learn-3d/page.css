@@ -20,6 +20,8 @@ header {
   border-bottom: 1px solid rgb(243 245 250 / .08);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; letter-spacing: -.025em; }
+.brand-home { display: inline-flex; align-items: center; }
+.brand-logo { height: 34px; width: auto; object-fit: contain; display: block; }
 .brand svg { width: 28px; height: 28px; flex-shrink: 0; }
 .module-name { margin-left: 14px; padding-left: 24px; border-left: 1px solid rgb(243 245 250 / .14); color: #8a96ad; font: 10px/1.5 ui-monospace, Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
 header a { color: #8a96ad; font-size: 12px; text-decoration: none; transition: color .2s; }

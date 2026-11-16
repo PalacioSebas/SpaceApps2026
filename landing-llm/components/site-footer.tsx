@@ -24,7 +24,7 @@ export function SiteFooter() {
           </p>
           <div className="flex flex-col items-center gap-3 sm:flex-row">
             <a
-              href={withLanguage(site.observatoryUrl)}
+              href={withLanguage(`${site.observatoryUrl}#asistente`)}
               className="inline-flex items-center gap-2 rounded-full bg-stellar px-5 py-2.5 text-sm font-medium text-void transition-colors hover:bg-indigo-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
             >
               <Sparkles aria-hidden="true" className="h-4 w-4" />
@@ -44,7 +44,9 @@ export function SiteFooter() {
       <div className="relative border-t border-line px-5 py-8 md:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-2">
-            <Logo />
+            <a href={withLanguage(site.landingUrl)} aria-label={t("Papastronomy inicio")} className="inline-block w-fit rounded-md">
+              <Logo />
+            </a>
             <p className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
               {t("NASA Space Apps Challenge 2026 · Datos SPHEREx")}
             </p>

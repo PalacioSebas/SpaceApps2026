@@ -1,10 +1,12 @@
-const explorerUrl = process.env.NEXT_PUBLIC_EXPLORER_URL || "http://127.0.0.1:8000";
+const explorerUrl = process.env.NEXT_PUBLIC_EXPLORER_URL || "/explorer";
 
 export const site = {
-  name: "Papastronomy",
-  // Set the public Explorer URL before building for another environment.
+  name: "Find My X · Papastronomy",
+  landingUrl: "/",
   appUrl: explorerUrl,
-  learning3dUrl: new URL("/static/learn-3d/index.html", explorerUrl).href,
+  copilotUrl: process.env.NEXT_PUBLIC_COPILOT_URL || "/copilot",
+  loginUrl: process.env.NEXT_PUBLIC_LOGIN_URL || "/login",
+  learning3dUrl: "/static/learn-3d/index.html",
   githubUrl: "https://github.com/PalacioSebas/SpaceApps2026",
   challengeUrl: "https://www.spaceappschallenge.org/",
 };

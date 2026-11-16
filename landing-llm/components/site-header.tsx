@@ -3,7 +3,7 @@
 import { useLanguage } from "@/lib/i18n";
 
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Sparkles, Telescope } from "lucide-react";
+import { ArrowUpRight, Sparkles, Telescope, UserCircle2 } from "lucide-react";
 import { Logo } from "./logo";
 import { navLinks, site } from "@/lib/site";
 
@@ -28,9 +28,9 @@ export function SiteHeader() {
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-5 md:px-8">
         <a
-          href="#top"
+          href={withLanguage(site.landingUrl)}
           aria-label={t("Papastronomy inicio")}
-          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
+          className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
         >
           <Logo />
         </a>
@@ -57,7 +57,7 @@ export function SiteHeader() {
               href={withLanguage(site.observatoryUrl)}
               className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-muted transition-colors hover:text-stellar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
             >
-              <Telescope aria-hidden="true" className="h-3.5 w-3.5" />
+              <Telescope aria-hidden="true" className="h-3.5 w-3.5 text-cyan" />
               <span className="hidden sm:inline">{t("Observatorio")}</span>
               <span className="sr-only sm:hidden">{t("Observatorio")}</span>
             </a>
@@ -68,6 +68,13 @@ export function SiteHeader() {
             >
               <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-violet" />
               {t("AI Copilot")}
+            </a>
+            <a
+              href={withLanguage(site.loginUrl)}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-muted transition-colors hover:text-stellar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+            >
+              <UserCircle2 aria-hidden="true" className="h-3.5 w-3.5 text-amber" />
+              <span className="hidden md:inline">{locale === "es" ? "Acceder" : "Sign In"}</span>
             </a>
           </nav>
           <nav aria-label={locale === "es" ? "Idioma" : "Language"} className="flex items-center rounded-full border border-line-strong bg-navy/60 p-1">

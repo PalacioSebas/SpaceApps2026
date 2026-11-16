@@ -42,6 +42,7 @@ export function AuthCard() {
       // Ignore storage failures; the guest session still works for this visit.
     }
     setGuestReady(true)
+    window.location.href = '/explorer'
   }
 
   return (

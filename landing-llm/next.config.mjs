@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  basePath: process.env.VERCEL ? "/copilot" : "",
   typescript: {
     ignoreBuildErrors: true,
   },

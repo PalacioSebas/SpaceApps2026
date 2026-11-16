@@ -459,6 +459,8 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR), check_dir=False), na
 
 
 @app.get("/")
+@app.get("/explorer")
+@app.get("/observatory")
 def serve_frontend() -> HTMLResponse:
     html_content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     app_js_path = STATIC_DIR / "app.js"

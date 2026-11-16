@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  basePath: process.env.VERCEL ? "/login" : "",
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -20,9 +20,81 @@
   },
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/(.*)",
       "destination": {
         "service": "app"
+      }
+    },
+    {
+      "source": "/static/(.*)",
+      "destination": {
+        "service": "app"
+      }
+    },
+    {
+      "source": "/explorer",
+      "destination": {
+        "service": "app"
+      }
+    },
+    {
+      "source": "/explorer/(.*)",
+      "destination": {
+        "service": "app"
+      }
+    },
+    {
+      "source": "/observatory",
+      "destination": {
+        "service": "app"
+      }
+    },
+    {
+      "source": "/observatory/(.*)",
+      "destination": {
+        "service": "app"
+      }
+    },
+    {
+      "source": "/copilot",
+      "destination": {
+        "service": "landing-llm"
+      }
+    },
+    {
+      "source": "/copilot/(.*)",
+      "destination": {
+        "service": "landing-llm"
+      }
+    },
+    {
+      "source": "/login",
+      "destination": {
+        "service": "landing-login"
+      }
+    },
+    {
+      "source": "/login/(.*)",
+      "destination": {
+        "service": "landing-login"
+      }
+    },
+    {
+      "source": "/images/sky-field.png",
+      "destination": {
+        "service": "landing-llm"
+      }
+    },
+    {
+      "source": "/images/spherex-field.png",
+      "destination": {
+        "service": "landing-login"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "landing"
       }
     }
   ]

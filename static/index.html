@@ -152,7 +152,7 @@
     @media (min-width: 768px) { .wrap { padding: 0 32px; } }
     .hdr-row { display: flex; align-items: center; gap: 12px; min-height: 62px; flex-wrap: wrap; padding: 10px 0; }
     .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--stellar); text-decoration: none; border-radius: 6px; }
-    .brand-mark { width: 28px; height: 28px; }
+    .brand-mark { height: 36px; width: auto; object-fit: contain; display: block; }
     .brand-name { font-weight: 600; letter-spacing: -0.01em; font-size: 15px; }
 
     #coord-form { display: flex; align-items: center; gap: 6px; flex: 1 1 520px; flex-wrap: wrap; }
@@ -334,14 +334,8 @@
   <header class="site-header">
     <div class="wrap">
       <div class="hdr-row">
-        <a href="#top" class="brand embed-hide" aria-label="Papastronomy inicio">
-          <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-            <circle cx="16" cy="16" r="13" stroke="var(--line-strong)" />
-            <ellipse cx="16" cy="16" rx="13" ry="5" stroke="var(--cyan)" stroke-opacity=".7" transform="rotate(-24 16 16)" />
-            <circle cx="16" cy="16" r="4" fill="var(--stellar)" />
-            <circle cx="26.5" cy="11" r="1.6" fill="var(--cyan)" />
-          </svg>
-          <span class="brand-name">Papastronomy</span>
+        <a href="/" class="brand embed-hide" aria-label="Papastronomy inicio">
+          <img class="brand-mark" src="/static/images/official-logo.png" alt="Find My X · Papastronomy" />
         </a>
         <span id="badge-datasource" class="badge badge-cyan embed-hide" title="Origen de los datos actualmente cargados">Esperando observaciones</span>
 
