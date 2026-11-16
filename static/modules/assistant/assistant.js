@@ -61,7 +61,7 @@
         const target=event.target.closest?.('button,a');
         if (!target) return;
         if (target.classList.contains('clear')) {this.reset();this.$('textarea').focus();}
-        else if (target.dataset.prompt) this.send(target.dataset.prompt);
+        else if (target.dataset.prompt) this.send(target.dataset.prompt,true);
         else if (target.dataset.nav) this.navigate(target.dataset.nav);
         else if (target.dataset.learning) {
           const href=this.learningUrl(target.dataset.learning);
@@ -89,9 +89,11 @@
     button(label,kind,value) {
       const button=this.element('button','',label);button.type='button';button.dataset[kind]=value;return button;
     }
-    append(role,value) {
+    append(role,value,displayValue=value) {
       const message=this.element('article',`message ${role}`);message.id=`message-${++this.sequence}`;
-      message.append(this.element('span','author',role === 'user' ? 'Vos' : 'Asistente'),this.element('p','body',value));
+      const body=this.element('p','body',displayValue);
+      if (role === 'user') body.setAttribute('data-i18n-skip','');
+      message.append(this.element('span','author',role === 'user' ? 'Vos' : 'Asistente'),body);
       this.$('.messages').append(message);
       this.history.push({role,content:value});this.history=this.history.slice(-30);
       while (this.$('.messages').children.length > 30) this.$('.messages').firstElementChild.remove();
@@ -140,13 +142,13 @@
       if (!pending) return;
       this.pending=null;pending.controller.abort();clearTimeout(pending.timer);pending.finishDelay?.();pending.message.remove();this.setBusy(false);
     }
-    async send(value) {
+    async send(value,translatedPrompt=false) {
       const prompt=String(value || '').trim().slice(0,400);
       if (!prompt || this.pending || !this.$) return;
       const current=this.refresh();
       if (!this.provider?.respond) {this.$('.status').textContent='No hay un proveedor de respuestas disponible.';return;}
       const context=clone(current),conversation=clone({...this.conversation,messages:this.history});
-      this.append('user',prompt);this.$('textarea').value='';this.$('.status').textContent='';
+      this.append('user',prompt,translatedPrompt ? (globalThis.PapastronomyI18n?.t(prompt) || prompt) : prompt);this.$('textarea').value='';this.$('.status').textContent='';
       const message=this.element('article','message assistant pending','Preparando respuesta');message.setAttribute('role','status');
       this.$('.messages').append(message);
       const pending={message,stamp:contextStamp(context),controller:new AbortController(),timer:null};
@@ -208,9 +210,9 @@
     }
     navigate(target) {
       if (!['explorer','detector','spectrum','configure'].includes(target)) return;
-      if (target === 'configure') {this.send('Configurá la app para mí');return;}
+      if (target === 'configure') {this.send('Configurá la app para mí',true);return;}
       const context=this.refresh();
-      if (target !== 'explorer' && (!context.target || context.loading)) {this.send('¿Qué estoy viendo en este campo?');return;}
+      if (target !== 'explorer' && (!context.target || context.loading)) {this.send('¿Qué estoy viendo en este campo?',true);return;}
       try {
         if (!this.options.onNavigate) throw new Error('La herramienta aún no conectó la navegación.');
         this.options.onNavigate(target);

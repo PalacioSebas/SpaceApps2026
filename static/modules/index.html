@@ -12,6 +12,8 @@
     h1 { font-size:32px; font-weight:500; letter-spacing:-.04em; }
     p { color:#8a96ad; } a { color:#55d6ff; } output { display:block; padding:20px; background:#0a1020; border:1px solid #f3f5fa24; border-radius:12px; white-space:pre-wrap; }
   </style>
+  <script src="./i18n.js" defer></script>
+  <script src="./translations.js" defer></script>
   <script src="./access/model.js" defer></script>
   <script src="./access/access.js" defer></script>
   <script src="./assistant/rules.js" defer></script>
@@ -20,12 +22,13 @@
   <script src="./demo.js" defer></script>
 </head>
 <body>
+  <div role="group" aria-label="Idioma"><button type="button" data-language="es" lang="es">Español</button><button type="button" data-language="en" lang="en">English</button></div>
   <papastronomy-workspace></papastronomy-workspace>
   <main id="demo-explorer">
     <h1>Una integración sin el explorador.</h1>
     <p>Esta página demuestra que acceso, perfil y chat se pueden usar por separado del diseño científico. No consulta APIs ni contiene observaciones. Sus perfiles demo se guardan en el mismo navegador que la herramienta.</p>
     <p>Entrá, editá tu perfil o abrí el asistente. Una propuesta solo modifica los valores de esta demostración cuando pulsás Aplicar.</p>
-    <output aria-label="Configuración de la demostración"></output>
+    <output aria-label="Configuración de la demostración" data-i18n-skip></output>
     <p><a href="../../">Volver a la herramienta</a> · <a href="../learn-3d/index.html" target="_blank" rel="noopener noreferrer">Aprendé en 3D ↗</a></p>
   </main>
 </body>

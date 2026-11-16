@@ -136,6 +136,7 @@
     if (!message || message.channel !== CHANNEL || typeof message.token !== 'string' || message.token.length > 80) return;
     if (message.type === 'init' && token === null && validContext(message.context)) token = message.token;
     if (message.token !== token || token === null) return;
+    if (message.language === 'es' || message.language === 'en') globalThis.PapastronomyI18n?.syncLanguage(message.language);
     if (message.type === 'init' || message.type === 'update') {
       if (!validContext(message.context)) return;
       context = message.context;

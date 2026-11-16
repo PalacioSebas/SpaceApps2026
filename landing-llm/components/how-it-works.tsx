@@ -1,3 +1,7 @@
+"use client";
+
+import { useLanguage } from "@/lib/i18n";
+
 import { Reveal } from "./reveal";
 
 const steps = [
@@ -22,13 +26,14 @@ const steps = [
 ];
 
 export function HowItWorks() {
+  const { t } = useLanguage();
   return (
     <section id="como-funciona" aria-labelledby="how-title" className="relative scroll-mt-20 border-t border-line px-5 py-20 md:px-8 md:py-28">
       <div className="mx-auto max-w-7xl">
         <Reveal className="mb-12 flex flex-col gap-3 md:mb-16">
-          <p className="font-mono text-[10px] tracking-[0.22em] text-cyan uppercase">Pipeline · Context-aware</p>
+          <p className="font-mono text-[10px] tracking-[0.22em] text-cyan uppercase">{t("Pipeline · Context-aware")}</p>
           <h2 id="how-title" className="text-gradient max-w-2xl text-3xl font-medium tracking-[-0.035em] text-balance md:text-5xl">
-            Cómo piensa una IA que mira el cielo con vos.
+            {t("Cómo piensa una IA que mira el cielo con vos.")}
           </h2>
         </Reveal>
 
@@ -44,12 +49,12 @@ export function HowItWorks() {
                   {s.n}
                 </span>
                 <div className="glass flex flex-1 flex-col gap-4 rounded-xl p-5">
-                  <h3 className="text-lg font-medium tracking-[-0.02em] text-stellar">{s.title}</h3>
-                  <p className="text-sm leading-relaxed text-muted">{s.body}</p>
+                  <h3 className="text-lg font-medium tracking-[-0.02em] text-stellar">{t(s.title)}</h3>
+                  <p className="text-sm leading-relaxed text-muted">{t(s.body)}</p>
                   <ul className="mt-auto flex flex-wrap gap-1.5">
                     {s.data.map((d) => (
                       <li key={d} className="rounded border border-line px-2 py-1 font-mono text-[10px] tracking-[0.08em] text-cyan">
-                        {d}
+                        {t(d)}
                       </li>
                     ))}
                   </ul>

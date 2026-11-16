@@ -138,7 +138,7 @@
     if (token !== openToken) return;
     if (!viewer) {
       viewer = document.createElement("papastronomy-object-viewer");
-      viewer.setAttribute("lang", "es");
+      viewer.setAttribute("lang", window.PapastronomyI18n?.language || "es");
       modelObserver = new MutationObserver(renderModelNote);
       modelObserver.observe(viewer, { attributes: true, attributeFilter: ["object"] });
     }

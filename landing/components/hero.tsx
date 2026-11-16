@@ -5,10 +5,10 @@ import { ArrowRight, ChevronDown } from "lucide-react";
 import { Parallax } from "./parallax";
 import { Starfield } from "./starfield";
 import { site } from "@/lib/site";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, withLanguage } from "@/lib/i18n";
 
 export function Hero() {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
 
   return (
     <section
@@ -66,7 +66,7 @@ export function Hero() {
 
           <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
             <a
-              href={site.appUrl}
+              href={withLanguage(site.appUrl, locale)}
               className="group inline-flex items-center justify-center gap-2 rounded-full bg-stellar px-6 py-3.5 text-sm font-medium text-void shadow-[0_0_40px_-8px_rgba(85,214,255,0.55)] transition-all hover:bg-white hover:shadow-[0_0_56px_-6px_rgba(85,214,255,0.75)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
             >
               {t.hero.primaryCta}

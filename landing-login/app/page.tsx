@@ -2,9 +2,11 @@ import { AuthTopBar } from '@/components/auth/auth-top-bar'
 import { AuthCard } from '@/components/auth/auth-card'
 import { OrbitalBackdrop } from '@/components/auth/orbital-backdrop'
 import { ProfilePreview } from '@/components/auth/profile-preview'
+import { LanguageProvider } from '@/lib/i18n'
 
 export default function LoginPage() {
   return (
+    <LanguageProvider>
     <div className="relative min-h-dvh overflow-hidden bg-void text-stellar">
       <OrbitalBackdrop />
       <div className="relative flex min-h-dvh flex-col">
@@ -23,5 +25,6 @@ export default function LoginPage() {
         </main>
       </div>
     </div>
+    </LanguageProvider>
   )
 }

@@ -204,6 +204,34 @@ detached.container.children[0].isConnected=false;
 detached.observers[0].callback();
 assert.equal(detached.frames[0].isConnected,false,'Retirar el contenedor libera el iframe');
 
+// El idioma cruza el iframe sin sincronizar de nuevo el campo ni perder su vista.
+const localized = environment();
+let onLanguageChange, languageUnsubscribed=false, localizedContextReads=0;
+localized.win.PapastronomyI18n={language:'en',subscribe(callback) {
+  onLanguageChange=callback;return ()=>{languageUnsubscribed=true;};
+}};
+const localizedApi=localized.env.PapastronomyAladinReference.mount(localized.container,{getContext() {
+  localizedContextReads++;return sample();
+}});
+localizedApi.open();
+const localizedFrame=localized.frames[0];
+assert.equal(new URL(localizedFrame.src).searchParams.get('lang'),'en');
+localizedFrame.emit('load');
+const localizedInit=localizedFrame.contentWindow.messages[0].message;
+assert.equal(localizedInit.language,'en');
+localized.win.emit('message',{source:localizedFrame.contentWindow,origin:'https://example.test',
+  data:{channel:localizedInit.channel,token:localizedInit.token,type:'ready'}});
+const readsBeforeLanguage=localizedContextReads;
+const frameUrlBeforeLanguage=localizedFrame.src;
+localized.win.PapastronomyI18n.language='es';onLanguageChange('es');
+assert.equal(localizedFrame.contentWindow.messages.at(-1).message.type,'language');
+assert.equal(localizedFrame.contentWindow.messages.at(-1).message.language,'es');
+assert.equal(localizedContextReads,readsBeforeLanguage,'Traducir no vuelve a consultar el contexto científico');
+assert.equal(localizedFrame.src,frameUrlBeforeLanguage,'Traducir no recarga el iframe ni su posición/zoom');
+assert.equal(localized.frames.length,1);
+assert.equal(localizedFrame.isConnected,true);
+localizedApi.destroy();assert.equal(languageUnsubscribed,true);
+
 let FrameSupport;
 const frameEnvironment = {URL,location:{origin:'https://example.test'},parent:{postMessage(){}},
   window:{addEventListener(){},removeEventListener(){}},document:{getElementById(){return {};}}};

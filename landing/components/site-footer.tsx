@@ -2,14 +2,14 @@
 
 import { Logo } from "./logo";
 import { site } from "@/lib/site";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, withLanguage } from "@/lib/i18n";
 
 export function SiteFooter() {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
 
   const links = [
     { label: t.footer.links.github, href: site.githubUrl, external: true },
-    { label: t.footer.links.application, href: site.appUrl, external: false },
+    { label: t.footer.links.application, href: withLanguage(site.appUrl, locale), external: false },
     { label: t.footer.links.challenge, href: site.challengeUrl, external: true },
   ];
 

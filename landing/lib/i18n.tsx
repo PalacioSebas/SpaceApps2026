@@ -15,6 +15,7 @@ const STORAGE_KEY = "papastronomy-lang";
 const EVENT_NAME = "papastronomy-lang-change";
 
 let memoryLocale: Locale = "en";
+let historyLocale: Locale | null = null;
 
 function subscribeLocale(onChange: () => void) {
   window.addEventListener("storage", onChange);
@@ -26,6 +27,9 @@ function subscribeLocale(onChange: () => void) {
 }
 
 function getClientLocale(): Locale {
+  if (historyLocale) return historyLocale;
+  const requested = new URLSearchParams(window.location.search).get("lang");
+  if (requested === "en" || requested === "es") { memoryLocale = requested; return requested; }
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved === "en" || saved === "es") {
@@ -576,6 +580,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore storage access errors
     }
+    try { const url = new URL(window.location.href); url.searchParams.set("lang", next); window.history.replaceState(window.history.state, "", url); historyLocale = null; } catch { historyLocale = next; /* Keep the selected language when the URL cannot change. */ }
     window.dispatchEvent(new Event(EVENT_NAME));
   }, []);
 
@@ -608,4 +613,10 @@ export function useLanguage() {
     throw new Error("useLanguage must be used within a LanguageProvider");
   }
   return ctx;
+}
+
+export function withLanguage(href: string, locale: Locale): string {
+  const url = new URL(href);
+  url.searchParams.set("lang", locale);
+  return url.href;
 }

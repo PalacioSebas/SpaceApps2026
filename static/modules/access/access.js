@@ -41,7 +41,7 @@
       this.shadowRoot.innerHTML = `
         <link rel="stylesheet">
         <div class="account-bar">
-          <div><strong class="account-name"></strong><span class="account-description"></span></div>
+          <div><strong class="account-name" data-i18n-skip></strong><span class="account-description"></span></div>
           <div class="account-actions">
             <button class="profile-button" type="button">Mi perfil</button>
             <button class="switch-button" type="button">Cambiar cuenta</button>
@@ -102,6 +102,7 @@
       }, { signal });
       this.form.elements.level.addEventListener("change", () => this.updateDefaults(), { signal });
       this.renderSummary();
+      this.unsubscribeLanguage=globalThis.PapastronomyI18n?.subscribe(()=>this.renderSummary());
       if (this.waiters.length && !this.session.entered) this.openLogin();
     }
 
@@ -224,7 +225,7 @@
       if (!this.$) return;
       const { profile, entered } = this.session;
       this.$(".account-bar").hidden = this.embedded;
-      this.$(".account-name").textContent = profile?.alias || (entered ? "Invitado" : "Acceso demo");
+      this.$(".account-name").textContent = profile?.alias || (globalThis.PapastronomyI18n?.t(entered ? "Invitado" : "Acceso demo") || (entered ? "Invitado" : "Acceso demo"));
       this.$(".account-description").textContent = profile ? globalThis.PapastronomyProfiles.PRESETS[profile.level].label : "Exploración con todas las funciones";
       this.$(".profile-button").textContent = profile ? "Mi perfil" : "Entrar";
       this.$(".switch-button").hidden = !profile;
@@ -241,6 +242,7 @@
     }
 
     disconnectedCallback() {
+      this.unsubscribeLanguage?.();
       this.abort?.abort();
       this.abort = null;
       this.dialog?.close();

@@ -1,3 +1,7 @@
+"use client";
+
+import { useLanguage } from "@/lib/i18n";
+
 import { ArrowDown, Telescope } from "lucide-react";
 import { answers, type QuestionId } from "@/lib/copilot-data";
 import { site } from "@/lib/site";
@@ -5,6 +9,7 @@ import { site } from "@/lib/site";
 const pillOrder: QuestionId[] = ["coords", "brown-dwarf", "wavelength", "fits"];
 
 export function Hero({ onAsk }: { onAsk: (id: QuestionId) => void }) {
+  const { t, withLanguage } = useLanguage();
   return (
     <section id="top" aria-labelledby="hero-title" className="relative overflow-hidden px-5 pt-36 pb-16 md:px-8 md:pt-44 md:pb-24">
       <div
@@ -32,17 +37,17 @@ export function Hero({ onAsk }: { onAsk: (id: QuestionId) => void }) {
 
       <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-7 text-center">
         <p className="font-mono text-[10px] tracking-[0.22em] text-violet uppercase">
-          NASA Space Apps Challenge 2026 · AI Copilot
+          {t("NASA Space Apps Challenge 2026 · AI Copilot")}
         </p>
         <h1
           id="hero-title"
           className="text-gradient text-4xl leading-[1.05] font-medium tracking-[-0.035em] text-balance sm:text-5xl md:text-7xl"
         >
-          Un asistente astronómico que entiende el universo y lo que estás observando.
+          {t("Un asistente astronómico que entiende el universo y lo que estás observando.")}
         </h1>
         <p className="max-w-2xl text-base leading-relaxed text-pretty text-muted md:text-lg">
-          Preguntale en lenguaje natural sobre objetos celestes, espectros infrarrojos de SPHEREx (
-          <span className="font-mono text-cyan">0.75 – 5.00 µm</span>) o la región exacta del cielo que tenés en pantalla.
+          {t("Preguntale en lenguaje natural sobre objetos celestes, espectros infrarrojos de SPHEREx (")}
+          <span className="font-mono text-cyan">{t("0.75 – 5.00 µm")}</span>{t(") o la región exacta del cielo que tenés en pantalla.")}
         </p>
 
         <div className="flex flex-col items-center gap-3 sm:flex-row">
@@ -50,20 +55,20 @@ export function Hero({ onAsk }: { onAsk: (id: QuestionId) => void }) {
             href="#demo"
             className="inline-flex items-center gap-2 rounded-full bg-stellar px-5 py-2.5 text-sm font-medium text-void transition-colors hover:bg-indigo-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
           >
-            Probar el copiloto
+            {t("Probar el copiloto")}
             <ArrowDown aria-hidden="true" className="h-4 w-4" />
           </a>
           <a
-            href={site.observatoryUrl}
+            href={withLanguage(site.observatoryUrl)}
             className="inline-flex items-center gap-2 rounded-full border border-line-strong px-5 py-2.5 text-sm text-stellar transition-colors hover:border-cyan/50 hover:bg-cyan/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
           >
             <Telescope aria-hidden="true" className="h-4 w-4 text-cyan" />
-            Abrir el Observatorio
+            {t("Abrir el Observatorio")}
           </a>
         </div>
 
         <div className="flex flex-col items-center gap-3 pt-4">
-          <p className="font-mono text-[10px] tracking-[0.22em] text-muted uppercase">Probá preguntar</p>
+          <p className="font-mono text-[10px] tracking-[0.22em] text-muted uppercase">{t("Probá preguntar")}</p>
           <ul className="flex flex-wrap justify-center gap-2">
             {pillOrder.map((id) => {
               const a = answers.find((x) => x.id === id)!;
@@ -74,7 +79,7 @@ export function Hero({ onAsk }: { onAsk: (id: QuestionId) => void }) {
                     onClick={() => onAsk(id)}
                     className="glass rounded-full px-4 py-2 text-sm text-stellar/85 transition-colors hover:border-violet/50 hover:text-stellar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
                   >
-                    {`"${a.question}"`}
+                    {`"${t(a.question)}"`}
                   </button>
                 </li>
               );

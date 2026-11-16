@@ -5,10 +5,10 @@ import { ArrowRight } from "lucide-react";
 import { Reveal } from "./reveal";
 import { Starfield } from "./starfield";
 import { site } from "@/lib/site";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, withLanguage } from "@/lib/i18n";
 
 export function FinalCta() {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
 
   return (
     <section aria-labelledby="cta-title" className="relative isolate overflow-hidden">
@@ -35,7 +35,7 @@ export function FinalCta() {
         </Reveal>
         <Reveal delay={300}>
           <a
-            href={site.appUrl}
+            href={withLanguage(site.appUrl, locale)}
             className="group mt-12 inline-flex items-center gap-2 rounded-full bg-stellar px-7 py-4 text-sm font-medium text-void shadow-[0_0_60px_-10px_rgba(85,214,255,0.7)] transition-all hover:bg-white hover:shadow-[0_0_80px_-6px_rgba(85,214,255,0.85)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
           >
             {t.finalCta.button}

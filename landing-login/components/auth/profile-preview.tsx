@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type ExplorerLevel, useExplorerLevel } from '@/lib/explorer-profile'
+import { useLanguage } from '@/lib/i18n'
 
 type Accent = 'amber' | 'cyan' | 'violet'
 
@@ -119,6 +120,7 @@ const spectrum = (() => {
 const spectrumLine = spectrum.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ')
 
 function BlinkOverlay() {
+  const { t } = useLanguage()
   const referenceStars = [
     [20, 24],
     [80, 70],
@@ -186,13 +188,14 @@ function BlinkOverlay() {
         <span className="rounded bg-void/80 px-2 py-1">
           <span className="text-cyan/70">◌ Epoch 1</span> → <span className="text-cyan">● Epoch 3</span>
         </span>
-        <span className="rounded bg-void/80 px-2 py-1">μ ≈ 0.84″/año · PA 45°</span>
+        <span className="rounded bg-void/80 px-2 py-1">{t('μ ≈ 0.84″/año · PA 45°')}</span>
       </div>
     </>
   )
 }
 
 function FitsOverlay() {
+  const { t } = useLanguage()
   const falseColor = 'linear-gradient(to top, #10002b, #5a189a, #c9184a, #f77f00, #ffd166, #fffbe6)'
   return (
     <>
@@ -248,7 +251,7 @@ function FitsOverlay() {
 
       <div className="absolute inset-x-0 bottom-0 flex h-[34%] flex-col gap-1 border-t border-line bg-void/85 px-3 pb-2 pt-1.5">
         <p className="flex justify-between font-mono text-[9px] uppercase tracking-wider text-muted">
-          <span>SED · 102 canales</span>
+          <span>{t('SED · 102 canales')}</span>
           <span className="text-violet">F_ν (norm.)</span>
         </p>
         <div className="relative min-h-0 flex-1">
@@ -359,6 +362,7 @@ const savedItems = [
 ]
 
 export function ProfilePreview() {
+  const { t } = useLanguage()
   const [level, setLevel] = useExplorerLevel()
   const id = useId()
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -386,18 +390,18 @@ export function ProfilePreview() {
   return (
     <div className="glass flex h-full flex-col gap-6 rounded-2xl p-6 sm:p-8">
       <div className="flex flex-col gap-2">
-        <p className="tech-label text-violet">Calibración guardada en tu perfil</p>
+        <p className="tech-label text-violet">{t('Calibración guardada en tu perfil')}</p>
         <h2 id="preview-title" className="text-pretty text-lg leading-relaxed text-stellar">
-          Elegí cómo querés que Papastronomy te muestre el universo{' '}
+          {t('Elegí cómo querés que Papastronomy te muestre el universo')}{' '}
           <span className="text-muted">
-            (podés cambiarlo cuando quieras y se guarda automáticamente):
+            {t('(podés cambiarlo cuando quieras y se guarda automáticamente):')}
           </span>
         </h2>
       </div>
 
       <div
         role="tablist"
-        aria-label="Nivel de experiencia"
+        aria-label={t('Nivel de experiencia')}
         onKeyDown={handleKeyDown}
         className="grid grid-cols-1 gap-3 md:grid-cols-3"
       >
@@ -445,8 +449,8 @@ export function ProfilePreview() {
                 />
               </span>
               <span className="flex flex-col gap-1">
-                <span className="text-sm font-semibold text-stellar">{profile.label}</span>
-                <span className="text-sm leading-relaxed text-muted">{profile.description}</span>
+                <span className="text-sm font-semibold text-stellar">{t(profile.label)}</span>
+                <span className="text-sm leading-relaxed text-muted">{t(profile.description)}</span>
               </span>
             </button>
           )
@@ -463,7 +467,7 @@ export function ProfilePreview() {
         <div className="relative aspect-square sm:col-span-2 sm:aspect-auto">
           <Image
             src="/images/spherex-field.png"
-            alt={active.visualAlt}
+            alt={t(active.visualAlt)}
             fill
             sizes="(min-width: 1024px) 280px, (min-width: 640px) 40vw, 100vw"
             className={cn(
@@ -486,7 +490,7 @@ export function ProfilePreview() {
           {active.visual === 'blink' && <BlinkOverlay />}
           {active.visual === 'fits' && <FitsOverlay />}
           <p className="tech-label absolute left-3 top-3 rounded bg-void/80 px-2 py-1 text-stellar">
-            HUD · {active.hudTitle}
+            HUD · {t(active.hudTitle)}
           </p>
         </div>
 
@@ -497,14 +501,14 @@ export function ProfilePreview() {
                 key={row.label}
                 className="flex flex-col gap-1 py-2.5 first:pt-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
               >
-                <dt className="tech-label text-muted">{row.label}</dt>
+                <dt className="tech-label text-muted">{t(row.label)}</dt>
                 <dd
                   className={cn(
                     'text-sm text-stellar sm:text-right',
                     active.id === 'investigador' && 'font-mono text-xs',
                   )}
                 >
-                  {row.value}
+                  {t(row.value)}
                 </dd>
               </div>
             ))}
@@ -513,7 +517,7 @@ export function ProfilePreview() {
           <div className={cn('flex flex-col gap-2 rounded-lg border p-4', accent.border, accent.bg)}>
             <p className={cn('tech-label flex items-center gap-2', accent.text)}>
               <Sparkles className="size-3.5" aria-hidden="true" />
-              Copiloto IA · {active.aiTone}
+              {t('Copiloto IA')} · {t(active.aiTone)}
             </p>
             <p
               className={cn(
@@ -521,14 +525,14 @@ export function ProfilePreview() {
                 active.id === 'investigador' ? 'font-mono text-xs leading-relaxed' : 'text-sm',
               )}
             >
-              {active.ai}
+              {t(active.ai)}
             </p>
           </div>
         </div>
       </div>
 
       <div className="flex flex-col gap-3">
-        <h3 className="tech-label text-muted">Qué se guarda automáticamente en tu cuenta</h3>
+        <h3 className="tech-label text-muted">{t('Qué se guarda automáticamente en tu cuenta')}</h3>
         <ul className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {savedItems.map((item) => {
             const Icon = item.icon
@@ -538,8 +542,8 @@ export function ProfilePreview() {
                 className="flex flex-col gap-2 rounded-xl border border-line bg-navy/50 p-4"
               >
                 <Icon className="size-4 text-cyan" aria-hidden="true" />
-                <p className="text-sm font-semibold text-stellar">{item.title}</p>
-                <p className="text-sm leading-relaxed text-muted">{item.body}</p>
+                <p className="text-sm font-semibold text-stellar">{t(item.title)}</p>
+                <p className="text-sm leading-relaxed text-muted">{t(item.body)}</p>
               </li>
             )
           })}

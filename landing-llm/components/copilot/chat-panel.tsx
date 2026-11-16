@@ -1,5 +1,7 @@
 "use client";
 
+import { useLanguage } from "@/lib/i18n";
+
 import { useEffect, useState } from "react";
 import { ArrowRight, Info, Sparkles } from "lucide-react";
 import { answers, answerById, type QuestionId } from "@/lib/copilot-data";
@@ -36,16 +38,20 @@ type Props = {
 };
 
 export function ChatPanel({ activeId, onSelect, connected }: Props) {
+  const { t } = useLanguage();
   const answer = answerById[activeId];
   const missingContext = answer.usesContext && !connected;
   const summary = missingContext
     ? "Sin el contexto del recorte no puedo leer las coordenadas, el header FITS ni el espectro de esta región. Reconectá el contexto para que analice los datos que tenés en pantalla, o preguntame algo conceptual."
     : answer.summary;
   const { visible, done } = useStreamedText(summary);
+  const translatedSummary = t(summary);
+  const translatedVisible = translatedSummary === summary ? visible
+    : translatedSummary.slice(0, done ? translatedSummary.length : Math.floor(visible.length / summary.length * translatedSummary.length));
 
   return (
     <div className="flex min-h-[560px] flex-col">
-      <div className="flex flex-wrap gap-2 border-b border-line p-4 md:px-5" role="group" aria-label="Preguntas de ejemplo">
+      <div className="flex flex-wrap gap-2 border-b border-line p-4 md:px-5" role="group" aria-label={t("Preguntas de ejemplo")}>
         {answers.map((a) => {
           const active = a.id === activeId;
           return (
@@ -60,7 +66,7 @@ export function ChatPanel({ activeId, onSelect, connected }: Props) {
                   : "border-line-strong text-muted hover:border-violet/30 hover:text-stellar"
               }`}
             >
-              {a.short}
+              {t(a.short)}
             </button>
           );
         })}
@@ -68,7 +74,7 @@ export function ChatPanel({ activeId, onSelect, connected }: Props) {
 
       <div className="flex flex-1 flex-col gap-5 p-4 md:p-6" aria-live="polite" aria-busy={!done}>
         <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm border border-line-strong bg-midnight px-4 py-2.5 text-sm leading-relaxed text-stellar">
-          {answer.question}
+          {t(answer.question)}
         </div>
 
         <div className="flex gap-3">
@@ -80,19 +86,19 @@ export function ChatPanel({ activeId, onSelect, connected }: Props) {
           </span>
           <div className="flex min-w-0 flex-1 flex-col gap-4">
             <p className="font-mono text-[10px] tracking-[0.22em] text-violet uppercase">
-              Papastronomy Copilot
-              {answer.usesContext && connected && <span className="text-muted"> · leyendo S-02</span>}
+              {t("Papastronomy Copilot")}
+              {answer.usesContext && connected && <span className="text-muted">{t(" · leyendo S-02")}</span>}
             </p>
 
             {missingContext && (
               <p className="flex items-center gap-2 rounded-md border border-line-strong bg-navy/70 px-3 py-2 text-xs text-muted">
                 <Info aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-cyan" />
-                Esta pregunta necesita el contexto del observatorio.
+                {t("Esta pregunta necesita el contexto del observatorio.")}
               </p>
             )}
 
             <p className="text-pretty text-[15px] leading-relaxed text-stellar/90">
-              {visible}
+              {translatedVisible}
               {!done && <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 bg-violet animate-caret" />}
             </p>
 
@@ -110,7 +116,7 @@ export function ChatPanel({ activeId, onSelect, connected }: Props) {
                     onClick={() => onSelect(f.target)}
                     className="group inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1.5 text-xs text-muted transition-colors hover:border-cyan/40 hover:text-stellar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
                   >
-                    {f.label}
+                    {t(f.label)}
                     <ArrowRight aria-hidden="true" className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
                   </button>
                 ))}
@@ -122,8 +128,8 @@ export function ChatPanel({ activeId, onSelect, connected }: Props) {
 
       <div className="border-t border-line p-4 md:px-5">
         <div className="flex items-center gap-3 rounded-xl border border-line-strong bg-void/60 px-4 py-3">
-          <span className="flex-1 truncate text-sm text-muted">Preguntá sobre cualquier objeto o región del cielo…</span>
-          <span className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">Demo</span>
+          <span className="flex-1 truncate text-sm text-muted">{t("Preguntá sobre cualquier objeto o región del cielo…")}</span>
+          <span className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">{t("Demo")}</span>
         </div>
       </div>
     </div>

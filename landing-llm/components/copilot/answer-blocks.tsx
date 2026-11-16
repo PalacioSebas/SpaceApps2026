@@ -1,19 +1,24 @@
+"use client";
+
+import { useLanguage } from "@/lib/i18n";
+
 import type { Answer } from "@/lib/copilot-data";
 
 const delay = (ms: number) => ({ "--block-delay": `${ms}ms` }) as React.CSSProperties;
 
 export function AnswerBlocks({ answer }: { answer: Answer }) {
+  const { t } = useLanguage();
   return (
     <>
-      <ul className="flex flex-wrap gap-1.5 animate-block-in" aria-label="Telemetría citada">
-        {answer.telemetry.map((t) => (
+      <ul className="flex flex-wrap gap-1.5 animate-block-in" aria-label={t("Telemetría citada")}>
+        {answer.telemetry.map((item) => (
           <li
-            key={t.label}
+            key={item.label}
             className={`rounded-md border px-2 py-1 font-mono text-[11px] ${
-              t.tone === "cyan" ? "border-cyan/25 bg-cyan/5 text-cyan" : "border-violet/30 bg-violet/10 text-indigo-soft"
+              item.tone === "cyan" ? "border-cyan/25 bg-cyan/5 text-cyan" : "border-violet/30 bg-violet/10 text-indigo-soft"
             }`}
           >
-            {t.label}
+            {t(item.label)}
           </li>
         ))}
       </ul>
@@ -30,8 +35,8 @@ export function AnswerBlocks({ answer }: { answer: Answer }) {
                 }`}
               >
                 <div>
-                  <p className="text-sm font-medium text-stellar">{c.name}</p>
-                  <p className="text-xs text-muted">{c.example}</p>
+                  <p className="text-sm font-medium text-stellar">{t(c.name)}</p>
+                  <p className="text-xs text-muted">{t(c.example)}</p>
                 </div>
                 <div className="flex items-end justify-between gap-2 font-mono text-[11px]">
                   <span className="text-cyan">{c.temperature}</span>
@@ -47,7 +52,7 @@ export function AnswerBlocks({ answer }: { answer: Answer }) {
             );
           })}
           <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase sm:col-span-3">
-            Escala de masa relativa · M♃ = masas de Júpiter
+            {t("Escala de masa relativa · M♃ = masas de Júpiter")}
           </p>
         </div>
       )}
@@ -61,7 +66,7 @@ export function AnswerBlocks({ answer }: { answer: Answer }) {
             >
               <dt className="font-mono text-[11px] text-violet">{f.key}</dt>
               <dd className="font-mono text-[11px] text-cyan">{f.value}</dd>
-              <dd className="col-span-2 text-xs text-muted sm:col-span-1">{f.note}</dd>
+              <dd className="col-span-2 text-xs text-muted sm:col-span-1">{t(f.note)}</dd>
             </div>
           ))}
         </dl>
@@ -69,8 +74,8 @@ export function AnswerBlocks({ answer }: { answer: Answer }) {
 
       {answer.verdict && (
         <div className="rounded-lg border border-line bg-navy/60 p-3 animate-block-in" style={delay(180)}>
-          <p className="mb-1 font-mono text-[10px] tracking-[0.22em] text-muted uppercase">{answer.verdict.label}</p>
-          <p className="text-sm leading-relaxed text-stellar">{answer.verdict.text}</p>
+          <p className="mb-1 font-mono text-[10px] tracking-[0.22em] text-muted uppercase">{t(answer.verdict.label)}</p>
+          <p className="text-sm leading-relaxed text-stellar">{t(answer.verdict.text)}</p>
         </div>
       )}
     </>

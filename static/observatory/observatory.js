@@ -259,7 +259,7 @@
   function updateSpectrum() {
     const current = state.moduleSpectrum;
     const data = current && current.exploreSequence === state.exploreSequence ? current.data : null;
-    const status = $("spectrum-coord-label")?.textContent || "";
+    const status = window.PapastronomyI18n?.sourceText($("spectrum-coord-label")) ?? $("spectrum-coord-label")?.textContent ?? "";
     const technical = isTechnical();
     const sig = (data ? `data:${current.sequence}` : `empty:${state.isLoading}:${status}`) + `:${technical}`;
     if (!changed("spectrum", sig)) return;

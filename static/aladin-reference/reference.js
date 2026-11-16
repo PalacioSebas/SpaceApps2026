@@ -101,6 +101,7 @@
     let timer = null;
     let destroyed = false;
     let observer = null;
+    let unsubscribeLanguage = null;
     let fullscreenPending = false;
     let fullscreenIntent = 0;
     let expandedInWindow = false;
@@ -200,6 +201,7 @@
     function send(type) {
       if (!frame?.contentWindow || !context) return;
       frame.contentWindow.postMessage({ channel: CHANNEL, token, type, context,
+        language: win.PapastronomyI18n?.language || 'es',
         survey: node('.aladin-reference-survey').value }, origin);
     }
     function fail(message) {
@@ -234,7 +236,9 @@
       const currentFrame = doc.createElement('iframe');
       currentFrame.title = 'Aladin Lite, referencia astronómica del campo';
       currentFrame.className = 'aladin-reference-iframe';
-      currentFrame.src = new URL('frame.html', assetBase).href;
+      const frameUrl = new URL('frame.html', assetBase);
+      if (win.PapastronomyI18n) frameUrl.searchParams.set('lang',win.PapastronomyI18n.language);
+      currentFrame.src = frameUrl.href;
       currentFrame.referrerPolicy = 'strict-origin-when-cross-origin';
       frame = currentFrame;
       frameEvents = new AbortController();
@@ -269,6 +273,7 @@
       fullscreenIntent++;
       void exitExpanded();
       events.abort();
+      unsubscribeLanguage?.();
       observer?.disconnect();
       removeFrame();
       wrapper.remove();
@@ -310,6 +315,7 @@
       observer.observe(doc.documentElement, { childList: true, subtree: true });
     }
     const api = { sync, open() { details.open = true; startFrame(); }, destroy };
+    unsubscribeLanguage = win.PapastronomyI18n?.subscribe(() => { if (ready) send('language'); });
     mounts.set(container, api);
     sync();
     return api;

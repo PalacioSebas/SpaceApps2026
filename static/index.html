@@ -396,6 +396,10 @@
             </button>
           </div>
         </details>
+        <div class="seg" role="group" aria-label="Idioma de la herramienta">
+          <button type="button" data-language="es" lang="es" aria-pressed="true">ES</button>
+          <button type="button" data-language="en" lang="en" aria-pressed="false">EN</button>
+        </div>
       </div>
 
       <div class="targets-row embed-hide">
@@ -864,6 +868,9 @@
   </script>
 
   <!-- Módulos portables. Solo el adaptador conoce el explorador actual. -->
+  <script src="/static/modules/i18n.js"></script>
+  <script src="/static/modules/translations.js"></script>
+  <script src="/static/observatory/translations.js"></script>
   <script src="/static/modules/access/model.js"></script>
   <script src="/static/modules/access/access.js"></script>
   <script src="/static/modules/assistant/rules.js"></script>

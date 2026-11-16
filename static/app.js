@@ -10,6 +10,7 @@ const TILE_STEP_PIX = 96.0;
 const TILE_MARGIN_PIX = (CUTOUT_NPIX - TILE_STEP_PIX) / 2;
 const DEFAULT_SKY_ZOOM = +(CUTOUT_NPIX / TILE_STEP_PIX).toFixed(4);
 const MAX_CONCURRENT_TILE_FETCHES = 1;
+const localizedText = value => window.PapastronomyI18n?.t(value) ?? value;
 
 const state = {
   ra: 133.795129,
@@ -1791,6 +1792,7 @@ function findHoveredNamedObject(xPix, yPix, maxDistFitsPx = 5.5) {
 }
 
 function drawTagAbovePoint(ctx, cx, cy, labelText, borderColor, textColor, canvasW) {
+  labelText = localizedText(labelText);
   ctx.save();
   ctx.font = "600 11px ui-sans-serif, system-ui, sans-serif";
   const tw = ctx.measureText(labelText).width;
@@ -2405,7 +2407,7 @@ function drawInfiniteTilePlaceholder(ctx, rect, gx, gy, status) {
         : status === "loading"
         ? "Descargando paquete FITS..."
         : "Sector en cola de precarga...";
-    ctx.fillText(statusLabel, rect.x + 10, rect.y + 18);
+    ctx.fillText(localizedText(statusLabel), rect.x + 10, rect.y + 18);
     ctx.fillStyle = "rgba(56, 189, 248, 0.45)";
     ctx.fillText(`RA ${center.ra.toFixed(3)}° · Dec ${center.dec.toFixed(3)}°`, rect.x + 10, rect.y + 32);
   }
@@ -3048,7 +3050,7 @@ function renderCanvas() {
           ctx.fillStyle = isSelected ? "#6ee7b7" : "#fda4af";
           ctx.font = "bold 11px monospace";
           ctx.fillText(
-            `${isSelected ? "[ACTIVO] " : ""}#${det.id} DIPOLO (${det.snr_score}σ · ${syncState.activeStep + 1}/${syncState.K})`,
+            localizedText(`${isSelected ? "[ACTIVO] " : ""}#${det.id} DIPOLO (${det.snr_score}σ · ${syncState.activeStep + 1}/${syncState.K})`),
             activeX + 17,
             activeY - 6
           );
@@ -3080,7 +3082,7 @@ function renderCanvas() {
           ctx.fillStyle = isSelected ? "#6ee7b7" : "#fda4af";
           ctx.font = "bold 11px monospace";
           ctx.fillText(
-            `${isSelected ? "[ACTIVO] " : ""}#${det.id} DIPOLO (${det.snr_score}σ)`,
+            localizedText(`${isSelected ? "[ACTIVO] " : ""}#${det.id} DIPOLO (${det.snr_score}σ)`),
             cx + 15,
             cy - 6
           );
@@ -3106,7 +3108,7 @@ function renderCanvas() {
           ctx.fillStyle = isSelected ? "#6ee7b7" : "#fde68a";
           ctx.font = "bold 11px monospace";
           ctx.fillText(
-            `${isSelected ? "[ACTIVO] " : ""}#${det.id} VARIABLE (${det.snr_score}σ · ${syncState.activeStep + 1}/${syncState.K})`,
+            localizedText(`${isSelected ? "[ACTIVO] " : ""}#${det.id} VARIABLE (${det.snr_score}σ · ${syncState.activeStep + 1}/${syncState.K})`),
             cx + 17,
             cy - 6
           );
@@ -3129,7 +3131,7 @@ function renderCanvas() {
           ctx.fillStyle = isSelected ? "#6ee7b7" : "#fde68a";
           ctx.font = "bold 11px monospace";
           ctx.fillText(
-            `${isSelected ? "[ACTIVO] " : ""}#${det.id} VARIABLE (${det.snr_score}σ)`,
+            localizedText(`${isSelected ? "[ACTIVO] " : ""}#${det.id} VARIABLE (${det.snr_score}σ)`),
             cx + 15,
             cy - 6
           );
@@ -3446,7 +3448,7 @@ function refreshAIDetectionCatalogLabels() {
     }
     const card = document.querySelector(`[data-detection-id="${det.id}"]`);
     const line = card?.querySelector(".detection-crossmatch-line");
-    if (line && (line.dataset.pending === "1" || line.textContent.startsWith("Sin coincidencia"))) {
+    if (line && (line.dataset.pending === "1" || (window.PapastronomyI18n?.sourceText(line) ?? line.textContent).startsWith("Sin coincidencia"))) {
       line.textContent = localMatch;
       line.className = "detection-crossmatch-line text-[11px] text-emerald-300 leading-snug mt-1 font-medium";
       line.dataset.pending = "0";
@@ -4560,7 +4562,7 @@ function drawStarTemporalTrailOnContext(ctx, W, H) {
     ctx.stroke();
 
     // Píldora HUD en la parte superior central del visor de Contexto
-    const hudTxt = `Rastro temporal [${activeStep + 1}/${K}]: ${curWp.title}`;
+    const hudTxt = localizedText(`Rastro temporal [${activeStep + 1}/${K}]: ${curWp.title}`);
     ctx.font = "bold 9.5px monospace";
     const hudW = Math.min(W - 20, ctx.measureText(hudTxt).width + 14);
     const hudX = Math.max(8, (W - hudW) / 2);
@@ -6460,6 +6462,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   window.PapastronomyIntegration?.activate();
   mountAstronomicalReference();
+  window.PapastronomyI18n?.subscribe(() => {
+    if (!state.exploreData) return;
+    renderCanvas();
+    const surveyKey = `${state.contextSurvey}|${Number(state.ra).toFixed(5)}|${Number(state.dec).toFixed(5)}|${Number(state.fov).toFixed(4)}`;
+    if (state.contextSurvey === "spherex" || state.externalSurveyCache.has(surveyKey)) renderContextSkyMap();
+  });
   await exploreCoordinates(state.ra, state.dec, state.fov, state.temporalSearch ? Math.min(32,state.frameLimit) : state.frameLimit, state.temporalSearch);
   startBlinkTimer();
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLanguage } from "@/lib/i18n";
+
 import { useState } from "react";
 import type { QuestionId } from "@/lib/copilot-data";
 import { ContextPanel } from "./context-panel";
@@ -12,15 +14,16 @@ type Props = {
 };
 
 export function CopilotDemo({ activeId, onSelect }: Props) {
+  const { t } = useLanguage();
   const [connected, setConnected] = useState(true);
 
   return (
     <section id="demo" aria-labelledby="demo-title" className="relative scroll-mt-20 px-5 py-20 md:px-8 md:py-28">
       <div className="mx-auto max-w-7xl">
         <Reveal className="mb-10 flex flex-col gap-3 md:mb-14">
-          <p className="font-mono text-[10px] tracking-[0.22em] text-violet uppercase">Demo en vivo · Candidato S-02</p>
+          <p className="font-mono text-[10px] tracking-[0.22em] text-violet uppercase">{t("Demo en vivo · Candidato S-02")}</p>
           <h2 id="demo-title" className="text-gradient max-w-2xl text-3xl font-medium tracking-[-0.035em] text-balance md:text-5xl">
-            El copiloto lee lo mismo que vos estás mirando.
+            {t("El copiloto lee lo mismo que vos estás mirando.")}
           </h2>
         </Reveal>
 
@@ -33,7 +36,7 @@ export function CopilotDemo({ activeId, onSelect }: Props) {
                 <span className="h-2.5 w-2.5 rounded-full bg-line-strong" />
               </span>
               <p className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
-                papastronomy / explorer / <span className="text-stellar">copilot</span>
+                {t("papastronomy / explorer / ")}<span className="text-stellar">{t("copilot")}</span>
               </p>
             </div>
             <div className="grid lg:grid-cols-12">

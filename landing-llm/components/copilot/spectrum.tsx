@@ -1,3 +1,7 @@
+"use client";
+
+import { useLanguage } from "@/lib/i18n";
+
 const WIDTH = 320;
 const HEIGHT = 120;
 const MIN_L = 0.75;
@@ -31,11 +35,12 @@ const areaPath = `${linePath} L${x(MAX_L).toFixed(1)},${y(0).toFixed(1)} L${x(MI
 const ticks = [1, 2, 3, 4, 5];
 
 export function Spectrum({ highlight }: { highlight: boolean }) {
+  const { t } = useLanguage();
   return (
     <svg
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       role="img"
-      aria-label="Espectro infrarrojo del candidato S-02 entre 0.75 y 5.00 micrones, con absorción cerca de 3.3 micrones y pico en 4.4 micrones"
+      aria-label={t("Espectro infrarrojo del candidato S-02 entre 0.75 y 5.00 micrones, con absorción cerca de 3.3 micrones y pico en 4.4 micrones")}
       className="h-auto w-full"
     >
       <defs>
@@ -63,7 +68,7 @@ export function Spectrum({ highlight }: { highlight: boolean }) {
         opacity={highlight ? 0.08 : 0.04}
       />
       <text x={x(3.3)} y={PAD.top + 8} textAnchor="middle" className="fill-cyan font-mono text-[7px]">
-        CH₄
+        {t("CH₄")}
       </text>
 
       <path d={areaPath} fill="url(#spectrum-fill)" />
@@ -80,7 +85,7 @@ export function Spectrum({ highlight }: { highlight: boolean }) {
       />
       <circle cx={x(4.4)} cy={y(flux(4.4))} r="3" fill="var(--violet)" />
       <text x={x(4.4) - 6} y={y(flux(4.4)) + 2} textAnchor="end" className="fill-stellar font-mono text-[8px]">
-        4.40 µm
+        {t("4.40 µm")}
       </text>
 
       <circle cx={x(1.1)} cy={y(flux(1.1))} r="2.2" fill="none" stroke="var(--cyan)" />

@@ -4,6 +4,7 @@ import { useId, useState } from 'react'
 import { ArrowRight, Check, Compass, Eye, EyeOff, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useExplorerLevel } from '@/lib/explorer-profile'
+import { useLanguage } from '@/lib/i18n'
 import { GitHubIcon, GoogleIcon } from './brand-icons'
 
 type Mode = 'login' | 'signup'
@@ -18,6 +19,7 @@ const levelNames = {
 } as const
 
 export function AuthCard() {
+  const { t } = useLanguage()
   const [mode, setMode] = useState<Mode>('login')
   const [showPassword, setShowPassword] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -45,22 +47,21 @@ export function AuthCard() {
   return (
     <div className="glass flex flex-col gap-7 rounded-2xl p-6 sm:p-8">
       <div className="flex flex-col gap-3">
-        <p className="tech-label text-cyan">Portal de acceso · Papastronomy ID</p>
+        <p className="tech-label text-cyan">{t('Portal de acceso · Papastronomy ID')}</p>
         <h1
           id="auth-title"
           className="text-balance text-3xl font-semibold leading-tight tracking-tight sm:text-4xl"
         >
-          Tu propio observatorio espacial, calibrado a tu medida.
+          {t('Tu propio observatorio espacial, calibrado a tu medida.')}
         </h1>
         <p className="text-pretty leading-relaxed text-muted">
-          Iniciá sesión para sincronizar tus preferencias visuales, tus objetos celestes guardados
-          y el nivel de explicación de tu asistente IA.
+          {t('Iniciá sesión para sincronizar tus preferencias visuales, tus objetos celestes guardados y el nivel de explicación de tu asistente IA.')}
         </p>
       </div>
 
       <div
         role="tablist"
-        aria-label="Tipo de acceso"
+        aria-label={t('Tipo de acceso')}
         className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-void/60 p-1"
       >
         {(
@@ -86,7 +87,7 @@ export function AuthCard() {
               mode === value ? 'bg-midnight text-stellar' : 'text-muted hover:text-stellar',
             )}
           >
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
@@ -100,7 +101,7 @@ export function AuthCard() {
       >
         <div className="flex flex-col gap-2">
           <label htmlFor={`${id}-email`} className="tech-label text-muted">
-            Correo electrónico
+            {t('Correo electrónico')}
           </label>
           <input
             id={`${id}-email`}
@@ -108,7 +109,7 @@ export function AuthCard() {
             type="email"
             required
             autoComplete="email"
-            placeholder="vos@ejemplo.com"
+            placeholder={t('vos@ejemplo.com')}
             className="h-11 rounded-lg border border-line-strong bg-void/70 px-3.5 text-sm text-stellar placeholder:text-muted/70 transition-colors focus-visible:border-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/25"
           />
         </div>
@@ -116,14 +117,14 @@ export function AuthCard() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <label htmlFor={`${id}-password`} className="tech-label text-muted">
-              Contraseña
+              {t('Contraseña')}
             </label>
             {mode === 'login' && (
               <a
                 href="#"
                 className={cn('rounded text-xs text-muted hover:text-cyan', focusRing)}
               >
-                ¿La olvidaste?
+                {t('¿La olvidaste?')}
               </a>
             )}
           </div>
@@ -135,13 +136,13 @@ export function AuthCard() {
               required
               minLength={8}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              placeholder={mode === 'login' ? '••••••••' : 'Mínimo 8 caracteres'}
+              placeholder={mode === 'login' ? '••••••••' : t('Mínimo 8 caracteres')}
               className="h-11 w-full rounded-lg border border-line-strong bg-void/70 pl-3.5 pr-11 text-sm text-stellar placeholder:text-muted/70 transition-colors focus-visible:border-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/25"
             />
             <button
               type="button"
               onClick={() => setShowPassword((value) => !value)}
-              aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              aria-label={t(showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña')}
               aria-pressed={showPassword}
               className={cn(
                 'absolute inset-y-0 right-1 my-auto flex size-9 items-center justify-center rounded-md text-muted hover:text-stellar',
@@ -170,7 +171,7 @@ export function AuthCard() {
           >
             <Check className="size-3" strokeWidth={3} />
           </span>
-          Recordar mi configuración en este dispositivo
+          {t('Recordar mi configuración en este dispositivo')}
         </label>
 
         <button
@@ -180,7 +181,7 @@ export function AuthCard() {
             focusRing,
           )}
         >
-          {mode === 'login' ? 'Entrar al Observatorio' : 'Crear mi observatorio'}
+          {t(mode === 'login' ? 'Entrar al Observatorio' : 'Crear mi observatorio')}
           <ArrowRight
             className="size-4 transition-transform group-hover:translate-x-0.5"
             aria-hidden="true"
@@ -216,7 +217,7 @@ export function AuthCard() {
           {notice && (
             <span className="flex items-start gap-2 rounded-lg border border-line-strong bg-midnight/60 p-3 text-sm leading-relaxed text-muted">
               <Info className="mt-0.5 size-4 shrink-0 text-cyan" aria-hidden="true" />
-              {notice}
+              {t(notice)}
             </span>
           )}
         </p>
@@ -224,7 +225,7 @@ export function AuthCard() {
 
       <div className="flex items-center gap-3" aria-hidden="true">
         <span className="h-px flex-1 bg-gradient-to-r from-transparent to-amber/40" />
-        <span className="tech-label text-amber">o sin cuenta</span>
+        <span className="tech-label text-amber">{t('o sin cuenta')}</span>
         <span className="h-px flex-1 bg-gradient-to-l from-transparent to-amber/40" />
       </div>
 
@@ -234,10 +235,9 @@ export function AuthCard() {
             <Compass className="size-5" aria-hidden="true" />
           </span>
           <div className="flex flex-col gap-1">
-            <p className="font-medium text-stellar">¿Primera vez explorando el espacio?</p>
+            <p className="font-medium text-stellar">{t('¿Primera vez explorando el espacio?')}</p>
             <p className="text-sm leading-relaxed text-muted">
-              Empezá ya, sin registrarte. Tus ajustes se guardan en este navegador y podés pasarlos
-              a una cuenta cuando quieras.
+              {t('Empezá ya, sin registrarte. Tus ajustes se guardan en este navegador y podés pasarlos a una cuenta cuando quieras.')}
             </p>
           </div>
         </div>
@@ -249,13 +249,13 @@ export function AuthCard() {
             focusRing,
           )}
         >
-          Entrar en Modo Invitado (1-Click)
+          {t('Entrar en Modo Invitado (1-Click)')}
         </button>
         <p role="status" aria-live="polite" className="empty:hidden">
           {guestReady && (
             <span className="flex items-center gap-2 text-sm text-stellar">
               <Check className="size-4 text-amber" aria-hidden="true" />
-              Modo Invitado activo · perfil {levelNames[level]} guardado en este dispositivo.
+              {t('Modo Invitado activo · perfil {profile} guardado en este dispositivo.', { profile: t(levelNames[level]) })}
             </span>
           )}
         </p>

@@ -40,8 +40,8 @@ rem Visor: run_project.bat ya prepara el entorno virtual y las dependencias de P
 start "Papastronomy - Visor :8000" cmd /k call "%~dp0run_project.bat"
 
 call :lanzar_landing "landing"       3000 "Landing principal"
-call :lanzar_landing "Landing login" 3001 "Landing login"
-call :lanzar_landing "landing LLM"   3002 "Landing LLM"
+call :lanzar_landing "landing-login" 3001 "Landing login"
+call :lanzar_landing "landing-llm"   3002 "Landing LLM"
 
 echo Esperando a que respondan los servidores (la primera vez puede tardar unos minutos)...
 call :esperar_y_abrir "http://127.0.0.1:8000/"

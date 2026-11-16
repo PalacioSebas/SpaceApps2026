@@ -1,3 +1,7 @@
+"use client";
+
+import { useLanguage } from "@/lib/i18n";
+
 import Image from "next/image";
 import { Link2, Link2Off } from "lucide-react";
 import { Spectrum } from "./spectrum";
@@ -10,12 +14,13 @@ type Props = {
 };
 
 export function ContextPanel({ connected, onToggle, activeId }: Props) {
+  const { t } = useLanguage();
   return (
     <div className="flex flex-col gap-4 border-b border-line p-4 md:p-5 lg:border-r lg:border-b-0">
       <div className="flex items-center justify-between gap-3">
-        <p className="font-mono text-[10px] tracking-[0.22em] text-muted uppercase">Contexto activo</p>
+        <p className="font-mono text-[10px] tracking-[0.22em] text-muted uppercase">{t("Contexto activo")}</p>
         <span className="rounded-full border border-line-strong px-2 py-0.5 font-mono text-[10px] tracking-[0.18em] text-stellar uppercase">
-          Epoch 3 / 4
+          {t("Epoch 3 / 4")}
         </span>
       </div>
 
@@ -26,7 +31,7 @@ export function ContextPanel({ connected, onToggle, activeId }: Props) {
       >
         <Image
           src="/images/sky-field.png"
-          alt="Recorte infrarrojo SPHEREx del campo estelar alrededor del candidato S-02"
+          alt={t("Recorte infrarrojo SPHEREx del campo estelar alrededor del candidato S-02")}
           fill
           sizes="(min-width: 1024px) 420px, 100vw"
           className="object-cover opacity-80"
@@ -45,11 +50,11 @@ export function ContextPanel({ connected, onToggle, activeId }: Props) {
           <span className="absolute -bottom-4 left-1/2 h-4 w-px bg-violet" />
         </div>
         <span className="absolute top-[calc(50%-3.25rem)] left-[calc(50%+2.25rem)] rounded bg-void/80 px-1.5 py-0.5 font-mono text-[10px] text-stellar">
-          S-02
+          {t("S-02")}
         </span>
         <figcaption className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-void/90 to-transparent px-3 pt-6 pb-2 font-mono text-[10px] tracking-[0.12em] text-cyan">
-          <span>RA 180.0042°</span>
-          <span>Dec +00.0018°</span>
+          <span>{t("RA 180.0042°")}</span>
+          <span>{t("Dec +00.0018°")}</span>
         </figcaption>
       </figure>
 
@@ -59,8 +64,8 @@ export function ContextPanel({ connected, onToggle, activeId }: Props) {
         }`}
       >
         <div className="mb-2 flex items-center justify-between font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
-          <span>Espectro SPHEREx</span>
-          <span className="text-cyan">0.75 – 5.00 µm</span>
+          <span>{t("Espectro SPHEREx")}</span>
+          <span className="text-cyan">{t("0.75 – 5.00 µm")}</span>
         </div>
         <Spectrum highlight={connected && (activeId === "wavelength" || activeId === "coords")} />
       </div>
@@ -85,7 +90,7 @@ export function ContextPanel({ connected, onToggle, activeId }: Props) {
           <Link2Off aria-hidden="true" className="h-3.5 w-3.5" />
         )}
         <span>
-          {connected ? "Contexto conectado: FITS + WCS + Espectro SPHEREx" : "Contexto desconectado · tocá para reconectar"}
+          {t(connected ? "Contexto conectado: FITS + WCS + Espectro SPHEREx" : "Contexto desconectado · tocá para reconectar")}
         </span>
       </button>
     </div>
