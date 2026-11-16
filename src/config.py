@@ -2,16 +2,38 @@
 Configuración centralizada de la Versión 2.0 (100% APIs Reales NASA/IPAC IRSA + CDS Gaia/WISE).
 """
 
+import os
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
-DATA_DIR: Path = BASE_DIR / "data"
-CACHE_DIR: Path = DATA_DIR / "cache"
 STATIC_DIR: Path = BASE_DIR / "static"
 
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
+# En entornos serverless (Vercel / AWS Lambda), el sistema de archivos del proyecto (/var/task)
+# es de solo lectura; redirigimos los directorios de escritura y cachés de librerías a /tmp.
+_TMP_ROOT: Path = Path(tempfile.gettempdir()) / "papastronomy"
+os.environ.setdefault("MPLCONFIGDIR", str(_TMP_ROOT / "matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", str(_TMP_ROOT / "xdg_cache"))
+os.environ.setdefault("XDG_CONFIG_HOME", str(_TMP_ROOT / "xdg_config"))
+
+DATA_DIR: Path = BASE_DIR / "data"
+CACHE_DIR: Path = DATA_DIR / "cache"
+
+try:
+    if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        raise OSError("Serverless read-only filesystem")
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    DATA_DIR = _TMP_ROOT / "data"
+    CACHE_DIR = DATA_DIR / "cache"
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+try:
+    if not STATIC_DIR.exists():
+        STATIC_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
 # Endpoints Oficiales de Datos Abiertos de NASA/IPAC IRSA, CDS y DPAC Gaia
 IRSA_TAP_URL: str = "https://irsa.ipac.caltech.edu/TAP"

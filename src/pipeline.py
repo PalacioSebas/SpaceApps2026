@@ -15,12 +15,16 @@ Dependencias: astropy, numpy, matplotlib, reproject
 
 import base64
 import logging
+import os
 import re
+import tempfile
 import threading
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "papastronomy" / "matplotlib"))
 
 import matplotlib
 

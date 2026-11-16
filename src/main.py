@@ -455,13 +455,14 @@ def serve_app_js() -> Response:
     )
 
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR), check_dir=False), name="static")
 
 
 @app.get("/")
 def serve_frontend() -> HTMLResponse:
     html_content = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    bust = (STATIC_DIR / "app.js").stat().st_mtime_ns
+    app_js_path = STATIC_DIR / "app.js"
+    bust = app_js_path.stat().st_mtime_ns if app_js_path.exists() else int(time.time_ns())
     html_content = re.sub(r'/static/app\.js\?v=[^"]+', f"/static/app.js?v={bust}", html_content)
     return HTMLResponse(
         content=html_content,
