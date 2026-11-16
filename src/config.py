@@ -13,6 +13,11 @@ STATIC_DIR: Path = BASE_DIR / "static"
 # En entornos serverless (Vercel / AWS Lambda), el sistema de archivos del proyecto (/var/task)
 # es de solo lectura; redirigimos los directorios de escritura y cachés de librerías a /tmp.
 _TMP_ROOT: Path = Path(tempfile.gettempdir()) / "papastronomy"
+for _sub in ("matplotlib", "xdg_cache", "xdg_config"):
+    try:
+        (_TMP_ROOT / _sub).mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 os.environ.setdefault("MPLCONFIGDIR", str(_TMP_ROOT / "matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(_TMP_ROOT / "xdg_cache"))
 os.environ.setdefault("XDG_CONFIG_HOME", str(_TMP_ROOT / "xdg_config"))
